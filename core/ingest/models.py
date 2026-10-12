@@ -22,6 +22,7 @@ SectionRole = Literal[
     "acknowledgements",
     "references",
     "appendix",
+    "biography",
     "other",
 ]
 

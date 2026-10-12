@@ -15,7 +15,7 @@ _ROLE_KEYWORDS: list[tuple[SectionRole, tuple[str, ...]]] = [
     ("acknowledgements", ("acknowledg", "謝辞")),
     ("references", ("references", "bibliography", "参考文献", "引用文献")),
     ("appendix", ("appendix", "付録")),
-    ("other", ("biograph", "略歴", "著者紹介")),
+    ("biography", ("biograph", "略歴", "著者紹介")),
     ("introduction", ("introduction", "はじめに", "序論", "まえがき", "緒言", "背景と目的")),
     ("related_work", ("related work", "background", "previous work", "関連研究", "先行研究")),
     ("conclusion", ("conclusion", "おわりに", "結論", "まとめ", "むすび", "結び")),
