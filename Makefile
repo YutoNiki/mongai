@@ -41,7 +41,8 @@ test: ## 単体テスト（Python・フロントエンド。ネットワーク�
 test-integration: ## GROBID を使う結合テスト（internal_net 内で実行）
 	$(COMPOSE_TEST) run --rm integration
 
-test-security: ## ネットワーク分離・プロキシ・マウントのテスト（実際の構成を起動して検証）
+test-security: ## 検索ゲートウェイの検査（ネットワークなし）と、ネットワーク分離・プロキシ・マウントのテスト（実際の構成で検証）
+	$(RUN_TEST) pytest tests/security
 	$(COMPOSE) up -d --build --wait
 	sh tests/security/run.sh
 

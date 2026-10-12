@@ -1,0 +1,19 @@
+# 検索ゲートウェイの設定（SPEC 2.3）。変更後は gateway の再起動が必要。
+
+# 運用モード
+#   strict   ：すべての外部要求を承認キューに積み、利用者が承認したものだけ送信する
+#   standard ：書誌照合（bib_lookup）とアブストラクトの取得（oa_fetch）は自動で送信し、用語の照会（term_lookup）は承認制
+#   offline  ：外部要求をすべて止め、学内のリソースだけで解析する
+mode: standard
+
+leak_check:
+  # 用語と「新規性に関わる主張」の埋め込みのコサイン類似度がこれを超えたら拒否する
+  similarity_threshold: 0.80
+  # term・title 以外のフィールドに、原稿本文のこの文字数以上の部分文字列が含まれていたら拒否する
+  min_substring: 12
+  # 埋め込みに使う役割（config/models.yaml の embeddings）
+  embedding_role: leak_check
+
+limits:
+  # 1つの論文あたりの外部要求の上限（承認待ち・拒否を除く、実際に送信した数）
+  max_requests_per_doc: 300

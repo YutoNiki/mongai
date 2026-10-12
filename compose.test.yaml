@@ -27,6 +27,7 @@ services:
       - ./core:/app/core:ro
       - ./gateway:/app/gateway:ro
       - ./searcher:/app/searcher:ro
+      - ./shared:/app/shared:ro
       - ./config:/app/config:ro
       - ./tests:/app/tests:ro
       - ./eval:/app/eval:ro
@@ -83,6 +84,7 @@ services:
     volumes:
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./core:/app/core:ro
+      - ./shared:/app/shared:ro
       - ./config:/app/config:ro
       - ./tests:/app/tests:ro
     tmpfs:
