@@ -10,7 +10,7 @@
 
 ## M1. 基盤とセキュリティ（Docker）
 
-> ブランチ `feature/m1-foundation`。開発マシンに Docker が無いため、コンテナを起動する確認は未実施。`[~]` の項目は Docker のある環境で `make build && make up && make test && make lint && make test-security && make check-api` を実行して確定する。
+> ブランチ `feature/m1-foundation`。2026-10-12 に `make config` / `make build` / `make up`（全9サービス healthy）/ `make lint` / `make test-security`（PASS 60 / FAIL 0）を確認済み。
 
 - [x] リポジトリの初期構成（`.gitignore` に `.env`・`data/private/` を追加）
 - [x] `.claude/settings.json` で `Read(./data/private/**)` と `Read(./.env)` を deny
@@ -24,20 +24,20 @@
 - [x] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
 - [x] `web` のみ `127.0.0.1:8080` で公開
 - [x] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
-- [~] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`（記述済み。ビルドと起動は未確認。特に grobid・Squid の非root＋read_only での起動）
-- [~] 全サービスの `healthcheck` と `depends_on: service_healthy`（記述済み。`make up` での確認待ち）
+- [x] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`（grobid・Squid も非root＋read_only で起動を確認）
+- [x] 全サービスの `healthcheck` と `depends_on: service_healthy`
 - [x] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
 - [x] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）。どちらも HTTPS の CONNECT のみ
 - [x] `Makefile`：setup / build / up / down / dev / logs / test / test-security / lint / eval / check-api / config / clean / clean-data
-- [~] `docker compose config` が通ることを確認（compose-spec の JSON スキーマでの検証と、構成の静的テスト `tests/unit/test_compose_structure.py` は通過。`make config` は未実行）
+- [x] `docker compose config` が通ることを確認（`make config`）
 - [~] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（モデル一覧・認証・エラー形式は確認済み。JSON出力・思考モード・埋め込みは `make check-api` の結果待ち）
 - [x] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行（自己一貫性の多数決を含む）
 - [x] `config/models.yaml` の読み込み
-- [~] セキュリティテスト（`tests/security/run.sh`。記述済み、実行は Docker 環境で）
-  - [~] `core` から外部（example.com）に到達できない
-  - [~] `core` から おいとまAPI には到達できる
-  - [~] `searcher` に `data_private` がマウントされていない（静的テストは通過）
-  - [~] `egress_proxy` が許可外のドメインを拒否する
+- [x] セキュリティテスト（`tests/security/run.sh`）
+  - [x] `core` から外部（example.com）に到達できない
+  - [x] `core` から おいとまAPI には到達できる
+  - [x] `searcher` に `data_private` がマウントされていない
+  - [x] `egress_proxy` が許可外のドメインを拒否する
 - [x] `searcher` が おいとまAPIを使う経路 → gateway 経由で core 側に照合を依頼する案に決定（M7 で実装）
 
 ## M2. PDF構造化
