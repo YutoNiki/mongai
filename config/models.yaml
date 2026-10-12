@@ -10,9 +10,11 @@ context_window: 32768
 # API の挙動に関する設定。make check-api の結果を見て切り替える（docs/oitoma_api.md）。
 api:
   # JSON出力の強制方法：json_schema | json_object | none（none はプロンプト指示＋検証＋リトライのみ）
-  json_mode: none
+  # 2026-10-12 の make check-api で json_schema が動くことを確認
+  json_mode: json_schema
   # 思考モードの切り替え方法：chat_template_kwargs（vLLM 形式の enable_thinking）| none（切り替えない）
-  thinking_param: none
+  # 2026-10-12 確認：qwen3.8-27b-it は既定で思考オフ。enable_thinking: true で思考し、内容は message.reasoning に入る
+  thinking_param: chat_template_kwargs
   timeout_seconds: 300
   max_retries: 4
   # 同時リクエスト数の上限（おいとまは負荷制限なし。クライアント側の資源保護のため）
@@ -32,4 +34,6 @@ roles:
 
 embeddings:
   retrieval:  {model: qwen3-embedding-8b}   # ルール・先行研究・研究室知識
-  leak_check: {model: multilingual-e5}      # ゲートウェイの類似度判定
+  # ゲートウェイの類似度判定。SPEC の初期値は multilingual-e5 だが、2026-10-12 時点で
+  # おいとま側に実体がなく 502 になるため、暫定で gte-qwen2-7b-it を使う（TODO.md 保留事項）
+  leak_check: {model: gte-qwen2-7b-it}

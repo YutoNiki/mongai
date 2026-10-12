@@ -49,8 +49,18 @@ SPEC 5.1 に従い、実際に叩いて確認した内容を記録する。API�
 | 思考モード | `chat_template_kwargs.enable_thinking` で切り替えられるか、思考内容が `reasoning_content` / `<think>` タグのどちらで返るか | `api.thinking_param` |
 | 埋め込み | 各埋め込みモデルの次元数、`usage` | LanceDB のスキーマ（M6） |
 
-`api.json_mode` と `api.thinking_param` は、確認が済むまで安全側の `none` にしている（`none` でも、プロンプトでの指示＋Pydantic での検証＋再生成で JSON を強制できる）。
+`api.json_mode` を `none` にしても、プロンプトでの指示＋Pydantic での検証＋再生成で JSON を強制できる（API が `response_format` に対応しない場合の退避先）。
 
-## 確認結果
+## 確認結果（2026-10-12、`make check-api`）
 
-（`make check-api` の出力をここに転記する。APIキーは出力されない）
+| 項目 | 結果 | 反映 |
+|---|---|---|
+| chat completions | 200。`message` のキーは `content`・`reasoning`・`refusal`・`tool_calls` など（OpenAI 互換）。`usage` に `prompt_tokens`・`completion_tokens`・`total_tokens` あり。`qwen3.6-35b-a3b-it` で約0.3秒 | — |
+| ストリーミング | 200。`stream_options.include_usage` に対応（最後のチャンクに `usage`） | — |
+| JSON出力の強制 | `response_format` の `json_schema`・`json_object` とも 200 で、スキーマどおりの出力 | `api.json_mode: json_schema` |
+| 思考モード | `qwen3.8-27b-it` は**既定で思考オフ**。`chat_template_kwargs: {"enable_thinking": true}` で思考し、思考内容は `message.reasoning` に入る（`<think>` タグは本文に出ない）。`completion_tokens` には思考分も含まれる | `api.thinking_param: chat_template_kwargs` |
+| 埋め込み `qwen3-embedding-8b` | 200、4096 次元 | — |
+| 埋め込み `gte-qwen2-7b-it` | 200、3584 次元 | — |
+| 埋め込み `multilingual-e5` | **502**：「すべてのembeddingサーバーが応答しませんでした: The model `multilingual-e5` does not exist.」。`/models` の一覧には載っているが、実体がない | `leak_check` を暫定で `gte-qwen2-7b-it` に変更。管理者に確認する |
+
+注意：思考モードでは思考分も `max_tokens` を消費する。思考を使う役割では、`config/models.yaml` の `max_tokens` を大きめにすることを検討する（M3 で調整）。

@@ -30,7 +30,7 @@
 - [x] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）。どちらも HTTPS の CONNECT のみ
 - [x] `Makefile`：setup / build / up / down / dev / logs / test / test-security / lint / eval / check-api / config / clean / clean-data
 - [x] `docker compose config` が通ることを確認（`make config`）
-- [~] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（モデル一覧・認証・エラー形式は確認済み。JSON出力・思考モード・埋め込みは `make check-api` の結果待ち）
+- [x] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（`make check-api` で JSON出力・思考モード・埋め込みを確認）
 - [x] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行（自己一貫性の多数決を含む）
 - [x] `config/models.yaml` の読み込み
 - [x] セキュリティテスト（`tests/security/run.sh`）
@@ -141,12 +141,13 @@
 | 2026-10-12 | トークン数は文字種から保守的に見積もる（tiktoken は実行時に外部からデータを取得するため使わない） |
 | 2026-10-12 | `searcher` は おいとまAPIを使わない。検索結果の候補を gateway 経由で core に返し、最も一致する文献の選択は core 側の高速モデルで行う（APIキーを searcher に渡さない、oitoma_proxy を gateway_net に繋がない） |
 | 2026-10-12 | プロキシは2つとも HTTPS の CONNECT（443番）だけを許可する |
-| 2026-10-12 | `config/models.yaml` の `api.json_mode`・`api.thinking_param` は、`make check-api` で確認するまで `none` にする |
+| 2026-10-12 | `make check-api` の結果から、`api.json_mode: json_schema`、`api.thinking_param: chat_template_kwargs` とする（qwen3.8-27b-it は既定で思考オフ） |
 | 2026-10-12 | GROBID の consolidation は使わない（外部の Crossref 等に問い合わせるため。core から常に 0 を指定） |
 
 ## 保留事項・質問
 
 - 各役割のモデル割り当て（M9 の評価後に確定）
+- `multilingual-e5` が おいとま側で 502（モデルの実体がない）。`leak_check` は暫定で `gte-qwen2-7b-it` を使用中。おいとまの管理者に確認する
 - `Ternary-Bonsai-2-27B` の位置づけ（二重チェック役か、ゲートウェイの漏えい検査役か）
 - `web` は利用者のブラウザの入口として、通常のブリッジ（`ui_net`）にも所属する（SPEC 2.2 のとおり）。nginx は `/api` を core に中継するだけだが、ネットワーク上は `web` から学外に出られる。必要なら、ホストのファイアウォール（DOCKER-USER チェーン）で `ui_net` からの外向き通信を止める案を検討する
 - 学外からの利用経路：Cloudflare Tunnel＋アドレス認証を予定。ただし Cloudflare のエッジで TLS が終端されるため、アップロードする論文・解析結果・注釈付きPDFが平文で学外（Cloudflare）を通過する。SPEC 2.1「学外に一切送信しない」と矛盾するため、採用前に要検討（代替：学内VPN＋SSHポートフォワード、エンドツーエンド暗号化のVPN）
