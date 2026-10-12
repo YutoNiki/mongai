@@ -336,7 +336,11 @@ class OitomaClient:
                 return schema.model_validate(extract_json(result.content))
             except (ValueError, ValidationError) as exc:
                 last_error = str(exc)[:1000]
-                logger.warning("JSON の検証に失敗しました（role=%s）。再生成します", role)
+                logger.warning(
+                    "JSON の検証に失敗しました（role=%s finish=%s）。再生成します",
+                    role,
+                    result.finish_reason,
+                )
                 conversation = [
                     *conversation,
                     {"role": "assistant", "content": result.content},
