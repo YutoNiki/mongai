@@ -46,6 +46,8 @@ class Counts(BaseModel):
     by_severity: dict[str, int]
     by_category: dict[str, int]
     by_section: list[SectionCount]
+    # セクションID → by_section の key（小見出しを大見出しにまとめる対応表。絞り込みに使う）
+    section_of: dict[str, str]
     by_status: dict[str, int]
     by_confidence: dict[str, int]
 

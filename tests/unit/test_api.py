@@ -117,6 +117,7 @@ def test_summary_counts_and_previous(ctx: tuple[TestClient, Store, FakeQueue, by
         ("1 はじめに", 1),
         ("2 手法", 1),
     ]
+    assert counts["section_of"]["SEC-03"] == "2"  # 2.1 は 2 にまとめる
     assert s["previous"]["analysis_id"] == first and s["previous"]["total"] == 3
     assert s["models"]["logic_check"]
     assert client.get("/api/analyses/A-none").status_code == 404
