@@ -132,3 +132,12 @@ def test_searcher_rejects_undefined_fields() -> None:
         "/search", json={"kind": "oa_fetch", "doi": "10.1000/x", "query": "原稿の文"}
     )
     assert r.status_code == 422
+
+
+def test_dedupe_keeps_same_paper_from_different_sources() -> None:
+    from searcher.main import dedupe
+    from shared.schemas import BibResult
+
+    a = BibResult(found=True, doi="10.1/x", title="T", source="crossref")
+    b = BibResult(found=True, doi="10.1/X", title="T", source="openalex")
+    assert [r.source for r in dedupe([a, a, b])] == ["crossref", "openalex"]

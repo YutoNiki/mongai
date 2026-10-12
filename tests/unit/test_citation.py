@@ -73,15 +73,39 @@ def test_title_similarity_and_match() -> None:
 
 
 def test_compare_detects_mismatches() -> None:
-    diffs = compare(ref(year=2018, pages="53--64", surnames=["Chelba"]), record())
-    assert [(f, s) for f, _, _, s in diffs] == [
-        ("year", "suggestion"),
-        ("first_author", "major"),
-        ("pages", "suggestion"),
-    ]
-    assert compare(ref(pages="pp. 53–63"), record()) == []  # 表記の違いは無視する
-    assert compare(ref(year=2015), record())[0][3] == "major"  # 2年以上の違いは要修正
-    assert compare(ref(title="タグ付き逆翻訳"), record()) == []  # 言語の違うタイトルは比べない
+    # 2年以上の年のずれ・第一著者の違いは指摘する
+    diffs = compare(
+        ref(year=2016, surnames=["Chelba"], authors=["C. Chelba"], raw="Chelba, C. (2016)"),
+        [record(), record(source="openalex")],  # 2つのデータベースが一致して示す
+    )
+    assert [(f, s) for f, _, _, s in diffs] == [("year", "major"), ("first_author", "major")]
+
+
+def test_compare_tolerates_versions_and_parsing_errors() -> None:
+    # タイトル検索の記録が1つのデータベースにしか無いときは、根拠が弱いので指摘しない
+    assert compare(ref(year=2016), [record()]) == []
+    assert compare(ref(year=2016), [record()], by_doi=True) != []
+    # 会議版とプレプリントの1年の違いは誤りとしない
+    assert compare(ref(year=2018), [record()]) == []
+    # 同じ文献の記録が複数あり、どれか1つが原稿と合えば指摘しない（再掲の記録など）
+    assert compare(ref(year=2017), [record(year=2025), record(year=2017)]) == []
+    # GROBID が姓を取り違えても、原文の書き出しにデータベースの姓があれば一致とみなす
+    cohn = ref(
+        surnames=["Anthony"],
+        authors=["Trevor Anthony"],
+        raw="Trevor Anthony Cohn and Mirella Lapata. 2009.",
+    )
+    assert compare(cohn, [record(authors=["T. A. Cohn"], title="Tagged Back-Translation")]) == []
+    # 言語の違うタイトルは比べない
+    assert compare(ref(title="タグ付き逆翻訳"), [record()]) == []
+
+
+def test_pages_and_volume_only_with_doi() -> None:
+    r = ref(pages="153-163", volume="4")
+    assert compare(r, [record(volume="3")]) == []  # タイトル検索の候補とは比べない
+    diffs = compare(r, [record(volume="3")], by_doi=True)
+    assert [f for f, *_ in diffs] == ["volume", "pages"]
+    assert compare(ref(pages="pp. 53–63"), [record()], by_doi=True) == []  # 表記の違いは無視する
 
 
 def test_format_record() -> None:
@@ -103,13 +127,13 @@ def make_paper() -> tuple[Document, list[ParagraphStructure]]:
                     ]
                 ],
             ),
-            ("参考文献", "references", [["Caswell, I. (2018). Tagged Back-Translation."]]),
+            ("参考文献", "references", [["Caswell, I. (2016). Tagged Back-Translation."]]),
         ]
     )
     doc = doc.model_copy(
         update={
             "title": "ExtraPhrase: 生成型要約のための効率的データ拡張",
-            "references": [ref(year=2018, bboxes=[BBox(page=1, x0=72, y0=600, x1=500, y1=612)])],
+            "references": [ref(year=2016, bboxes=[BBox(page=1, x0=72, y0=600, x1=500, y1=612)])],
             "citations": [
                 Citation(
                     citation_id="C-0001",
@@ -139,7 +163,7 @@ def test_guard_excludes_references_and_collects_coined_terms() -> None:
     doc, structures = make_paper()
     guard = build_guard(doc, structures)
     assert guard["title"] == doc.title
-    assert "Caswell, I. (2018). Tagged Back-Translation." not in guard["body"]  # type: ignore[operator]
+    assert "Caswell, I. (2016). Tagged Back-Translation." not in guard["body"]  # type: ignore[operator]
     assert len(guard["body"]) == 2  # type: ignore[arg-type]
     assert "ExtraPhrase" in coined_terms(doc, structures)
     assert guard["novelty_claims"] == [
@@ -165,8 +189,9 @@ class FakeGateway(GatewayClient):
         if decision != "sent":
             return GatewayResponse(request_id="R-1", decision=decision, reason="offline モード")
         if request.kind == "bib_lookup":
+            results = [record(), record(source="openalex")]
             return GatewayResponse(
-                request_id="R-1", decision="sent", response=SearchResponse(results=[record()])
+                request_id="R-1", decision="sent", response=SearchResponse(results=results)
             )
         return GatewayResponse(
             request_id="R-2",
@@ -224,7 +249,7 @@ async def test_bib_mismatch_and_unsupported_citation() -> None:
     kinds = {d.subcategory: d for d in result.drafts}
     assert set(kinds) == {"bib_mismatch", "citation_unsupported"}
     mismatch = kinds["bib_mismatch"]
-    assert "年" in mismatch.issue and "2018" in mismatch.rationale and "2019" in mismatch.rationale
+    assert "年" in mismatch.issue and "2016" in mismatch.rationale and "2019" in mismatch.rationale
     assert mismatch.bboxes[0].y0 == 600  # 参考文献リストの位置に付ける
     assert mismatch.suggestions == [format_record(record())]
     unsupported = kinds["citation_unsupported"]

@@ -100,23 +100,35 @@ def lookup_title(ref: Reference) -> str | None:
 
 
 def _author_matches(ref: Reference, record: BibResult) -> bool:
+    """第一著者が合うか。GROBID が姓を取り違える（"Trevor Anthony Cohn" の姓を Anthony とする）ことがあるため、
+    データベース側の姓が、参考文献の第一著者の表記か原文の書き出しに含まれていれば一致とみなす。"""
     if not ref.surnames or not record.authors:
         return True
     surname = normalize(ref.surnames[0])
     first = normalize(record.authors[0])
-    return bool(surname) and (surname in first or first in surname)
+    if surname and (surname in first or first in surname):
+        return True
+    record_tokens = [
+        t for t in record.authors[0].replace(",", " ").split() if len(t.strip(".")) >= 2
+    ]
+    record_surname = normalize(record_tokens[-1]) if record_tokens else ""
+    head = normalize(" ".join([ref.authors[0] if ref.authors else "", (ref.raw or "")[:60]]))
+    return bool(record_surname) and record_surname in head
 
 
-def match_record(ref: Reference, candidates: list[BibResult]) -> BibResult | None:
-    """候補から、参考文献と同じ文献を選ぶ（DOI が一致するか、タイトルが十分に似ていて著者か年が合う）。"""
+def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibResult]:
+    """候補のうち、参考文献と同じ文献とみなせるもの（DOI が一致するか、タイトルが十分に似ていて著者か年が合う）。
+
+    同じ文献でも、会議版・プレプリント・再掲など複数の記録があるため、すべてを返す（良く合う順）。
+    """
     if ref.doi:
-        for c in candidates:
-            if c.doi and c.doi.lower() == ref.doi.lower():
-                return c
+        by_doi = [c for c in candidates if c.doi and c.doi.lower() == ref.doi.lower()]
+        if by_doi:
+            return by_doi
     title = lookup_title(ref)
     if not title:
-        return None
-    best: tuple[float, BibResult] | None = None
+        return []
+    scored: list[tuple[bool, float, BibResult]] = []
     for c in candidates:
         if not c.title:
             continue
@@ -125,32 +137,59 @@ def match_record(ref: Reference, candidates: list[BibResult]) -> BibResult | Non
             continue
         if not (_author_matches(ref, c) or (ref.year and c.year == ref.year)):
             continue
-        if best is None or sim > best[0]:
-            best = (sim, c)
-    return best[1] if best else None
+        scored.append((bool(ref.year and c.year == ref.year), sim, c))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [c for _, _, c in scored]
+
+
+def match_record(ref: Reference, candidates: list[BibResult]) -> BibResult | None:
+    records = matching_records(ref, candidates)
+    return records[0] if records else None
 
 
 def _norm_pages(pages: str) -> str:
     return re.sub(r"[‐-―−–-]+", "-", pages.replace("pp.", "").replace("p.", "")).replace(" ", "")
 
 
-def compare(ref: Reference, record: BibResult) -> list[tuple[str, str, str, Severity]]:
-    """(項目, 原稿の値, データベースの値, 重大度) のリスト。"""
+def _first_page(pages: str) -> int | None:
+    match = re.match(r"\d+", _norm_pages(pages))
+    return int(match.group(0)) if match else None
+
+
+def compare(
+    ref: Reference, records: list[BibResult], *, by_doi: bool = False
+) -> list[tuple[str, str, str, Severity]]:
+    """(項目, 原稿の値, データベースの値, 重大度) のリスト。
+
+    同じ文献の記録が複数ある場合、どれか1つでも原稿と合う項目は指摘しない（版の違いを誤りとしない）。
+    - 年：2年以上ずれた場合だけ（会議版とプレプリントの1年の違いは誤りとしない）
+    - 巻・ページ：DOI で特定した記録と比べる場合だけ（タイトル検索の候補は版の違いが混ざるため）
+    - タイトル検索で見つけた記録が1つのデータベースにしか無い場合は、根拠が弱いので指摘しない
+      （有名な論文の再掲・転載の記録だけが見つかることがあるため）
+    """
+    if not records:
+        return []
+    if not by_doi and len({r.source for r in records}) < 2:
+        return []
+    best = records[0]
     diffs: list[tuple[str, str, str, Severity]] = []
-    if ref.year and record.year and ref.year != record.year:
-        severity: Severity = "suggestion" if abs(ref.year - record.year) == 1 else "major"
-        diffs.append(("year", str(ref.year), str(record.year), severity))
-    if not _author_matches(ref, record):
-        diffs.append(("first_author", ref.surnames[0], record.authors[0], "major"))
-    same_script = bool(ref.title and record.title) and is_cjk(ref.title or "") == is_cjk(
-        record.title or ""
-    )
-    if same_script and title_similarity(ref.title or "", record.title or "") < TITLE_MISMATCH:
-        diffs.append(("title", ref.title or "", record.title or "", "suggestion"))
-    if ref.volume and record.volume and normalize(ref.volume) != normalize(record.volume):
-        diffs.append(("volume", ref.volume, record.volume, "suggestion"))
-    if ref.pages and record.pages and _norm_pages(ref.pages) != _norm_pages(record.pages):
-        diffs.append(("pages", ref.pages, record.pages, "suggestion"))
+    years = [r.year for r in records if r.year]
+    if ref.year and years and all(abs(ref.year - y) >= 2 for y in years):
+        diffs.append(("year", str(ref.year), str(best.year or years[0]), "major"))
+    if not any(_author_matches(ref, r) for r in records):
+        diffs.append(("first_author", ref.surnames[0], best.authors[0], "major"))
+    if ref.title:
+        comparable = [r for r in records if r.title and is_cjk(ref.title) == is_cjk(r.title)]
+        if comparable and all(
+            title_similarity(ref.title, r.title or "") < TITLE_MISMATCH for r in comparable
+        ):
+            diffs.append(("title", ref.title, comparable[0].title or "", "suggestion"))
+    if by_doi:
+        if ref.volume and best.volume and normalize(ref.volume) != normalize(best.volume):
+            diffs.append(("volume", ref.volume, best.volume, "suggestion"))
+        ours, theirs = _first_page(ref.pages or ""), _first_page(best.pages or "")
+        if ours is not None and theirs is not None and ours != theirs:
+            diffs.append(("pages", ref.pages or "", best.pages or "", "suggestion"))
     return diffs
 
 
@@ -450,7 +489,8 @@ def _judge_record(
     doi_of: dict[str, str],
 ) -> None:
     location = _ref_location(ref, citing)
-    record = match_record(ref, candidates)
+    records = matching_records(ref, candidates)
+    record = records[0] if records else None
     if record is None:
         # データベースに無いだけの文献（書籍・技術報告など）は多いので、DOI が解決できないときだけ指摘する
         if ref.doi and location is not None:
@@ -469,7 +509,8 @@ def _judge_record(
         return
     if record.doi:
         doi_of[ref.ref_id] = record.doi
-    diffs = compare(ref, record)
+    by_doi = bool(ref.doi and record.doi and ref.doi.lower() == record.doi.lower())
+    diffs = compare(ref, records, by_doi=by_doi)
     if not diffs or location is None:
         return
     sentence_ids, boxes = location

@@ -27,7 +27,7 @@ logging.basicConfig(level=os.environ.get("MONGAI_LOG_LEVEL", "INFO"))
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 app = FastAPI(title="MonGAI searcher", docs_url=None, redoc_url=None, openapi_url=None)
-MAX_CANDIDATES = 10
+MAX_CANDIDATES = 20
 
 
 def http_client() -> httpx.AsyncClient:
@@ -60,10 +60,11 @@ async def _gather(
 
 
 def dedupe(results: list[BibResult]) -> list[BibResult]:
+    """同じデータベース内の重複だけを除く（別のデータベースが同じ文献を示すことは、一致の根拠として残す）。"""
     seen: set[str] = set()
     unique: list[BibResult] = []
     for r in results:
-        key = (r.doi or "").lower() or f"{(r.title or '').lower()}|{r.year}"
+        key = r.source + "|" + ((r.doi or "").lower() or f"{(r.title or '').lower()}|{r.year}")
         if key in seen:
             continue
         seen.add(key)
