@@ -164,5 +164,6 @@ def _reference(bibl: ET.Element, index: int) -> Reference:
         pages=scope("page"),
         doi=doi,
         raw=raw,
+        bboxes=parse_coords(bibl.get("coords")),
         source="grobid",
     )

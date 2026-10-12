@@ -4,9 +4,11 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from core.analyze.citation import FindingDraft, check_citations
 from core.analyze.context import (
     OutputLang,
     Target,
@@ -30,7 +32,8 @@ from core.analyze.paragraph_check import check_paragraph
 from core.analyze.structure import extract_structure, fallback_structure
 from core.analyze.suggest import suggest
 from core.analyze.voting import Voted, most_common
-from core.ingest.models import BBox, Document, Sentence
+from core.gateway_client import GatewayClient
+from core.ingest.models import BBox, Document, Lang, Sentence
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
 
@@ -47,6 +50,9 @@ class AnalysisSettings(BaseModel):
     max_paragraphs: int | None = Field(default=None, ge=1)
     min_paragraph_chars: int = Field(default=40, ge=1)
     with_flow_check: bool = True
+    with_citation_check: bool = True
+    # 引用内容の支持判定の上限（引用×文献の組の数）
+    max_support_checks: int = Field(default=60, ge=0)
     with_suggestions: bool = True
 
 
@@ -68,6 +74,11 @@ async def _notify(callback: Callable[..., Awaitable[None] | None] | None, *args:
 def _sort_key(f: Finding) -> tuple[int, int, float, float]:
     box = f.bboxes[0] if f.bboxes else None
     return (SEVERITY_RANK[f.severity], f.page, box.y0 if box else 0.0, box.x0 if box else 0.0)
+
+
+def _confidence(votes: int, samples: int) -> Literal["high", "low"]:
+    """複数回の判定がすべて一致したときだけ high（1回だけの判定は low）。M9 で二重チェックに置き換える。"""
+    return "high" if samples >= 2 and votes == samples else "low"
 
 
 class _Builder:
@@ -115,10 +126,39 @@ class _Builder:
             evidence=self._evidence(
                 [sid for sid in issue.related_sentence_ids if sid not in issue.sentence_ids]
             ),
-            confidence="high" if voted.votes == n else "low",
+            confidence=_confidence(voted.votes, n),
             votes=voted.votes,
             samples=n,
             models=ModelInfo(primary=self.model),
+        )
+
+    def from_draft(self, draft: FindingDraft) -> Finding | None:
+        if not draft.bboxes:
+            return None
+        section_id = None
+        for sid in draft.sentence_ids:
+            if sid in self.sentences:
+                section_id = self.sentences[sid].section_id
+                break
+        return Finding(
+            finding_id=self._next_id(),
+            doc_id=self.doc.doc_id,
+            category="citation",
+            subcategory=draft.subcategory,
+            severity=draft.severity,
+            section_id=section_id,
+            page=draft.bboxes[0].page,
+            bboxes=draft.bboxes,
+            sentence_ids=draft.sentence_ids,
+            quote=draft.quote,
+            issue=draft.issue,
+            rationale=draft.rationale,
+            evidence=draft.evidence,
+            suggestions=draft.suggestions,
+            confidence="low",
+            votes=1,
+            samples=1,
+            models=ModelInfo(primary=draft.model),
         )
 
     def from_flow(self, voted: Voted[FlowIssue], n: int) -> Finding | None:
@@ -146,7 +186,7 @@ class _Builder:
             issue=issue.issue,
             rationale=issue.rationale,
             evidence=self._evidence(related),
-            confidence="high" if voted.votes == n else "low",
+            confidence=_confidence(voted.votes, n),
             votes=voted.votes,
             samples=n,
             models=ModelInfo(primary=self.model),
@@ -160,10 +200,14 @@ async def analyze_logic(
     *,
     on_progress: ProgressCallback | None = None,
     on_findings: FindingsCallback | None = None,
+    gateway: GatewayClient | None = None,
+    analysis_id: str | None = None,
 ) -> LogicAnalysis:
+    """論理・読みやすさの解析。gateway と analysis_id を渡すと引用の検証も行う。"""
     settings = settings or AnalysisSettings()
     prompt_lang = doc.lang
     out_lang = output_language(prompt_lang, doc.lang, settings.output_lang)
+    out_lang_code: Lang = doc.lang if settings.output_lang == "paper" else "ja"
     targets = select_targets(
         doc, min_chars=settings.min_paragraph_chars, max_paragraphs=settings.max_paragraphs
     )
@@ -252,10 +296,38 @@ async def analyze_logic(
             warnings.append(f"段落間のチェックに失敗しました：{exc}")
         await _notify(on_progress, "flow_check", 1, 1)
 
-    # 4. 改善案
+    # 4. 引用の検証（gateway 経由。学外に出るのは引用文献の書誌情報だけ）
+    if settings.with_citation_check:
+        if gateway is None or analysis_id is None:
+            warnings.append("引用の検証は行いませんでした（検索ゲートウェイが設定されていません）")
+        else:
+            citation = await check_citations(
+                doc,
+                list(structures),
+                client,
+                gateway,
+                analysis_id,
+                prompt_lang=prompt_lang,
+                output_lang=out_lang_code,
+                output_language=out_lang,
+                max_support_checks=settings.max_support_checks,
+                on_progress=on_progress,
+            )
+            warnings.extend(citation.warnings)
+            new = [f for f in (builder.from_draft(d) for d in citation.drafts) if f is not None]
+            findings.extend(new)
+            if new:
+                await _notify(on_findings, new)
+
+    # 5. 改善案（書誌の不一致のように、正しい書誌を案として既に持つ指摘は除く）
     if settings.with_suggestions:
+        to_suggest = [
+            i
+            for i, f in enumerate(findings)
+            if not f.suggestions and f.subcategory not in ("bib_not_found", "bib_mismatch")
+        ]
         done = 0
-        await _notify(on_progress, "suggestion", done, len(findings))
+        await _notify(on_progress, "suggestion", done, len(to_suggest))
 
         async def add_suggestions(index: int) -> None:
             nonlocal done
@@ -266,9 +338,9 @@ async def analyze_logic(
             except OitomaError as exc:
                 warnings.append(f"{finding.finding_id} の改善案を作れませんでした：{exc}")
             done += 1
-            await _notify(on_progress, "suggestion", done, len(findings))
+            await _notify(on_progress, "suggestion", done, len(to_suggest))
 
-        await asyncio.gather(*(add_suggestions(i) for i in range(len(findings))))
+        await asyncio.gather(*(add_suggestions(i) for i in to_suggest))
 
     findings.sort(key=_sort_key)
     return LogicAnalysis(

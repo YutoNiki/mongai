@@ -87,6 +87,8 @@ class Reference(_Model):
     pages: str | None = None
     doi: str | None = None
     raw: str | None = None
+    # 参考文献リスト上の位置（GROBID の座標。分からない場合は空）
+    bboxes: list[BBox] = Field(default_factory=list)
     # grobid：GROBID / llm：高速モデルで構造化 / layout：参考文献節の本文から補った（著者・年・原文のみ）
     source: Literal["grobid", "llm", "layout"] = "grobid"
 

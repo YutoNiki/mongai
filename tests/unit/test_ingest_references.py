@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 import respx
 
 from core.ingest.models import Reference
@@ -119,3 +120,27 @@ async def test_extract_with_llm() -> None:
     body = json.loads(route.calls.last.request.content)
     assert body["model"] == "fast-model"
     assert "参考文献" in body["messages"][0]["content"]
+
+
+async def test_pipeline_falls_back_to_text_when_llm_returns_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.ingest.pipeline as pipeline
+    from core.ingest.grobid import GrobidResult
+
+    async def no_references(*args: object, **kwargs: object) -> list[Reference]:
+        return []
+
+    monkeypatch.setattr(pipeline, "extract_with_llm", no_references)
+    warnings: list[str] = []
+    llm = OitomaClient(ModelsConfig.model_validate({"roles": {}, "embeddings": {}}), api_key="k")
+    refs = await pipeline._references(
+        GrobidResult(),
+        ["Bahdanau, D., Cho, K., and Bengio, Y. (2015). Neural machine translation."],
+        "ja",
+        llm,
+        warnings,
+    )
+    await llm.aclose()
+    assert [(r.surnames, r.year, r.source) for r in refs] == [(["Bahdanau"], 2015, "layout")]
+    assert any("取り出せませんでした" in w for w in warnings)
