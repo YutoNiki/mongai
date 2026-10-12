@@ -10,32 +10,34 @@
 
 ## M1. 基盤とセキュリティ（Docker）
 
-- [ ] リポジトリの初期構成（`.gitignore` に `.env`・`data/private/` を追加）
-- [ ] `.claude/settings.json` で `Read(./data/private/**)` と `Read(./.env)` を deny
-- [ ] コミットに Claude を共同著者として入れない仕組み（SPEC 10.1）
-  - [ ] `.claude/settings.json` の `attribution`（`commit`・`pr` を空文字。仕様を公式ドキュメントで確認）
-  - [ ] `.githooks/commit-msg`：共同著者行・Claude/Anthropic の署名・生成元表記・セッションURLを拒否
-  - [ ] `make setup` で `core.hooksPath` を設定
-  - [ ] フックのテスト
-- [ ] `.env.example`（`OITOMA_API_KEY`、ビルド用プロキシ設定）
-- [ ] `compose.yaml`：9サービス（web / core / worker / gateway / searcher / redis / grobid / oitoma_proxy / egress_proxy）
-- [ ] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
-- [ ] `web` のみ `127.0.0.1:8080` で公開
-- [ ] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
-- [ ] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`
-- [ ] 全サービスの `healthcheck` と `depends_on: service_healthy`
-- [ ] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
-- [ ] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）
-- [ ] `Makefile`：build / up / down / dev / logs / test / test-security / lint / eval / check-api / clean / clean-data
-- [ ] `docker compose config` が通ることを確認
-- [ ] おいとまAPIの仕様確認（chat completions・embeddings・JSON出力・思考モード）→ `docs/oitoma_api.md`
-- [ ] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行
-- [ ] `config/models.yaml` の読み込み
-- [ ] セキュリティテスト
-  - [ ] `core` から外部（example.com）に到達できない
-  - [ ] `core` から おいとまAPI には到達できる
-  - [ ] `searcher` に `data_private` がマウントされていない
-  - [ ] `egress_proxy` が許可外のドメインを拒否する
+> ブランチ `feature/m1-foundation`。開発マシンに Docker が無いため、コンテナを起動する確認は未実施。`[~]` の項目は Docker のある環境で `make build && make up && make test && make lint && make test-security && make check-api` を実行して確定する。
+
+- [x] リポジトリの初期構成（`.gitignore` に `.env`・`data/private/` を追加）
+- [x] `.claude/settings.json` で `Read(./data/private/**)` と `Read(./.env)` を deny
+- [x] コミットに Claude を共同著者として入れない仕組み（SPEC 10.1）
+  - [x] `.claude/settings.json` の `attribution`（`commit`・`pr` を空文字、`sessionUrl: false`。公式ドキュメントで確認済み）
+  - [x] `.githooks/commit-msg`：共同著者行・Claude/Anthropic の署名・生成元表記・セッションURLを拒否
+  - [x] `make setup` で `core.hooksPath` を設定
+  - [x] フックのテスト（`tests/unit/test_commit_msg_hook.py`）
+- [x] `.env.example`（`OITOMA_API_KEY`、ビルド用プロキシ設定）
+- [x] `compose.yaml`：9サービス（web / core / worker / gateway / searcher / redis / grobid / oitoma_proxy / egress_proxy）
+- [x] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
+- [x] `web` のみ `127.0.0.1:8080` で公開
+- [x] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
+- [~] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`（記述済み。ビルドと起動は未確認。特に grobid・Squid の非root＋read_only での起動）
+- [~] 全サービスの `healthcheck` と `depends_on: service_healthy`（記述済み。`make up` での確認待ち）
+- [x] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
+- [x] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）。どちらも HTTPS の CONNECT のみ
+- [x] `Makefile`：setup / build / up / down / dev / logs / test / test-security / lint / eval / check-api / config / clean / clean-data
+- [~] `docker compose config` が通ることを確認（compose-spec の JSON スキーマでの検証と、構成の静的テスト `tests/unit/test_compose_structure.py` は通過。`make config` は未実行）
+- [~] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（モデル一覧・認証・エラー形式は確認済み。JSON出力・思考モード・埋め込みは `make check-api` の結果待ち）
+- [x] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行（自己一貫性の多数決を含む）
+- [x] `config/models.yaml` の読み込み
+- [~] セキュリティテスト（`tests/security/run.sh`。記述済み、実行は Docker 環境で）
+  - [~] `core` から外部（example.com）に到達できない
+  - [~] `core` から おいとまAPI には到達できる
+  - [~] `searcher` に `data_private` がマウントされていない（静的テストは通過）
+  - [~] `egress_proxy` が許可外のドメインを拒否する
 - [ ] **決定待ち**：`searcher` が おいとまAPIを使う経路（SPEC 7.1 の2案から選ぶ）
 
 ## M2. PDF構造化
@@ -136,9 +138,16 @@
 | 2026-10-12 | おいとまAPIは負荷制限なし（管理者確認済み） |
 | 2026-10-12 | 対象論文は日本語・英語の両方 |
 | 2026-10-12 | UIはデジタル庁ダッシュボードガイドブックに準拠 |
+| 2026-10-12 | トークン数は文字種から保守的に見積もる（tiktoken は実行時に外部からデータを取得するため使わない） |
+| 2026-10-12 | プロキシは2つとも HTTPS の CONNECT（443番）だけを許可する |
+| 2026-10-12 | `config/models.yaml` の `api.json_mode`・`api.thinking_param` は、`make check-api` で確認するまで `none` にする |
+| 2026-10-12 | GROBID の consolidation は使わない（外部の Crossref 等に問い合わせるため。core から常に 0 を指定） |
 
 ## 保留事項・質問
 
 - `searcher` から おいとまAPIを使う経路（SPEC 7.1）
 - 各役割のモデル割り当て（M9 の評価後に確定）
 - `Ternary-Bonsai-2-27B` の位置づけ（二重チェック役か、ゲートウェイの漏えい検査役か）
+- `web` は利用者のブラウザの入口として、通常のブリッジ（`ui_net`）にも所属する（SPEC 2.2 のとおり）。nginx は `/api` を core に中継するだけだが、ネットワーク上は `web` から学外に出られる。必要なら、ホストのファイアウォール（DOCKER-USER チェーン）で `ui_net` からの外向き通信を止める案を検討する
+- 学外へのアクセスに上位のHTTPプロキシが必要な環境では、`egress_proxy` に `cache_peer` の設定を追加する必要がある（現状は直接接続を前提）
+- `oa_fetch` で OA 本文を取得する際、出版社サイトなど許可リスト外のホストにリダイレクトされる場合の扱い（M7 で検討）
