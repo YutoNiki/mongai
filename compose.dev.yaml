@@ -1,0 +1,28 @@
+# 開発用の上書き：ソースのバインドマウントとホットリロード。
+# 使い方：make dev（docker compose -f compose.yaml -f compose.dev.yaml up --build）
+# ネットワーク・ポート公開は compose.yaml のまま変えない（web だけが 127.0.0.1:8080）。
+# M5 で Vite dev server を追加する際も、web 経由で公開し 127.0.0.1 以外にバインドしない。
+
+services:
+  core:
+    command: ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/core"]
+    volumes:
+      - ./core:/app/core:ro
+
+  worker:
+    volumes:
+      - ./core:/app/core:ro
+
+  gateway:
+    command: ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/gateway"]
+    volumes:
+      - ./gateway:/app/gateway:ro
+
+  searcher:
+    command: ["uvicorn", "searcher.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/searcher"]
+    volumes:
+      - ./searcher:/app/searcher:ro
+
+  web:
+    volumes:
+      - ./docker/web/static:/usr/share/nginx/html:ro

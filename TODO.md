@@ -10,43 +10,57 @@
 
 ## M1. 基盤とセキュリティ（Docker）
 
-- [ ] リポジトリの初期構成（`.gitignore` に `.env`・`data/private/` を追加）
-- [ ] `.claude/settings.json` で `Read(./data/private/**)` と `Read(./.env)` を deny
-- [ ] コミットに Claude を共同著者として入れない仕組み（SPEC 10.1）
-  - [ ] `.claude/settings.json` の `attribution`（`commit`・`pr` を空文字。仕様を公式ドキュメントで確認）
-  - [ ] `.githooks/commit-msg`：共同著者行・Claude/Anthropic の署名・生成元表記・セッションURLを拒否
-  - [ ] `make setup` で `core.hooksPath` を設定
-  - [ ] フックのテスト
-- [ ] `.env.example`（`OITOMA_API_KEY`、ビルド用プロキシ設定）
-- [ ] `compose.yaml`：9サービス（web / core / worker / gateway / searcher / redis / grobid / oitoma_proxy / egress_proxy）
-- [ ] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
-- [ ] `web` のみ `127.0.0.1:8080` で公開
-- [ ] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
-- [ ] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`
-- [ ] 全サービスの `healthcheck` と `depends_on: service_healthy`
-- [ ] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
-- [ ] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）
-- [ ] `Makefile`：build / up / down / dev / logs / test / test-security / lint / eval / check-api / clean / clean-data
-- [ ] `docker compose config` が通ることを確認
-- [ ] おいとまAPIの仕様確認（chat completions・embeddings・JSON出力・思考モード）→ `docs/oitoma_api.md`
-- [ ] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行
-- [ ] `config/models.yaml` の読み込み
-- [ ] セキュリティテスト
-  - [ ] `core` から外部（example.com）に到達できない
-  - [ ] `core` から おいとまAPI には到達できる
-  - [ ] `searcher` に `data_private` がマウントされていない
-  - [ ] `egress_proxy` が許可外のドメインを拒否する
-- [ ] **決定待ち**：`searcher` が おいとまAPIを使う経路（SPEC 7.1 の2案から選ぶ）
+> ブランチ `feature/m1-foundation`。2026-10-12 に `make config` / `make build` / `make up`（全9サービス healthy）/ `make lint` / `make test-security`（PASS 60 / FAIL 0）を確認済み。
+
+- [x] リポジトリの初期構成（`.gitignore` に `.env`・`data/private/` を追加）
+- [x] `.claude/settings.json` で `Read(./data/private/**)` と `Read(./.env)` を deny
+- [x] コミットに Claude を共同著者として入れない仕組み（SPEC 10.1）
+  - [x] `.claude/settings.json` の `attribution`（`commit`・`pr` を空文字、`sessionUrl: false`。公式ドキュメントで確認済み）
+  - [x] `.githooks/commit-msg`：共同著者行・Claude/Anthropic の署名・生成元表記・セッションURLを拒否
+  - [x] `make setup` で `core.hooksPath` を設定
+  - [x] フックのテスト（`tests/unit/test_commit_msg_hook.py`）
+- [x] `.env.example`（`OITOMA_API_KEY`、ビルド用プロキシ設定）
+- [x] `compose.yaml`：9サービス（web / core / worker / gateway / searcher / redis / grobid / oitoma_proxy / egress_proxy）
+- [x] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
+- [x] `web` のみ `127.0.0.1:8080` で公開
+- [x] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
+- [x] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`（grobid・Squid も非root＋read_only で起動を確認）
+- [x] 全サービスの `healthcheck` と `depends_on: service_healthy`
+- [x] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
+- [x] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）。どちらも HTTPS の CONNECT のみ
+- [x] `Makefile`：setup / build / up / down / dev / logs / test / test-security / lint / eval / check-api / config / clean / clean-data
+- [x] `docker compose config` が通ることを確認（`make config`）
+- [x] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（`make check-api` で JSON出力・思考モード・埋め込みを確認）
+- [x] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行（自己一貫性の多数決を含む）
+- [x] `config/models.yaml` の読み込み
+- [x] セキュリティテスト（`tests/security/run.sh`）
+  - [x] `core` から外部（example.com）に到達できない
+  - [x] `core` から おいとまAPI には到達できる
+  - [x] `searcher` に `data_private` がマウントされていない
+  - [x] `egress_proxy` が許可外のドメインを拒否する
+- [x] `searcher` が おいとまAPIを使う経路 → gateway 経由で core 側に照合を依頼する案に決定（M7 で実装）
 
 ## M2. PDF構造化
 
-- [ ] PyMuPDF で文字座標を取得し、文単位に分割（`page`・`bboxes` 付き）
-- [ ] 日本語の文分割（句点ベース＋例外処理）とテスト
-- [ ] 英語の文分割（`pysbd`）
-- [ ] GROBID でセクション構造と参考文献リストを抽出
-- [ ] 日本語論文で GROBID が失敗した場合の、高速モデルによる参考文献の構造化
-- [ ] 本文中の引用箇所と参考文献の対応付け（`[12]`、`(Smith, 2020)`、`著者（2020）`）
-- [ ] テスト用の公開OA論文を用意（英語1本・日本語1本）→ `tests/fixtures/`
+> ブランチ `feature/m2-pdf-structure`。テスト用論文（英語・日本語）では、GROBID ありでもなしでも、本文中の引用をすべて参考文献に対応付けられる（英語 39/39、日本語 46/46）。
+
+- [x] PyMuPDF で文字座標を取得し、文単位に分割（`page`・`bboxes` 付き）
+  - ブロックに頼らず、行の位置・字下げ・行間・行末から段落を復元（日本語の「1行＝1ブロック」の PDF に対応）
+  - 柱（ヘッダー・フッター）とページ番号の除去、同じ高さの行の結合、図中の化けた文字列の除外
+  - 見出しの検出（番号＋太字または大きいフォント、「Abstract」「参考文献」など番号なしの定型見出し）
+- [x] 日本語の文分割（句点ベース＋例外処理）とテスト（括弧内、小数点の「．」、「…。」の後、半角の "." を文末にしない）
+- [x] 英語の文分割（`pysbd`）
+- [x] GROBID でセクション構造と参考文献リストを抽出（consolidation は無効）。見出しはレイアウトからの検出を優先し、ほとんど検出できない場合に GROBID の見出しの座標で補う
+- [x] 日本語論文で GROBID が失敗した場合の、高速モデルによる参考文献の構造化（役割 `reference_extraction`）
+  - GROBID の誤認識（著者略歴など）を除外し、取りこぼしを参考文献節の本文（ぶら下げインデントで項目に分割）から補う
+- [x] 本文中の引用箇所と参考文献の対応付け（`[12]`、`(Smith, 2020)`、`著者（2020）`、`田中・鈴木（2019）`、`2016a/b`）
+- [x] テスト用の公開OA論文を用意（英語1本・日本語1本、CC BY 4.0）→ `tests/fixtures/`
+- [x] `make test-integration`（GROBID を使う結合テスト、internal_net 内で実行）
+
+既知の制約（M3 以降で必要に応じて対応）：
+- 行末のハイフンは常に取り除く（"sequence-" ＋ "to-sequence" → "sequenceto-sequence"）
+- 表の中身は段落として復元せず、多くは `fragment` になる（解析の対象外）
+- 脚注は本文の段落として扱われる
 
 ## M3. 論理・読みやすさチェック
 
@@ -136,9 +150,20 @@
 | 2026-10-12 | おいとまAPIは負荷制限なし（管理者確認済み） |
 | 2026-10-12 | 対象論文は日本語・英語の両方 |
 | 2026-10-12 | UIはデジタル庁ダッシュボードガイドブックに準拠 |
+| 2026-10-12 | トークン数は文字種から保守的に見積もる（tiktoken は実行時に外部からデータを取得するため使わない） |
+| 2026-10-12 | `searcher` は おいとまAPIを使わない。検索結果の候補を gateway 経由で core に返し、最も一致する文献の選択は core 側の高速モデルで行う（APIキーを searcher に渡さない、oitoma_proxy を gateway_net に繋がない） |
+| 2026-10-12 | プロキシは2つとも HTTPS の CONNECT（443番）だけを許可する |
+| 2026-10-12 | `make check-api` の結果から、`api.json_mode: json_schema`、`api.thinking_param: chat_template_kwargs` とする（qwen3.8-27b-it は既定で思考オフ） |
+| 2026-10-13 | テスト用論文は、同じ研究の英語版（ACL Anthology）と日本語版（自然言語処理、J-STAGE）を使う（どちらも CC BY 4.0） |
+| 2026-10-13 | 見出しはレイアウト（PyMuPDF）からの検出を優先し、GROBID は参考文献と、見出しを検出できない場合の補完に使う（GROBID は日本語論文の見出しを取れなかったため） |
+| 2026-10-12 | GROBID の consolidation は使わない（外部の Crossref 等に問い合わせるため。core から常に 0 を指定） |
 
 ## 保留事項・質問
 
-- `searcher` から おいとまAPIを使う経路（SPEC 7.1）
 - 各役割のモデル割り当て（M9 の評価後に確定）
+- `multilingual-e5` が おいとま側で 502（モデルの実体がない）。`leak_check` は暫定で `gte-qwen2-7b-it` を使用中。おいとまの管理者に確認する
 - `Ternary-Bonsai-2-27B` の位置づけ（二重チェック役か、ゲートウェイの漏えい検査役か）
+- `web` は利用者のブラウザの入口として、通常のブリッジ（`ui_net`）にも所属する（SPEC 2.2 のとおり）。nginx は `/api` を core に中継するだけだが、ネットワーク上は `web` から学外に出られる。必要なら、ホストのファイアウォール（DOCKER-USER チェーン）で `ui_net` からの外向き通信を止める案を検討する
+- 学外からの利用経路：Cloudflare Tunnel＋アドレス認証を予定。ただし Cloudflare のエッジで TLS が終端されるため、アップロードする論文・解析結果・注釈付きPDFが平文で学外（Cloudflare）を通過する。SPEC 2.1「学外に一切送信しない」と矛盾するため、採用前に要検討（代替：学内VPN＋SSHポートフォワード、エンドツーエンド暗号化のVPN）
+- 学外へのアクセスに上位のHTTPプロキシが必要な環境では、`egress_proxy` に `cache_peer` の設定を追加する必要がある（現状は直接接続を前提）
+- `oa_fetch` で OA 本文を取得する際、出版社サイトなど許可リスト外のホストにリダイレクトされる場合の扱い（M7 で検討）

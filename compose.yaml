@@ -1,0 +1,296 @@
+# 門外不出（MonGAI）本番相当の構成（SPEC 2.2・7.1）
+#
+# 外に出られるのは、oitoma_net に繋がった oitoma_proxy（おいとまAPIのみ）と、
+# outbound_net に繋がった egress_proxy（許可した書誌APIのみ）だけ。
+# ポートを公開するのは web（127.0.0.1:8080）だけ。
+# ネットワーク構成を変える場合は事前に確認を取り、必ず make test-security を通すこと。
+
+name: mongai
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+# ビルド時だけ学内HTTPプロキシを使う（実行時のコンテナには渡さない）
+x-build-args: &build-args
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  NO_PROXY: ${NO_PROXY:-}
+
+# core / worker / gateway は oitoma_proxy 経由でだけ おいとまAPI に到達する
+x-oitoma-env: &oitoma-env
+  OITOMA_BASE_URL: ${OITOMA_BASE_URL:-https://ironical.okayama-u.ac.jp/ai/v1}
+  OITOMA_API_KEY: ${OITOMA_API_KEY:-}
+  MONGAI_MODELS_CONFIG: /app/config/models.yaml
+  HTTP_PROXY: http://oitoma_proxy:3128
+  HTTPS_PROXY: http://oitoma_proxy:3128
+  NO_PROXY: localhost,127.0.0.1,web,core,worker,gateway,redis,grobid
+  http_proxy: http://oitoma_proxy:3128
+  https_proxy: http://oitoma_proxy:3128
+  no_proxy: localhost,127.0.0.1,web,core,worker,gateway,redis,grobid
+
+# プロキシを使わないサービス（Docker クライアント設定からの注入を打ち消す）
+x-no-proxy-env: &no-proxy-env
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  NO_PROXY: ""
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
+
+x-python-healthcheck: &python-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      args: *build-args
+    image: mongai/web:dev
+    <<: *hardening
+    environment: *no-proxy-env
+    tmpfs:
+      - /tmp:mode=1777
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [ui_net, internal_net]
+    depends_on:
+      core: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  core:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: core
+      args: *build-args
+    image: mongai/core:dev
+    <<: *hardening
+    environment:
+      <<: *oitoma-env
+      REDIS_URL: redis://redis:6379/0
+      GROBID_URL: http://grobid:8070
+      GATEWAY_URL: http://gateway:8000
+    volumes:
+      - ./config/models.yaml:/app/config/models.yaml:ro
+      - data_private:/data/private
+      - lancedb:/data/lancedb
+      - app_db:/data/db
+      - audit_log:/data/audit:ro
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    depends_on:
+      redis: {condition: service_healthy}
+      grobid: {condition: service_healthy}
+      gateway: {condition: service_healthy}
+      oitoma_proxy: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/api/healthz', timeout=3)"
+      <<: *python-healthcheck
+
+  # core と同じイメージで、起動コマンドだけ変える
+  worker:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: core
+      args: *build-args
+    image: mongai/core:dev
+    <<: *hardening
+    command: ["arq", "core.worker.WorkerSettings"]
+    environment:
+      <<: *oitoma-env
+      REDIS_URL: redis://redis:6379/0
+      GROBID_URL: http://grobid:8070
+      GATEWAY_URL: http://gateway:8000
+    volumes:
+      - ./config/models.yaml:/app/config/models.yaml:ro
+      - data_private:/data/private
+      - lancedb:/data/lancedb
+      - app_db:/data/db
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    depends_on:
+      core: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      grobid: {condition: service_healthy}
+      oitoma_proxy: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "arq", "--check", "core.worker.WorkerSettings"]
+      <<: *python-healthcheck
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: gateway
+      args: *build-args
+    image: mongai/gateway:dev
+    <<: *hardening
+    environment:
+      <<: *oitoma-env
+      SEARCHER_URL: http://searcher:8000
+      NO_PROXY: localhost,127.0.0.1,core,worker,searcher
+      no_proxy: localhost,127.0.0.1,core,worker,searcher
+    volumes:
+      - ./config/models.yaml:/app/config/models.yaml:ro
+      - audit_log:/data/audit
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net, gateway_net]
+    depends_on:
+      searcher: {condition: service_healthy}
+      oitoma_proxy: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
+      <<: *python-healthcheck
+
+  # 論文データのボリュームは絶対にマウントしない（tests/security で検証）
+  searcher:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: searcher
+      args: *build-args
+    image: mongai/searcher:dev
+    <<: *hardening
+    environment:
+      HTTP_PROXY: http://egress_proxy:3128
+      HTTPS_PROXY: http://egress_proxy:3128
+      NO_PROXY: localhost,127.0.0.1,gateway
+      http_proxy: http://egress_proxy:3128
+      https_proxy: http://egress_proxy:3128
+      no_proxy: localhost,127.0.0.1,gateway
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [gateway_net, egress_net]
+    depends_on:
+      egress_proxy: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
+      <<: *python-healthcheck
+
+  redis:
+    image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+    <<: *hardening
+    user: redis
+    # ジョブキュー専用。永続化しない
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
+    environment: *no-proxy-env
+    tmpfs:
+      - /data:mode=1777
+      - /tmp:mode=1777
+    networks: [internal_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # CRF のみの軽量版（バージョン固定）
+  grobid:
+    image: grobid/grobid:0.9.1-crf@sha256:223957791ac2bbe48609dcc58a689b16b60baeae13a8734ef440ae6bfb38f4cd
+    <<: *hardening
+    user: "10001:10001"
+    environment: *no-proxy-env
+    tmpfs:
+      - /tmp:mode=1777
+      - /opt/grobid/grobid-home/tmp:mode=1777
+      - /opt/grobid/logs:mode=1777
+    networks: [internal_net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--noproxy", "*", "http://127.0.0.1:8070/api/isalive"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  oitoma_proxy:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    <<: *hardening
+    user: proxy
+    entrypoint: ["squid"]
+    command: ["-f", "/etc/squid/squid.conf", "-NYC"]
+    environment: *no-proxy-env
+    volumes:
+      - ./config/proxy/oitoma_squid.conf:/etc/squid/squid.conf:ro
+    tmpfs:
+      - /tmp:mode=1777
+      - /run:mode=1777
+      - /var/spool/squid:mode=1777
+      - /var/log/squid:mode=1777
+    networks: [internal_net, oitoma_net]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  egress_proxy:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    <<: *hardening
+    user: proxy
+    entrypoint: ["squid"]
+    command: ["-f", "/etc/squid/squid.conf", "-NYC"]
+    environment: *no-proxy-env
+    volumes:
+      - ./config/proxy/egress_squid.conf:/etc/squid/squid.conf:ro
+      - ./config/proxy/egress_allowlist.txt:/etc/squid/egress_allowlist.txt:ro
+    tmpfs:
+      - /tmp:mode=1777
+      - /run:mode=1777
+      - /var/spool/squid:mode=1777
+      - /var/log/squid:mode=1777
+    networks: [egress_net, outbound_net]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+networks:
+  # 利用者のブラウザからの入口（web だけが所属）。internal では ポートを公開できないため通常のブリッジ
+  ui_net: {}
+  # 学内閉域。core / worker / gateway / web / redis / grobid / oitoma_proxy
+  internal_net:
+    internal: true
+  # oitoma_proxy の外向き（おいとまAPIへ）
+  oitoma_net: {}
+  # gateway ⇔ searcher
+  gateway_net:
+    internal: true
+  # searcher ⇔ egress_proxy
+  egress_net:
+    internal: true
+  # egress_proxy の外向き（許可した書誌APIへ）
+  outbound_net: {}
+
+volumes:
+  data_private: {}   # アップロードされた論文・研究室知識・解析結果（core / worker のみ）
+  lancedb: {}        # ベクタDB（core / worker のみ）
+  app_db: {}         # SQLite（メタデータ）
+  audit_log: {}      # 外部通信の監査ログ（gateway のみ書き込み、core は読み取り専用）

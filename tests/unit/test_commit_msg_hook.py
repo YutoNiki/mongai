@@ -55,3 +55,47 @@ def test_attribution_messages_rejected(tmp_path: Path, message: str) -> None:
     result = run_hook(tmp_path, message)
     assert result.returncode != 0
     assert "拒否" in result.stderr
+
+
+PRE_COMMIT = HOOK.parent / "pre-commit"
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+    )
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init", "-q")
+    return tmp_path
+
+
+def run_pre_commit(repo: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["sh", str(PRE_COMMIT)], cwd=repo, capture_output=True, text=True, check=False
+    )
+
+
+def test_pre_commit_allows_empty_env_example(repo: Path) -> None:
+    (repo / ".env.example").write_text("OITOMA_API_KEY=\nOITOMA_BASE_URL=https://x\n")
+    _git(repo, "add", ".env.example")
+    assert run_pre_commit(repo).returncode == 0
+
+
+def test_pre_commit_rejects_key_in_env_example(repo: Path) -> None:
+    (repo / ".env.example").write_text("OITOMA_API_KEY=sk-dummy-value\n")
+    _git(repo, "add", ".env.example")
+    result = run_pre_commit(repo)
+    assert result.returncode != 0
+    assert "sk-dummy-value" not in result.stderr  # 値を表示しない
+
+
+@pytest.mark.parametrize("path", [".env", "data/private/paper.pdf"])
+def test_pre_commit_rejects_secret_paths(repo: Path, path: str) -> None:
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("x")
+    _git(repo, "add", "-f", path)
+    assert run_pre_commit(repo).returncode != 0

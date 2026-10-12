@@ -1,0 +1,101 @@
+# テスト用の上書き。
+# - test：単体テスト・lint をネットワークなし（network_mode: none）で実行する
+# - セキュリティテスト（tests/security/run.sh）は compose.yaml の実際のネットワーク構成に対して実行する
+# ソースは必要なディレクトリだけを読み取り専用でマウントする（.env や data/ はマウントしない）。
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: dev
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: mongai/dev:dev
+    profiles: [test]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    working_dir: /app
+    environment:
+      MONGAI_MODELS_CONFIG: /app/config/models.yaml
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./core:/app/core:ro
+      - ./gateway:/app/gateway:ro
+      - ./searcher:/app/searcher:ro
+      - ./config:/app/config:ro
+      - ./tests:/app/tests:ro
+      - ./eval:/app/eval:ro
+      - ./.githooks:/app/.githooks:ro
+      - ./compose.yaml:/app/compose.yaml:ro
+      - ./compose.dev.yaml:/app/compose.dev.yaml:ro
+      - ./compose.test.yaml:/app/compose.test.yaml:ro
+      - ./docker:/app/docker:ro
+      - ./.env.example:/app/.env.example:ro
+    tmpfs:
+      - /tmp:mode=1777
+
+  # GROBID を使う結合テスト（make test-integration）。internal_net の中だけで通信する
+  integration:
+    image: mongai/dev:dev
+    profiles: [test]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    working_dir: /app
+    command: ["pytest", "tests/integration"]
+    environment:
+      MONGAI_MODELS_CONFIG: /app/config/models.yaml
+      GROBID_URL: http://grobid:8070
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./core:/app/core:ro
+      - ./config:/app/config:ro
+      - ./tests:/app/tests:ro
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    depends_on:
+      grobid: {condition: service_healthy}
+
+  # おいとまAPIに実際に問い合わせるテスト（make check-api）。oitoma_proxy 経由でのみ外に出る
+  api_check:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: core
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: mongai/core:dev
+    profiles: [test]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: ["python", "-m", "core.llm.check_api"]
+    environment:
+      OITOMA_BASE_URL: ${OITOMA_BASE_URL:-https://ironical.okayama-u.ac.jp/ai/v1}
+      OITOMA_API_KEY: ${OITOMA_API_KEY:-}
+      MONGAI_MODELS_CONFIG: /app/config/models.yaml
+      HTTP_PROXY: http://oitoma_proxy:3128
+      HTTPS_PROXY: http://oitoma_proxy:3128
+      http_proxy: http://oitoma_proxy:3128
+      https_proxy: http://oitoma_proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+    volumes:
+      - ./config/models.yaml:/app/config/models.yaml:ro
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    depends_on:
+      oitoma_proxy: {condition: service_healthy}
