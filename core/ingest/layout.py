@@ -286,6 +286,7 @@ def build_paragraphs(lines: list[Line]) -> tuple[list[RawParagraph], float]:
             flush()
         current.append(ln)
     flush()
+    paragraphs = merge_continuations(paragraphs)
 
     for para in paragraphs:
         chars: list[Char] = []
@@ -295,6 +296,66 @@ def build_paragraphs(lines: list[Line]) -> tuple[list[RawParagraph], float]:
             chars.extend(_strip_chars(ln.chars))
         para.chars = chars
     return paragraphs, body_size
+
+
+# 段落の途中に挟まっても、段落の続きを探すときに読み飛ばしてよいもの（図中の文字・脚注・キャプション）
+_SKIPPABLE: frozenset[str] = frozenset({"fragment", "footnote", "caption"})
+_PARAGRAPH_END = re.compile(r"[。．.!?！？:：]\s*$")
+
+
+def merge_continuations(paragraphs: list[RawParagraph]) -> list[RawParagraph]:
+    """段・ページの区切りや図をまたいで分かれた本文の段落をつなぐ。
+
+    文末の記号で終わっていない本文の段落の後に、図中の文字・脚注などを挟んで本文の段落が続き、
+    それが別の段・ページから始まっている場合は、同じ段落の続きとみなす。
+    """
+    result: list[RawParagraph] = []
+    pending: RawParagraph | None = None  # 続きを待っている段落
+    for para in paragraphs:
+        if pending is not None and para.kind == "body":
+            last, first = pending.lines[-1], para.lines[0]
+            new_flow = first.page != last.page or column_of(first) != column_of(last)
+            if new_flow and _continues(para):
+                pending.lines.extend(para.lines)
+                if not _PARAGRAPH_END.search(para.lines[-1].text):
+                    continue  # さらに続く可能性がある
+                pending = None
+                continue
+            pending = None
+        elif pending is not None and para.kind not in _SKIPPABLE:
+            pending = None
+        result.append(para)
+        last_line = para.lines[-1]
+        if (
+            para.kind == "body"
+            and not _PARAGRAPH_END.search(last_line.text)
+            and _is_prose_width(last_line)
+        ):
+            pending = para
+    return result
+
+
+def _is_prose_width(ln: Line) -> bool:
+    """本文の行の幅か（表のセルなど短い行を除く）。2段組の1段は、ページ幅の約4割。"""
+    return (ln.bbox[2] - ln.bbox[0]) >= ln.page_width * 0.3
+
+
+def _continues(para: RawParagraph) -> bool:
+    """前の段落の続きらしい段落か。
+
+    本文の幅の行で始まる（1行だけで文が終わる段落は短くてもよい）こと。
+    英語は小文字で始まり、日本語は数字以外で始まること。
+    """
+    first = para.lines[0]
+    text = first.text.lstrip()
+    if not text or text[0].isdigit():
+        return False
+    single_sentence_end = len(para.lines) == 1 and _PARAGRAPH_END.search(first.text)
+    if not _is_prose_width(first) and not single_sentence_end:
+        return False
+    if text[0].isascii() and text[0].isalpha():
+        return text[0].islower()
+    return True
 
 
 def _strip_chars(chars: list[Char]) -> list[Char]:
