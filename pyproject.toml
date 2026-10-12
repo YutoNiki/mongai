@@ -44,6 +44,7 @@ module = [
     "tests.unit.pdf_factory",
     "tests.unit.test_annotate",
     "tests.unit.test_api_annotated",
+    "tests.unit.test_locate",
 ]
 disallow_untyped_calls = false
 

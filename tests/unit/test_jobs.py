@@ -63,7 +63,7 @@ async def test_run_analysis_saves_progress_findings_and_usage(
     assert any("offline" in w for w in record.warnings), record.warnings
     record = store.get_analysis(aid)
     assert record is not None and record.status == "completed"
-    assert record.progress.stage == "suggestion"
+    assert record.progress.stage == "locate"  # 最後に指摘の位置を確かめる
     assert store.get_document(doc_id) is not None
     assert store.get_structures(aid)
     assert sum(r.requests for r in store.get_api_usage(aid)) > 0
