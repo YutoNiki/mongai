@@ -2,6 +2,10 @@
 
 from fastapi import FastAPI
 
+from core.logging_config import configure_logging
+
+configure_logging()
+
 app = FastAPI(title="MonGAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 

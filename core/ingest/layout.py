@@ -330,6 +330,9 @@ def _kind(lines: list[Line], body_size: float, use_bold: bool) -> ParagraphKind:
         return "heading"
     if _CAPTION.match(text):
         return "caption"
+    # 本文より小さい文字の段落は脚注（著者の所属、採録の注記など）とみなす
+    if statistics.median(ln.size for ln in lines) <= body_size - 1.0:
+        return "footnote"
     visible = [ch for ch in text if not ch.isspace()]
     if visible and len(_SYMBOLS.findall(text)) / len(visible) > 0.25:
         return "fragment"

@@ -5,6 +5,10 @@ from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
 
+from core.logging_config import configure_logging
+
+configure_logging()
+
 
 async def ping(ctx: dict[str, Any]) -> str:
     """疎通確認用のジョブ。解析ジョブは M2 以降で追加する。"""

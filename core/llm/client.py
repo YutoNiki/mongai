@@ -27,6 +27,7 @@ from pydantic import BaseModel, ValidationError
 from core.llm.budget import TokenBudget
 from core.llm.config import ModelsConfig, RoleConfig, get_models_config
 from core.llm.prompts import Lang, load_prompt
+from core.llm.usage import ApiUsage
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,8 @@ class OitomaClient:
         )
         self._semaphore = asyncio.Semaphore(self.config.api.max_concurrency)
         self._sleep = sleep
+        # リクエスト回数・トークン数の集計（ログにも1リクエスト1行で出す）
+        self.usage = ApiUsage()
 
     async def __aenter__(self) -> Self:
         return self
@@ -151,25 +154,54 @@ class OitomaClient:
         await self.aclose()
 
     async def aclose(self) -> None:
+        if self.usage.total_requests:
+            self.usage.log_summary()
         await self._http.aclose()
 
     # ------------------------------------------------------------------ HTTP
 
-    async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        role: str | None = None,
+    ) -> Any:
         attempts = self.config.api.max_retries + 1
+        model = str(payload.get("model", "-")) if payload else "-"
+        endpoint = path.strip("/")
+
+        def record(attempt: int, status: int | None, started: float, error: str | None) -> None:
+            self.usage.record_request(
+                endpoint=endpoint,
+                model=model,
+                role=role,
+                attempt=attempt + 1,
+                status=status,
+                latency_s=time.monotonic() - started,
+                error=error,
+            )
+
         for attempt in range(attempts):
+            started = time.monotonic()
             try:
                 async with self._semaphore:
+                    started = time.monotonic()
                     response = await self._http.request(method, path, json=payload)
             except httpx.TransportError as exc:
+                record(attempt, None, started, type(exc).__name__)
                 if attempt + 1 >= attempts:
+                    self.usage.record_failure(endpoint=endpoint, model=model, role=role)
                     raise OitomaError(f"おいとまAPIに接続できません：{type(exc).__name__}") from exc
                 await self._backoff(attempt)
                 continue
+            record(attempt, response.status_code, started, None)
             if response.status_code in RETRY_STATUSES and attempt + 1 < attempts:
                 await self._backoff(attempt)
                 continue
             if response.status_code >= 400:
+                self.usage.record_failure(endpoint=endpoint, model=model, role=role)
                 raise OitomaHTTPError(response.status_code, _error_message(response))
             return response.json()
         raise OitomaError("再試行の上限に達しました")  # pragma: no cover
@@ -193,6 +225,7 @@ class OitomaClient:
         max_tokens: int | None = None,
         thinking: bool | None = None,
         response_format: dict[str, Any] | None = None,
+        role: str | None = None,
     ) -> ChatResult:
         budget = TokenBudget(
             context_window=self.config.context_window,
@@ -211,7 +244,7 @@ class OitomaClient:
             payload["response_format"] = response_format
 
         started = time.monotonic()
-        data = await self._request("POST", "/chat/completions", payload)
+        data = await self._request("POST", "/chat/completions", payload, role=role)
         latency = time.monotonic() - started
 
         try:
@@ -231,9 +264,17 @@ class OitomaClient:
             completion_tokens=usage.get("completion_tokens"),
             latency_s=latency,
         )
-        logger.info(
-            "chat model=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s finish=%s",
+        self.usage.record_tokens(
+            endpoint="chat/completions",
+            model=model,
+            role=role,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
+        logger.debug(
+            "chat model=%s role=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s finish=%s",
             result.model,
+            role or "-",
             latency,
             result.prompt_tokens,
             result.completion_tokens,
@@ -243,7 +284,7 @@ class OitomaClient:
 
     async def chat_role(self, role: str, messages: Sequence[Message]) -> ChatResult:
         cfg = self.config.role(role)
-        return await self.chat(messages, **self._role_kwargs(cfg))
+        return await self.chat(messages, role=role, **self._role_kwargs(cfg))
 
     @staticmethod
     def _role_kwargs(cfg: RoleConfig) -> dict[str, Any]:
@@ -288,13 +329,19 @@ class OitomaClient:
             result = await self.chat(
                 conversation,
                 response_format=self._response_format(schema),
+                role=role,
                 **self._role_kwargs(cfg),
             )
             try:
                 return schema.model_validate(extract_json(result.content))
             except (ValueError, ValidationError) as exc:
                 last_error = str(exc)[:1000]
-                logger.warning("JSON の検証に失敗しました（role=%s）。再生成します", role)
+                logger.warning(
+                    "JSON の検証に失敗しました（role=%s finish=%s error=%s）。再生成します",
+                    role,
+                    result.finish_reason,
+                    _error_kind(exc),
+                )
                 conversation = [
                     *conversation,
                     {"role": "assistant", "content": result.content},
@@ -335,15 +382,34 @@ class OitomaClient:
         batches = [
             list(texts[i : i + cfg.batch_size]) for i in range(0, len(texts), cfg.batch_size)
         ]
-        results = await asyncio.gather(*(self._embed_batch(cfg.model, b) for b in batches))
+        results = await asyncio.gather(*(self._embed_batch(cfg.model, b, role) for b in batches))
         return [vec for batch in results for vec in batch]
 
-    async def _embed_batch(self, model: str, texts: list[str]) -> list[list[float]]:
-        data = await self._request("POST", "/embeddings", {"model": model, "input": texts})
+    async def _embed_batch(self, model: str, texts: list[str], role: str) -> list[list[float]]:
+        data = await self._request(
+            "POST", "/embeddings", {"model": model, "input": texts}, role=f"embedding:{role}"
+        )
+        usage = data.get("usage") or {}
+        self.usage.record_tokens(
+            endpoint="embeddings",
+            model=model,
+            role=f"embedding:{role}",
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=None,
+        )
         items = sorted(data["data"], key=lambda d: d["index"])
         if len(items) != len(texts):
             raise OitomaError("埋め込みの件数が入力と一致しません")
         return [item["embedding"] for item in items]
+
+
+def _error_kind(exc: Exception) -> str:
+    """検証エラーの種類と位置だけを返す（ログに論文の本文が出ないよう、値は含めない）。"""
+    if isinstance(exc, ValidationError):
+        return ";".join(
+            f"{'.'.join(str(p) for p in e['loc'])}:{e['type']}" for e in exc.errors()[:3]
+        )
+    return type(exc).__name__
 
 
 def _with_system_suffix(messages: Sequence[Message], suffix: str) -> list[Message]:

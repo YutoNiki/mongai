@@ -9,6 +9,7 @@ from collections import Counter
 
 from core.ingest.pipeline import ingest_pdf
 from core.llm.client import OitomaClient
+from core.logging_config import configure_logging
 
 
 async def _run(args: argparse.Namespace) -> None:
@@ -37,6 +38,7 @@ async def _run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pdf")
     parser.add_argument("--no-grobid", action="store_true")

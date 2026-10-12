@@ -46,7 +46,7 @@ def test_split_number(title: str, expected: tuple[str | None, str]) -> None:
         ("References", "references"),
         ("参考文献", "references"),
         ("付録", "appendix"),
-        ("略歴", "other"),
+        ("略歴", "biography"),
         ("Efficiency of Pseudo-data Generation", "other"),
     ],
 )
