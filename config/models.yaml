@@ -7,6 +7,19 @@
 
 context_window: 32768
 
+# API の挙動に関する設定。make check-api の結果を見て切り替える（docs/oitoma_api.md）。
+api:
+  # JSON出力の強制方法：json_schema | json_object | none（none はプロンプト指示＋検証＋リトライのみ）
+  json_mode: none
+  # 思考モードの切り替え方法：chat_template_kwargs（vLLM 形式の enable_thinking）| none（切り替えない）
+  thinking_param: none
+  timeout_seconds: 300
+  max_retries: 4
+  # 同時リクエスト数の上限（おいとまは負荷制限なし。クライアント側の資源保護のため）
+  max_concurrency: 16
+  # 出力トークンの既定上限
+  default_max_tokens: 4096
+
 roles:
   structure_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   rule_extraction:      {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
