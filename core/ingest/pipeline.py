@@ -113,7 +113,7 @@ async def ingest_pdf(
 
     return Document(
         doc_id=doc_id,
-        title=grobid.title or _front_title(paragraphs),
+        title=layout.title or grobid.title or _front_title(paragraphs),
         lang=lang,
         page_count=layout.page_count,
         sections=sections,
