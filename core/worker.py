@@ -39,6 +39,7 @@ class WorkerSettings:
     health_check_interval = 30
     # 論文1本の解析は数十分かかることがある
     job_timeout = 3 * 60 * 60
-    max_jobs = 2
+    # 同時に実行する解析の数。1件あたり おいとまAPIへ最大 max_concurrency 本のリクエストを同時に送る
+    max_jobs = int(os.environ.get("MONGAI_MAX_JOBS", "2"))
     # 失敗したジョブを自動で再実行しない（おいとまAPIへの要求が重複するため）
     max_tries = 1

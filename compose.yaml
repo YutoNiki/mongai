@@ -115,6 +115,7 @@ services:
     command: ["arq", "core.worker.WorkerSettings"]
     environment:
       <<: *oitoma-env
+      MONGAI_MAX_JOBS: ${MONGAI_MAX_JOBS:-2}
       REDIS_URL: redis://redis:6379/0
       GROBID_URL: http://grobid:8070
       GATEWAY_URL: http://gateway:8000
