@@ -42,9 +42,7 @@ FROM base AS runtime
 # 実行イメージに pip を残さない
 RUN python -m pip uninstall -y pip \
  && groupadd --gid 10001 app \
- && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
- && mkdir -p /data/private /data/lancedb /data/db /data/audit \
- && chown -R app:app /data
+ && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /app
 
@@ -53,6 +51,9 @@ FROM runtime AS core
 COPY --from=deps-core /opt/venv /opt/venv
 COPY core/ /app/core/
 COPY config/models.yaml /app/config/models.yaml
+# 名前付きボリュームの初回作成時に所有者を引き継がせる
+RUN mkdir -p /data/private /data/lancedb /data/db /data/audit \
+ && chown -R app:app /data/private /data/lancedb /data/db
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -61,11 +62,13 @@ CMD ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM runtime AS gateway
 COPY --from=deps-gateway /opt/venv /opt/venv
 COPY gateway/ /app/gateway/
+RUN mkdir -p /data/audit && chown app:app /data/audit
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ---------------------------------------------------------------- searcher
+# 論文データ用のディレクトリは作らない（tests/security で /data が無いことを確認する）
 FROM runtime AS searcher
 COPY --from=deps-searcher /opt/venv /opt/venv
 COPY searcher/ /app/searcher/
