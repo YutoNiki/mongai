@@ -1,0 +1,72 @@
+"""解析ジョブ（worker で実行する）：構造化 → 論理・読みやすさの解析 → 保存。
+
+進捗と、確定した指摘を順に保存するので、画面は解析中でも結果を表示できる。
+"""
+
+import logging
+from typing import Any
+
+from core.analyze.models import Finding
+from core.analyze.pipeline import AnalysisSettings, analyze_logic
+from core.ingest.pipeline import ingest_pdf
+from core.llm.client import OitomaClient
+from core.store import Store
+from core.store.files import paper_path
+
+logger = logging.getLogger(__name__)
+
+
+async def run_analysis(
+    ctx: dict[str, Any],
+    analysis_id: str,
+    *,
+    store: Store | None = None,
+    client: OitomaClient | None = None,
+) -> str:
+    """解析を1件実行し、最終的なステータスを返す。store・client はテスト用に差し替えられる。"""
+    store = store or Store()
+    record = store.get_analysis(analysis_id)
+    if record is None:
+        raise ValueError(f"解析 {analysis_id} が見つかりません")
+    settings = AnalysisSettings.model_validate(record.settings)
+    own_client = client is None
+    llm = client or OitomaClient()
+    store.set_status(analysis_id, "running")
+    try:
+        store.set_progress(analysis_id, "ingest", 0, 1)
+        doc = await ingest_pdf(paper_path(record.doc_id), doc_id=record.doc_id, llm=llm)
+        store.save_document(doc)
+        store.set_progress(analysis_id, "ingest", 1, 1)
+
+        def on_progress(stage: str, done: int, total: int) -> None:
+            store.set_progress(analysis_id, stage, done, total)
+
+        def on_findings(findings: list[Finding]) -> None:
+            store.save_findings(analysis_id, findings)
+
+        result = await analyze_logic(
+            doc, llm, settings, on_progress=on_progress, on_findings=on_findings
+        )
+        store.save_structures(analysis_id, result.structures)
+        store.save_findings(analysis_id, result.findings)  # 改善案を付けたもので更新する
+        store.finish_analysis(
+            analysis_id,
+            status="completed",
+            warnings=doc.warnings + result.warnings,
+            api_usage=llm.usage.rows(),
+        )
+        llm.usage.log_summary(label=analysis_id)
+        return "completed"
+    except Exception as exc:
+        # 例外の内容に論文の本文が含まれる可能性は低いが、利用者に見せるのは種類だけにする
+        logger.exception("解析 %s に失敗しました", analysis_id)
+        store.finish_analysis(
+            analysis_id,
+            status="failed",
+            error=f"解析に失敗しました（{type(exc).__name__}）",
+            api_usage=llm.usage.rows(),
+        )
+        return "failed"
+    finally:
+        if own_client:
+            await llm.aclose()
