@@ -21,6 +21,25 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | pytest / pytest-asyncio / respx | 9.1.1 / 1.4.0 / 0.23.1 | テストのみ | なし。テストは `network_mode: none` のコンテナで実行 |
 | ruff / mypy / types-PyYAML | 0.17.0 / 2.4.0 / 6.0.12.20260906 | lint のみ | なし |
 
+| python-multipart | 0.0.32 | core | なし（FastAPI のファイルアップロードに必要） |
+
+## フロントエンド（`frontend/package.json`、版を固定。公開から2週間以上たった版を使う）
+
+すべてビルド時にバンドルし、実行時に外部から読み込むものは無い（nginx の CSP でも禁止）。
+`frontend/.npmrc` で npm の更新通知・寄付の案内・監査情報の送信を止めている。
+
+| パッケージ | 版 | 用途 | テレメトリ・外部通信 |
+|---|---|---|---|
+| react / react-dom | 19.3.0 | UI | なし |
+| echarts | 6.1.0 | グラフ（必要な部品だけを読み込む） | なし |
+| pdfjs-dist | 6.3.289 | PDF ビューア | なし。文字マップ・標準フォント・WebAssembly・ICC プロファイルを `dist/pdfjs/` に含めて自前で配信。WebAssembly のため CSP に `'wasm-unsafe-eval'` を加えている |
+| @fontsource/noto-sans-jp | 5.3.0 | フォント（セルフホスト） | なし |
+| typescript | 5.9.3 | 型検査 | なし（typescript-eslint が 6.1 未満を要求するため 5 系） |
+| vite / @vitejs/plugin-react | 8.3.1 / 6.1.1 | ビルド | なし。plugin-react 6 の任意の peer 依存の解決で npm が失敗するため `legacy-peer-deps` を使う |
+| eslint / @eslint/js / typescript-eslint / eslint-plugin-react-hooks / globals | 10.11.0 / 10.0.1 / 8.71.0 / 7.1.1 / 17.12.0 | lint | なし |
+| vitest | 5.0.2 | テスト | なし |
+| @types/node / @types/react / @types/react-dom | 22.20.4 / 19.3.0 / 19.3.0 | 型定義 | なし |
+
 ### 採用しなかったもの
 
 | ライブラリ | 理由 |
@@ -36,4 +55,5 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | `nginxinc/nginx-unprivileged:1.30.5-alpine` | web | なし。CSP で外部リソースの読み込みを禁止 |
 | `redis:8.10.2-alpine` | redis | なし。永続化なし |
 | `grobid/grobid:0.9.1-crf` | grobid | なし（`core/ingest/grobid.py` で `consolidateHeader`・`consolidateCitations`・`consolidateFunders` を常に `0` にしている）。ただし **書誌の consolidation（`consolidateHeader` / `consolidateCitations`）を有効にすると Crossref 等に問い合わせる**ため、core からは常に `0` を指定する（internal_net なので外には届かないが、タイムアウト待ちになる） |
+| `node:22.23.3-bookworm-slim` | web のビルド段階のみ（実行イメージには含めない） | なし。npm の更新通知・監査を無効化 |
 | `ubuntu/squid:6.6-24.04_edge` | oitoma_proxy / egress_proxy | なし。キャッシュ無効、ログは標準出力 |
