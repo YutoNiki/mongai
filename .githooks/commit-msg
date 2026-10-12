@@ -1,0 +1,45 @@
+#!/bin/sh
+# MonGAI commit-msg フック（SPEC 10.1）
+# AI（Claude / Anthropic 等）を共同著者・生成元として記録するコミットメッセージを拒否する。
+#
+# 拒否する行：
+#   - Co-Authored-By: 行（大文字小文字を区別しない。誰が対象でも拒否）
+#   - claude / anthropic を含む署名・トレーラー行（Signed-off-by:, Generated-by: など "-by:" で終わるキー）
+#   - @anthropic.com のメールアドレス
+#   - "Generated with Claude Code" などの生成元の表記
+#   - claude.ai/code のセッションURL
+#
+# 使い方：make setup（git config core.hooksPath .githooks）
+
+set -eu
+
+msg_file="$1"
+
+# git のコメント行（# で始まる行）は判定の対象外
+body=$(grep -v '^#' "$msg_file" || true)
+
+fail() {
+    echo "commit-msg: コミットを拒否しました：$1" >&2
+    echo "  該当行：$2" >&2
+    echo "  CLAUDE.md『コミットの帰属』を参照してください。" >&2
+    exit 1
+}
+
+check() {
+    pattern="$1"
+    reason="$2"
+    hit=$(printf '%s\n' "$body" | grep -E -i -m 1 -e "$pattern" || true)
+    if [ -n "$hit" ]; then
+        fail "$reason" "$hit"
+    fi
+}
+
+check '^[[:space:]]*co-authored-by[[:space:]]*:' "共同著者（Co-Authored-By）行が含まれています"
+check '^[[:space:]]*[a-z0-9-]*-by[[:space:]]*:.*(claude|anthropic)' "Claude / Anthropic を含む署名行が含まれています"
+check '^[[:space:]]*(author|generator|generated|assistant|ai|model|tool)[[:space:]]*:.*(claude|anthropic)' "Claude / Anthropic を含む署名行が含まれています"
+check '@anthropic\.com' "Anthropic のメールアドレスが含まれています"
+check 'generated (with|by) .*claude' "生成元の表記が含まれています"
+check 'claude\.ai/code' "Claude Code のセッションURLが含まれています"
+check 'claude\.com/claude-code' "生成元の表記が含まれています"
+
+exit 0

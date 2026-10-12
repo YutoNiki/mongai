@@ -1,0 +1,30 @@
+# 秘密情報（絶対にコミットしない）
+.env
+.env.local
+
+# アップロードデータ・解析結果（学外に出さない）
+data/private/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# Node / フロントエンド
+node_modules/
+frontend/dist/
+
+# 評価結果（再生成できるもの）
+eval/results/*.csv
+
+# エディタ・OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code の個人設定
+.claude/settings.local.json
