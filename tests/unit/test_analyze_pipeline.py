@@ -29,6 +29,7 @@ def config() -> ModelsConfig:
                 "structure_extraction": {"model": "fast"},
                 "logic_check": {"model": "think", "samples": 3, "vote": "majority"},
                 "suggestion": {"model": "think"},
+                "reference_extraction": {"model": "fast"},
             },
             "embeddings": {},
         }
@@ -91,9 +92,12 @@ class FakeLLM:
         body = json.loads(request.content)
         system = body["messages"][0]["content"]
         user = body["messages"][-1]["content"]
-        if "論証構造を分析" in system:
+        if "参考文献リストを構造化" in system:
+            stage = "reference_extraction"
+            payload: dict[str, Any] = {"references": []}
+        elif "論証構造を分析" in system:
             stage = "structure"
-            payload: dict[str, Any] = {
+            payload = {
                 "claims": [{"sentence_ids": ["S-00003"], "text": "上回り"}],
                 "premises": [],
                 "evidence": [],
