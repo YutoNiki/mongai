@@ -1,0 +1,22 @@
+# 役割ごとのモデル割り当て（SPEC 5.3）。コードにモデルIDを直書きせず、ここで管理する。
+# 精度は M9 の評価ハーネス（make eval）で検証して差し替える前提。
+#
+# thinking：思考モードの on/off（null はモデルの既定のまま）。
+#   おいとまでの指定方法は docs/oitoma_api.md を参照（make check-api で確認）。
+# max_tokens：出力の上限。入力と合わせて context_window を超えないよう core/llm で調整する。
+
+context_window: 32768
+
+roles:
+  structure_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
+  rule_extraction:      {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
+  logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, thinking: true}
+  rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
+  citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true}
+  suggestion:           {model: qwen3.8-27b-it, temperature: 0.4, thinking: true}
+  second_opinion:       {model: Ternary-Bonsai-2-27B, temperature: 0.0}
+  searcher_match:       {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
+
+embeddings:
+  retrieval:  {model: qwen3-embedding-8b}   # ルール・先行研究・研究室知識
+  leak_check: {model: multilingual-e5}      # ゲートウェイの類似度判定

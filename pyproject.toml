@@ -1,0 +1,35 @@
+[project]
+name = "mongai"
+version = "0.1.0"
+description = "門外不出（MonGAI）：学内ローカルLLM基盤「おいとま」上で動く論文の投稿前セルフレビューシステム"
+requires-python = ">=3.12,<3.13"
+
+# 依存ライブラリは requirements/*.txt でサービスごとに固定する（docs/dependencies.md も参照）
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["frontend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+# 日本語の全角記号（、。（）：）をコメント・文字列で使うため
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["core", "gateway", "searcher", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["arq.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-p no:cacheprovider"
+markers = [
+    "live_api: おいとまAPIに実際にアクセスするテスト（OITOMA_API_KEY が必要）",
+]

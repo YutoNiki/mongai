@@ -1,0 +1,8 @@
+api.crossref.org
+doi.org
+api.openalex.org
+eutils.ncbi.nlm.nih.gov
+export.arxiv.org
+api.semanticscholar.org
+cir.nii.ac.jp
+api.jstage.jst.go.jp
