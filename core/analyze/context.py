@@ -42,6 +42,7 @@ class Target:
     sentences: list[Sentence]
     section: Section | None
     previous: Paragraph | None  # 同じ文書で直前の解析対象の段落（文脈として渡す）
+    next: Paragraph | None = None  # 直後の解析対象の段落（文脈として渡す）
 
     @property
     def section_label(self) -> str:
@@ -80,11 +81,21 @@ def select_targets(
         previous = para
         if max_paragraphs is not None and len(targets) >= max_paragraphs:
             break
-    return targets
+    return [
+        Target(t.paragraph, t.sentences, t.section, t.previous, nxt.paragraph if nxt else None)
+        for t, nxt in zip(targets, [*targets[1:], None], strict=True)
+    ]
 
 
 def numbered_paragraph(sentences: list[Sentence]) -> str:
-    return "\n".join(f"[{s.sentence_id}] {s.text}" for s in sentences)
+    """段落を、文IDを文頭に埋め込んだ1つの続いた文章として返す。
+
+    1行1文の形にすると、モデルが文を切り離して読み、段落としてのつながりを見落としやすいため。
+    """
+    if not sentences:
+        return "-"
+    joiner = "" if sentences[0].lang == "ja" else " "
+    return joiner.join(f"【{s.sentence_id}】{s.text}" for s in sentences)
 
 
 def structure_text(structure: ArgumentStructure | None) -> str:

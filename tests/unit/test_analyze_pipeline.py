@@ -87,6 +87,7 @@ class FakeLLM:
             ]
         )
         self.calls: dict[str, int] = {}
+        self.check_inputs: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -107,7 +108,9 @@ class FakeLLM:
             }
         elif "先回りして見つける" in system:
             stage = "paragraph_check"
-            in_paragraph = "S-00003" in user.split("段落：")[-1]
+            self.check_inputs.append(user)
+            judged = user.split("判定する段落")[1].split("直後の段落")[0]
+            in_paragraph = "S-00003" in judged
             payload = {"issues": next(self.checks) if in_paragraph else []}
         elif "段落どうしのつながり" in system:
             stage = "flow_check"
@@ -161,6 +164,10 @@ async def test_analyze_logic_end_to_end() -> None:
                 on_findings=streamed.extend,
             )
 
+    # 段落内チェックには、直前・直後の段落が文脈として渡される
+    first = fake.check_inputs[0] if fake.check_inputs else ""
+    assert any("直後の段落" in t and S3 in t.split("直後の段落")[1] for t in fake.check_inputs)
+    assert first
     # 2段落 × 構造抽出1回、段落内チェック 2段落 × 3回、段落間チェック 3回、改善案は指摘の数だけ
     assert fake.calls == {"structure": 2, "paragraph_check": 6, "flow_check": 3, "suggestion": 2}
 
