@@ -86,3 +86,18 @@ def test_store_roundtrip(tmp_path: Path) -> None:
     )
     assert record.finished_at is not None
     assert store.get_api_usage(aid) == usage
+
+
+def test_recover_interrupted(tmp_path: Path) -> None:
+    store = Store(tmp_path / "db.sqlite3")
+    running = store.create_analysis(
+        "d", kind="logic", settings=AnalysisSettings(), status="running"
+    )
+    queued = store.create_analysis("d", kind="logic", settings=AnalysisSettings(), status="queued")
+    done = store.create_analysis("d", kind="logic", settings=AnalysisSettings(), status="running")
+    store.finish_analysis(done, status="completed")
+    assert store.recover_interrupted() == ([running], [queued])
+    record = store.get_analysis(running)
+    assert record is not None and record.status == "failed" and record.error
+    assert store.get_analysis(queued).status == "queued"  # type: ignore[union-attr]
+    assert store.get_analysis(done).status == "completed"  # type: ignore[union-attr]

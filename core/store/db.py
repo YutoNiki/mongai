@@ -213,6 +213,30 @@ class Store:
                 "UPDATE analyses SET progress = ? WHERE analysis_id = ?", (progress, analysis_id)
             )
 
+    def recover_interrupted(self) -> tuple[list[str], list[str]]:
+        """ワーカーの起動時に呼ぶ。実行中だった解析を失敗にし、順番待ちの解析の ID を返す。
+
+        戻り値：(失敗にした解析, 順番待ちの解析)
+        """
+        with self._connect() as conn:
+            running = [
+                r["analysis_id"]
+                for r in conn.execute("SELECT analysis_id FROM analyses WHERE status = 'running'")
+            ]
+            queued = [
+                r["analysis_id"]
+                for r in conn.execute(
+                    "SELECT analysis_id FROM analyses WHERE status = 'queued' ORDER BY created_at"
+                )
+            ]
+            conn.execute(
+                "UPDATE analyses SET status = 'failed', finished_at = ?, "
+                "error = 'ワーカーの再起動により解析が中断されました。もう一度解析してください' "
+                "WHERE status = 'running'",
+                (_now(),),
+            )
+        return running, queued
+
     def list_analyses(self, limit: int = 100) -> list[AnalysisRecord]:
         with self._connect() as conn:
             rows = conn.execute(
