@@ -208,6 +208,11 @@ async def analyze_logic(
             if t.previous
             else ""
         )
+        next_text = (
+            numbered_paragraph([sentences[sid] for sid in t.next.sentence_ids if sid in sentences])
+            if t.next
+            else ""
+        )
         try:
             voted, n = await check_paragraph(
                 client,
@@ -217,6 +222,7 @@ async def analyze_logic(
                 output_language=out_lang,
                 known_sentences=known_sentences,
                 context_text=context,
+                next_text=next_text,
             )
         except OitomaError as exc:
             warnings.append(f"段落 {t.paragraph.paragraph_id} のチェックに失敗しました：{exc}")

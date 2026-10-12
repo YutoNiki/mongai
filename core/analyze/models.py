@@ -75,6 +75,8 @@ class ParagraphIssue(_LLMOutput):
     severity: Severity
     # 問題の判断の根拠になった文（前提・根拠として使われている文など）
     related_sentence_ids: list[str] = Field(default_factory=list)
+    # 文が途中で途切れている・未完であることを理由にした指摘か（true のものは捨てる）
+    about_truncation: bool = False
 
 
 class ParagraphCheckOutput(_LLMOutput):
