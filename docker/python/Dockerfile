@@ -78,6 +78,10 @@ CMD ["uvicorn", "searcher.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # ---------------------------------------------------------------- テスト・lint（ソースはバインドマウント）
 FROM runtime AS dev
+# git フックのテストで使う
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=deps-dev /opt/venv /opt/venv
 ENV MYPY_CACHE_DIR=/tmp/.mypy_cache \
     RUFF_CACHE_DIR=/tmp/.ruff_cache

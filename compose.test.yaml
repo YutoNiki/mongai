@@ -31,6 +31,11 @@ services:
       - ./tests:/app/tests:ro
       - ./eval:/app/eval:ro
       - ./.githooks:/app/.githooks:ro
+      - ./compose.yaml:/app/compose.yaml:ro
+      - ./compose.dev.yaml:/app/compose.dev.yaml:ro
+      - ./compose.test.yaml:/app/compose.test.yaml:ro
+      - ./docker:/app/docker:ro
+      - ./.env.example:/app/.env.example:ro
     tmpfs:
       - /tmp:mode=1777
 
