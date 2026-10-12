@@ -48,7 +48,7 @@ export function QueuePage() {
           <p>承認待ちの要求はありません。</p>
         ) : (
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table responsive">
               <thead>
                 <tr>
                   <th scope="col">種類</th>
@@ -60,12 +60,12 @@ export function QueuePage() {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.request_id}>
-                    <td>{label(REQUEST_KIND_LABELS, item.kind)}</td>
-                    <td>{describeRequest(item.request)}</td>
-                    <td>
+                    <td data-label="種類">{label(REQUEST_KIND_LABELS, item.kind)}</td>
+                    <td data-label="内容">{describeRequest(item.request)}</td>
+                    <td data-label="解析">
                       <Link href={`/analyses/${item.analysis_id}`}>{item.analysis_id}</Link>
                     </td>
-                    <td className="status-buttons">
+                    <td className="status-buttons" data-label="操作">
                       <button type="button" onClick={() => void decide(item, "approve")}>
                         承認して送信
                       </button>

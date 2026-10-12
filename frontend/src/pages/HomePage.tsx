@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import { StatusBadge } from "../components/Badges";
 import { api, type AnalysisListItem } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 
@@ -82,7 +81,7 @@ export function HomePage() {
           <p>まだ解析はありません。</p>
         ) : (
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table responsive">
               <thead>
                 <tr>
                   <th scope="col">論文</th>
@@ -96,15 +95,14 @@ export function HomePage() {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
-                    <th scope="row">
+                    <th scope="row" data-label="論文">
                       <Link href={`/analyses/${item.analysis_id}`}>{item.title ?? item.filename ?? item.doc_id}</Link>
                     </th>
-                    <td>
-                      <StatusBadge status={item.status} />
-                      <span className="visually-hidden">{ANALYSIS_STATUS[item.status]}</span>
+                    <td data-label="状態">{ANALYSIS_STATUS[item.status] ?? item.status}</td>
+                    <td className="num" data-label="指摘数">
+                      {item.total}件
                     </td>
-                    <td className="num">{item.total}件</td>
-                    <td>{new Date(item.created_at).toLocaleString("ja-JP")}</td>
+                    <td data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
                   </tr>
                 ))}
               </tbody>

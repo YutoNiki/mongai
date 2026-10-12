@@ -73,7 +73,7 @@ export function PdfViewer({ url, page, boxes, color, label, onPageChange }: Prop
   if (error) return <p role="alert">{error}</p>;
   const pageCount = doc?.numPages ?? 0;
   return (
-    <div className="pdf-viewer">
+    <div className="pdf-viewer" id="pdf-viewer">
       <div className="pdf-toolbar">
         <button type="button" className="button-secondary" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
           前のページ
