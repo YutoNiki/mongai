@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Lang = Literal["ja", "en"]
 
-ParagraphKind = Literal["body", "heading", "caption", "reference", "fragment"]
+ParagraphKind = Literal["body", "heading", "caption", "footnote", "reference", "fragment"]
 
 # セクションの役割（ルールの target_section と対応させる）
 SectionRole = Literal[
