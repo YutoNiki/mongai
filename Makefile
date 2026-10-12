@@ -8,7 +8,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev logs test test-security lint format eval check-api config clean clean-data
+.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-api config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -35,6 +35,9 @@ logs: ## ログ
 
 test: ## 単体・結合テスト（ネットワークなしのコンテナで実行）
 	$(RUN_TEST) pytest tests/unit
+
+test-integration: ## GROBID を使う結合テスト（internal_net 内で実行）
+	$(COMPOSE_TEST) run --rm integration
 
 test-security: ## ネットワーク分離・プロキシ・マウントのテスト（実際の構成を起動して検証）
 	$(COMPOSE) up -d --build --wait

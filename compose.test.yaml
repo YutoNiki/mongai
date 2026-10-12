@@ -39,6 +39,33 @@ services:
     tmpfs:
       - /tmp:mode=1777
 
+  # GROBID を使う結合テスト（make test-integration）。internal_net の中だけで通信する
+  integration:
+    image: mongai/dev:dev
+    profiles: [test]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    working_dir: /app
+    command: ["pytest", "tests/integration"]
+    environment:
+      MONGAI_MODELS_CONFIG: /app/config/models.yaml
+      GROBID_URL: http://grobid:8070
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+    volumes:
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./core:/app/core:ro
+      - ./config:/app/config:ro
+      - ./tests:/app/tests:ro
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    depends_on:
+      grobid: {condition: service_healthy}
+
   # おいとまAPIに実際に問い合わせるテスト（make check-api）。oitoma_proxy 経由でのみ外に出る
   api_check:
     build:
