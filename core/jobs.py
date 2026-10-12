@@ -9,6 +9,7 @@ from typing import Any
 
 from core.analyze.models import Finding
 from core.analyze.pipeline import AnalysisSettings, analyze_logic
+from core.annotate.locate import relocate_findings, summary
 from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.pipeline import ingest_pdf
 from core.llm.client import OitomaClient
@@ -58,11 +59,17 @@ async def run_analysis(
             analysis_id=analysis_id,
         )
         store.save_structures(analysis_id, result.structures)
-        store.save_findings(analysis_id, result.findings)  # 改善案を付けたもので更新する
+        # 指摘の位置を PDF 上の引用箇所に合わせる（文の座標がずれる PDF への対策）
+        store.set_progress(analysis_id, "locate", 0, len(result.findings))
+        findings, counts = relocate_findings(
+            paper_path(record.doc_id).read_bytes(), result.findings
+        )
+        located = summary(counts)
+        store.save_findings(analysis_id, findings)  # 改善案・位置を更新したもので保存する
         store.finish_analysis(
             analysis_id,
             status="completed",
-            warnings=doc.warnings + result.warnings,
+            warnings=doc.warnings + result.warnings + ([located] if located else []),
             api_usage=llm.usage.rows(),
         )
         llm.usage.log_summary(label=analysis_id)

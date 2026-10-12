@@ -39,6 +39,8 @@ ignore_missing_imports = true
 module = [
     "core.ingest.layout",
     "core.annotate.pdf",
+    "core.annotate.locate",
+    "core.annotate.check",
     "tests.unit.pdf_factory",
     "tests.unit.test_annotate",
     "tests.unit.test_api_annotated",
