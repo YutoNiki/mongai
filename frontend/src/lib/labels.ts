@@ -16,6 +16,9 @@ export const SUBCATEGORY_LABELS: Record<string, string> = {
   ambiguous_reference: "指示語の曖昧さ",
   disconnection: "段落間の接続の断絶",
   section_role_violation: "セクションの役割違反",
+  bib_not_found: "書誌が見つからない",
+  bib_mismatch: "書誌の不一致",
+  citation_unsupported: "引用内容が支持されない",
 };
 
 export const SEVERITY_LABELS: Record<string, string> = {
@@ -44,10 +47,34 @@ export const STAGE_LABELS: Record<string, string> = {
   structure: "論証構造の抽出",
   paragraph_check: "段落内のチェック",
   flow_check: "段落間のチェック",
+  citation: "引用の検証",
   suggestion: "改善案の作成",
 };
 
-export const STAGES = ["ingest", "structure", "paragraph_check", "flow_check", "suggestion"] as const;
+export const STAGES = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "suggestion"] as const;
+
+/** 検索ゲートウェイの判定 */
+export const DECISION_LABELS: Record<string, string> = {
+  sent: "送信",
+  approved: "承認して送信",
+  cached: "再利用（送信なし）",
+  pending: "承認待ち",
+  rejected: "却下",
+  blocked: "拒否",
+  failed: "失敗",
+};
+
+export const REQUEST_KIND_LABELS: Record<string, string> = {
+  bib_lookup: "書誌の照合",
+  oa_fetch: "アブストラクトの取得",
+  term_lookup: "用語の照会",
+};
+
+export const MODE_LABELS: Record<string, string> = {
+  strict: "strict（すべて承認制）",
+  standard: "standard（書誌の照合は自動、用語の照会は承認制）",
+  offline: "offline（学外への通信をすべて停止）",
+};
 export const SEVERITIES = ["critical", "major", "suggestion"] as const;
 export const CATEGORIES = ["logic", "readability", "rule", "citation", "lab"] as const;
 

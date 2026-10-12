@@ -222,9 +222,14 @@ async def _references(
     if needs_fallback(refs) and reference_text:
         if llm is not None:
             try:
-                return await extract_with_llm(llm, reference_text, lang)
+                extracted = await extract_with_llm(llm, reference_text, lang)
             except OitomaError as exc:
                 warnings.append(f"参考文献の構造化（高速モデル）に失敗しました：{exc}")
+            else:
+                if extracted:
+                    return supplement_from_text(extracted, reference_text)
+                # 高速モデルが何も返さなかった場合は、本文から補う方法に切り替える
+                warnings.append("参考文献の構造化（高速モデル）で文献を取り出せませんでした")
         else:
             warnings.append("GROBID で参考文献を十分に構造化できませんでした")
     cleaned = [_with_label(r) for r in clean_references(refs)]

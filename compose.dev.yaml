@@ -8,6 +8,7 @@ services:
     command: ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/core"]
     volumes:
       - ./core:/app/core:ro
+      - ./shared:/app/shared:ro
 
   worker:
     volumes:
@@ -17,10 +18,12 @@ services:
     command: ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/gateway"]
     volumes:
       - ./gateway:/app/gateway:ro
+      - ./shared:/app/shared:ro
 
   searcher:
     command: ["uvicorn", "searcher.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/searcher"]
     volumes:
       - ./searcher:/app/searcher:ro
+      - ./shared:/app/shared:ro
 
   # web はビルド済みのフロントエンドを配信する（変更後は make dev で再ビルドされる）

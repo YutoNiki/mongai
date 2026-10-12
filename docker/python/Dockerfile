@@ -49,6 +49,7 @@ WORKDIR /app
 # ---------------------------------------------------------------- core / worker
 FROM runtime AS core
 COPY --from=deps-core /opt/venv /opt/venv
+COPY shared/ /app/shared/
 COPY core/ /app/core/
 COPY config/models.yaml /app/config/models.yaml
 # 名前付きボリュームの初回作成時に所有者を引き継がせる
@@ -61,6 +62,7 @@ CMD ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # ---------------------------------------------------------------- gateway
 FROM runtime AS gateway
 COPY --from=deps-gateway /opt/venv /opt/venv
+COPY shared/ /app/shared/
 COPY gateway/ /app/gateway/
 RUN mkdir -p /data/audit && chown app:app /data/audit
 USER 10001:10001
@@ -71,6 +73,7 @@ CMD ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # 論文データ用のディレクトリは作らない（tests/security で /data が無いことを確認する）
 FROM runtime AS searcher
 COPY --from=deps-searcher /opt/venv /opt/venv
+COPY shared/ /app/shared/
 COPY searcher/ /app/searcher/
 USER 10001:10001
 EXPOSE 8000

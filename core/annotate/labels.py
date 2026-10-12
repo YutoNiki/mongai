@@ -18,6 +18,9 @@ SUBCATEGORY_LABELS: Final[dict[str, str]] = {
     "ambiguous_reference": "指示語の曖昧さ",
     "disconnection": "段落間の接続の断絶",
     "section_role_violation": "セクションの役割違反",
+    "bib_not_found": "書誌が見つからない",
+    "bib_mismatch": "書誌の不一致",
+    "citation_unsupported": "引用内容が支持されない",
 }
 
 SEVERITY_LABELS: Final[dict[str, str]] = {

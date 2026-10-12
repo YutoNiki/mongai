@@ -1,6 +1,6 @@
 """API の入出力（Pydantic）。"""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -84,4 +84,5 @@ class AnalysisListItem(BaseModel):
 
 class AuditLog(BaseModel):
     available: bool
-    entries: list[dict[str, str]]
+    mode: str | None = None
+    entries: list[dict[str, Any]]

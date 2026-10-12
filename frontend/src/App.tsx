@@ -5,6 +5,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { DefinitionsPage } from "./pages/DefinitionsPage";
 import { DetailPage } from "./pages/DetailPage";
 import { HomePage } from "./pages/HomePage";
+import { QueuePage } from "./pages/QueuePage";
 
 function Route({ path }: { path: string }) {
   let m = matchRoute("/analyses/:id/findings/:fid", path);
@@ -12,6 +13,7 @@ function Route({ path }: { path: string }) {
   m = matchRoute("/analyses/:id", path);
   if (m) return <DashboardPage key={m.id} analysisId={m.id ?? ""} />;
   if (path === "/audit") return <AuditPage />;
+  if (path === "/queue") return <QueuePage />;
   if (path === "/definitions") return <DefinitionsPage />;
   if (path === "/") return <HomePage />;
   return <p className="page">ページが見つかりません。</p>;

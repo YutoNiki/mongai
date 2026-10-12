@@ -3,11 +3,13 @@
 進捗と、確定した指摘を順に保存するので、画面は解析中でも結果を表示できる。
 """
 
+import contextlib
 import logging
 from typing import Any
 
 from core.analyze.models import Finding
 from core.analyze.pipeline import AnalysisSettings, analyze_logic
+from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.pipeline import ingest_pdf
 from core.llm.client import OitomaClient
 from core.store import Store
@@ -22,6 +24,7 @@ async def run_analysis(
     *,
     store: Store | None = None,
     client: OitomaClient | None = None,
+    gateway: GatewayClient | None = None,
 ) -> str:
     """解析を1件実行し、最終的なステータスを返す。store・client はテスト用に差し替えられる。"""
     store = store or Store()
@@ -31,6 +34,7 @@ async def run_analysis(
     settings = AnalysisSettings.model_validate(record.settings)
     own_client = client is None
     llm = client or OitomaClient()
+    gw = gateway or GatewayClient()
     store.set_status(analysis_id, "running")
     try:
         store.set_progress(analysis_id, "ingest", 0, 1)
@@ -45,7 +49,13 @@ async def run_analysis(
             store.save_findings(analysis_id, findings)
 
         result = await analyze_logic(
-            doc, llm, settings, on_progress=on_progress, on_findings=on_findings
+            doc,
+            llm,
+            settings,
+            on_progress=on_progress,
+            on_findings=on_findings,
+            gateway=gw,
+            analysis_id=analysis_id,
         )
         store.save_structures(analysis_id, result.structures)
         store.save_findings(analysis_id, result.findings)  # 改善案を付けたもので更新する
@@ -68,5 +78,8 @@ async def run_analysis(
         )
         return "failed"
     finally:
+        # 原稿の照合情報を gateway のメモリから消す（承認後の再解析では、改めて登録する）
+        with contextlib.suppress(GatewayError):
+            await gw.forget(record.doc_id)
         if own_client:
             await llm.aclose()

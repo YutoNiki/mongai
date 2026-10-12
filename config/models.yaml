@@ -28,7 +28,7 @@ roles:
   reference_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # GROBID が失敗した場合の参考文献の構造化
   logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, thinking: true, max_tokens: 16384}
   rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
-  citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true}
+  citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true, max_tokens: 8192}
   suggestion:           {model: qwen3.8-27b-it, temperature: 0.4, thinking: true, max_tokens: 12288}
   second_opinion:       {model: Ternary-Bonsai-2-27B, temperature: 0.0}
   searcher_match:       {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}

@@ -9,6 +9,9 @@ const SUBCATEGORY_TEXT: Record<string, string> = {
   ambiguous_reference: "「これ」「本手法」などの指示語が何を指すか一意に決まらない",
   disconnection: "段落が直前の段落から論理的につながっていない",
   section_role_violation: "段落の内容が、属するセクションの役割に合っていない",
+  bib_not_found: "参考文献の DOI が書誌データベースで見つからない（DOI の誤記の可能性）",
+  bib_mismatch: "参考文献の年・第一著者・タイトル・巻・ページが、書誌データベースの記録と一致しない",
+  citation_unsupported: "引用している文の主張が、引用先の文献のアブストラクトと対応していない",
 };
 
 export function DefinitionsPage() {
@@ -40,7 +43,7 @@ export function DefinitionsPage() {
         </table>
       </section>
       <section className="panel">
-        <h2 className="panel-title">論理・読みやすさの指摘の内容</h2>
+        <h2 className="panel-title">指摘の内容</h2>
         <dl className="definitions">
           {Object.entries(SUBCATEGORY_TEXT).map(([k, v]) => (
             <div key={k}>
@@ -67,7 +70,10 @@ export function DefinitionsPage() {
           </div>
           <div>
             <dt>確度</dt>
-            <dd>同じ判定を3回行い、3回とも同じ指摘が出たものを「高」、2回のものを「低」としています（1回だけの指摘は表示しません）。</dd>
+            <dd>
+              論理・読みやすさの指摘は、同じ判定を3回行い、3回とも同じ指摘が出たものを「高」、2回のものを「低」としています（1回だけの指摘は表示しません）。
+              引用の指摘は1回の判定のため「低」です。
+            </dd>
           </div>
           <div>
             <dt>指摘数</dt>

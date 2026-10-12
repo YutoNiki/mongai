@@ -21,6 +21,9 @@ export function Layout({ children }: { children: ReactNode }) {
               <Link href="/audit">外部通信ログ</Link>
             </li>
             <li>
+              <Link href="/queue">承認キュー</Link>
+            </li>
+            <li>
               <Link href="/definitions">データの定義</Link>
             </li>
           </ul>

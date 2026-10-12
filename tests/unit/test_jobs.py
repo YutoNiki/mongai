@@ -1,19 +1,40 @@
 """解析ジョブ（構造化 → 解析 → 保存）。LLM は模擬し、GROBID は使わない。"""
 
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 import respx
 
 from core.analyze.pipeline import AnalysisSettings
+from core.gateway_client import GatewayClient
 from core.jobs import run_analysis
 from core.llm.client import OitomaClient
 from core.store import Store
 from core.store.files import save_paper
+from shared.schemas import GatewayResponse
 from tests.unit.test_analyze_pipeline import CHAT_URL, FakeLLM, config
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ja_extraphrase_jnlp2023.pdf"
+
+
+class FakeGateway(GatewayClient):
+    """外部要求をすべて止める gateway（offline モード相当）。"""
+
+    def __init__(self) -> None:
+        super().__init__("http://gateway.test")
+        self.registered: list[str] = []
+        self.forgotten: list[str] = []
+
+    async def register(self, guard: dict[str, Any]) -> None:
+        self.registered.append(str(guard["doc_id"]))
+
+    async def forget(self, doc_id: str) -> None:
+        self.forgotten.append(doc_id)
+
+    async def submit(self, analysis_id: str, doc_id: str, request: Any) -> GatewayResponse:
+        return GatewayResponse(request_id="R-x", decision="blocked", reason="offline モード")
 
 
 async def test_run_analysis_saves_progress_findings_and_usage(
@@ -33,8 +54,13 @@ async def test_run_analysis_saves_progress_findings_and_usage(
             return_value=httpx.Response(503)
         )
         async with OitomaClient(config(), api_key="k") as client:
-            status = await run_analysis({}, aid, store=store, client=client)
+            gateway = FakeGateway()
+            status = await run_analysis({}, aid, store=store, client=client, gateway=gateway)
     assert status == "completed"
+    assert gateway.registered == [doc_id] and gateway.forgotten == [doc_id]
+    record = store.get_analysis(aid)
+    assert record is not None
+    assert any("offline" in w for w in record.warnings), record.warnings
     record = store.get_analysis(aid)
     assert record is not None and record.status == "completed"
     assert record.progress.stage == "suggestion"
@@ -52,6 +78,9 @@ async def test_run_analysis_failure_is_recorded(
         "0" * 16, kind="logic", settings=AnalysisSettings(), status="queued"
     )
     async with OitomaClient(config(), api_key="k") as client:
-        assert await run_analysis({}, aid, store=store, client=client) == "failed"
+        assert (
+            await run_analysis({}, aid, store=store, client=client, gateway=FakeGateway())
+            == "failed"
+        )
     record = store.get_analysis(aid)
     assert record is not None and record.status == "failed" and record.error

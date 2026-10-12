@@ -6,7 +6,7 @@
 import csv
 import io
 import os
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
@@ -28,6 +28,7 @@ from core.api.schemas import (
     UploadResponse,
 )
 from core.api.summary import count_findings
+from core.gateway_client import GatewayClient, GatewayError
 from core.llm.config import get_models_config
 from core.logging_config import configure_logging
 from core.store import FindingNotFoundError, Store
@@ -37,7 +38,7 @@ configure_logging()
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 # ダッシュボードのメタ情報に表示する役割
-DISPLAYED_ROLES = ("structure_extraction", "logic_check", "suggestion")
+DISPLAYED_ROLES = ("structure_extraction", "logic_check", "citation_support", "suggestion")
 
 app = FastAPI(title="MonGAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -70,8 +71,13 @@ def get_queue() -> JobQueue:
     return _queue
 
 
+def get_gateway() -> GatewayClient:
+    return GatewayClient()
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
+GatewayDep = Annotated[GatewayClient, Depends(get_gateway)]
 
 
 def _analysis_or_404(store: Store, analysis_id: str) -> None:
@@ -116,7 +122,7 @@ def paper_pdf(doc_id: str) -> Response:
 
 @app.post("/api/analyses", status_code=201)
 async def create_analysis(
-    request: CreateAnalysisRequest, store: StoreDep, queue: QueueDep
+    request: CreateAnalysisRequest, store: StoreDep, queue: QueueDep, gateway: GatewayDep
 ) -> AnalysisSummary:
     if store.get_paper(request.doc_id) is None:
         raise HTTPException(status_code=404, detail="論文が見つかりません")
@@ -125,7 +131,7 @@ async def create_analysis(
         request.doc_id, kind="logic", settings=settings, status="queued"
     )
     await queue.enqueue(analysis_id)
-    return summarize(store, analysis_id)
+    return await summarize(store, analysis_id, gateway)
 
 
 @app.get("/api/analyses")
@@ -150,7 +156,7 @@ def list_analyses(store: StoreDep) -> list[AnalysisListItem]:
     return items
 
 
-def summarize(store: Store, analysis_id: str) -> AnalysisSummary:
+async def summarize(store: Store, analysis_id: str, gateway: GatewayClient) -> AnalysisSummary:
     record = store.get_analysis(analysis_id)
     if record is None:
         raise HTTPException(status_code=404, detail="解析が見つかりません")
@@ -168,6 +174,10 @@ def summarize(store: Store, analysis_id: str) -> AnalysisSummary:
         )
     config = get_models_config()
     usage = store.get_api_usage(analysis_id)
+    try:
+        external = await gateway.external_count(analysis_id)
+    except GatewayError:
+        external = 0
     return AnalysisSummary(
         analysis=record,
         paper=store.get_paper(record.doc_id),
@@ -179,13 +189,13 @@ def summarize(store: Store, analysis_id: str) -> AnalysisSummary:
         models={role: config.role(role).model for role in DISPLAYED_ROLES},
         api_usage=usage,
         api_requests=sum(r.requests for r in usage),
-        external_requests=0,
+        external_requests=external,
     )
 
 
 @app.get("/api/analyses/{analysis_id}")
-def get_analysis(analysis_id: str, store: StoreDep) -> AnalysisSummary:
-    return summarize(store, analysis_id)
+async def get_analysis(analysis_id: str, store: StoreDep, gateway: GatewayDep) -> AnalysisSummary:
+    return await summarize(store, analysis_id, gateway)
 
 
 Severity = Literal["critical", "major", "suggestion"]
@@ -321,10 +331,40 @@ def annotated_pdf(
     )
 
 
-# ---------------------------------------------------------------- 外部通信ログ
+# ---------------------------------------------------------------- 外部通信ログ・承認キュー（gateway）
 
 
 @app.get("/api/audit-log")
-def audit_log() -> AuditLog:
-    """学外への要求の記録（M7 の検索ゲートウェイが audit_log に書き込む。それまでは空）。"""
-    return AuditLog(available=False, entries=[])
+async def audit_log(gateway: GatewayDep, analysis_id: str | None = None) -> AuditLog:
+    """学外への要求の記録（検索ゲートウェイの監査ログ。拒否・承認待ちを含む）。"""
+    try:
+        mode = await gateway.mode()
+        entries = await gateway.audit(analysis_id=analysis_id)
+    except GatewayError:
+        return AuditLog(available=False, entries=[])
+    return AuditLog(available=True, mode=mode, entries=entries)
+
+
+@app.get("/api/gateway/queue")
+async def gateway_queue(gateway: GatewayDep) -> list[dict[str, Any]]:
+    try:
+        return await gateway.queue()
+    except GatewayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+
+
+@app.post("/api/gateway/queue/{request_id}/{action}")
+async def gateway_decide(
+    request_id: str, action: Literal["approve", "reject"], gateway: GatewayDep
+) -> dict[str, Any]:
+    try:
+        response = await (
+            gateway.approve(request_id) if action == "approve" else gateway.reject(request_id)
+        )
+    except GatewayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return {
+        "request_id": response.request_id,
+        "decision": response.decision,
+        "reason": response.reason,
+    }

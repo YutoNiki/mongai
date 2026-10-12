@@ -30,6 +30,7 @@ def config() -> ModelsConfig:
                 "logic_check": {"model": "think", "samples": 3, "vote": "majority"},
                 "suggestion": {"model": "think"},
                 "reference_extraction": {"model": "fast"},
+                "citation_support": {"model": "think"},
             },
             "embeddings": {},
         }
