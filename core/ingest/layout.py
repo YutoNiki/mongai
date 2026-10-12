@@ -430,7 +430,7 @@ def detect_title(lines: list[Line], body_size: float) -> str | None:
     for ln in first_page[start + 1 :]:
         prev = group[-1]
         same_size = abs(ln.size - largest) <= 0.5
-        close = 0 <= ln.bbox[1] - prev.bbox[3] <= largest * 1.2
+        close = -largest * 0.5 <= ln.bbox[1] - prev.bbox[3] <= largest * 1.2
         if not (same_size and close):
             break
         group.append(ln)
