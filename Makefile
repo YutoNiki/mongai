@@ -19,7 +19,7 @@ setup: ## git フックを設定（AI を共同著者とするコミットを拒
 
 build: ## イメージのビルド
 	$(COMPOSE) build
-	$(COMPOSE_TEST) build test
+	$(COMPOSE_TEST) build test frontend
 
 up: ## 起動（本番相当、全サービスが healthy になるまで待つ）
 	$(COMPOSE) up -d --wait
@@ -33,8 +33,10 @@ dev: ## 開発モード（ホットリロード）
 logs: ## ログ
 	$(COMPOSE) logs -f --tail=200
 
-test: ## 単体・結合テスト（ネットワークなしのコンテナで実行）
+test: ## 単体テスト（Python・フロントエンド。ネットワークなしのコンテナで実行）
 	$(RUN_TEST) pytest tests/unit
+	$(COMPOSE_TEST) build -q frontend
+	$(COMPOSE_TEST) run --rm --no-deps frontend sh -c "npm test"
 
 test-integration: ## GROBID を使う結合テスト（internal_net 内で実行）
 	$(COMPOSE_TEST) run --rm integration
@@ -43,8 +45,10 @@ test-security: ## ネットワーク分離・プロキシ・マウントのテ�
 	$(COMPOSE) up -d --build --wait
 	sh tests/security/run.sh
 
-lint: ## ruff / mypy（M5 以降は eslint / tsc も）
+lint: ## ruff / mypy / eslint / tsc
 	$(RUN_TEST) sh -c "ruff check . && ruff format --check . && mypy"
+	$(COMPOSE_TEST) build -q frontend
+	$(COMPOSE_TEST) run --rm --no-deps frontend sh -c "npm run typecheck && npm run lint"
 
 format: ## ruff format で整形（ソースは読み取り専用マウントなので差分の表示のみ）
 	$(RUN_TEST) ruff format --diff .
