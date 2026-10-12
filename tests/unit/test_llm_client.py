@@ -323,3 +323,19 @@ async def test_usage_summary_logged_on_close(caplog: pytest.LogCaptureFixture) -
             await c.embed(["a"], role="retrieval")
     assert "oitoma_usage_total requests=1" in caplog.text
     assert "role=embedding:retrieval" in caplog.text
+
+
+@respx.mock
+async def test_validation_warning_does_not_log_content(
+    client: OitomaClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    respx.post(CHAT_URL).mock(
+        side_effect=[
+            chat_response('{"label": "未発表の内容", "score": "高い"}'),
+            chat_response('{"label": "a", "score": 1}'),
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        await client.chat_json("fast", [{"role": "user", "content": "x"}], Verdict)
+    assert "score:int_parsing" in caplog.text
+    assert "未発表の内容" not in caplog.text and "高い" not in caplog.text

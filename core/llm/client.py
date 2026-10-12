@@ -337,9 +337,10 @@ class OitomaClient:
             except (ValueError, ValidationError) as exc:
                 last_error = str(exc)[:1000]
                 logger.warning(
-                    "JSON の検証に失敗しました（role=%s finish=%s）。再生成します",
+                    "JSON の検証に失敗しました（role=%s finish=%s error=%s）。再生成します",
                     role,
                     result.finish_reason,
+                    _error_kind(exc),
                 )
                 conversation = [
                     *conversation,
@@ -400,6 +401,15 @@ class OitomaClient:
         if len(items) != len(texts):
             raise OitomaError("埋め込みの件数が入力と一致しません")
         return [item["embedding"] for item in items]
+
+
+def _error_kind(exc: Exception) -> str:
+    """検証エラーの種類と位置だけを返す（ログに論文の本文が出ないよう、値は含めない）。"""
+    if isinstance(exc, ValidationError):
+        return ";".join(
+            f"{'.'.join(str(p) for p in e['loc'])}:{e['type']}" for e in exc.errors()[:3]
+        )
+    return type(exc).__name__
 
 
 def _with_system_suffix(messages: Sequence[Message], suffix: str) -> list[Message]:
