@@ -109,3 +109,10 @@ async def test_citations_resolved_without_grobid(name: str, request: pytest.Fixt
     for c in doc.citations:
         assert c.sentence_id in sentence_ids
         assert set(c.ref_ids) <= ref_ids
+
+
+async def test_hidden_clipped_text_is_ignored(ja_doc: Document) -> None:
+    # 3ページ目の図の中に、表示されない本文の複製が埋め込まれている。それを文として取り出さない
+    hits = [s for s in ja_doc.sentences if "生成された疑似データの性質を分析し" in s.text]
+    assert len(hits) == 1
+    assert hits[0].text.endswith("示した（4.4 節）．")

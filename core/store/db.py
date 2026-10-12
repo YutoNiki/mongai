@@ -23,9 +23,15 @@ from core.llm.usage import UsageRow
 
 DEFAULT_DB_PATH = "/data/db/mongai.sqlite3"
 
-AnalysisStatus = Literal["running", "completed", "failed"]
+AnalysisStatus = Literal["queued", "running", "completed", "failed"]
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS papers (
+    doc_id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS documents (
     doc_id TEXT PRIMARY KEY,
     title TEXT,
@@ -36,10 +42,11 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 CREATE TABLE IF NOT EXISTS analyses (
     analysis_id TEXT PRIMARY KEY,
-    doc_id TEXT NOT NULL REFERENCES documents(doc_id),
+    doc_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     status TEXT NOT NULL,
     settings TEXT NOT NULL,
+    progress TEXT NOT NULL DEFAULT '{}',
     warnings TEXT NOT NULL DEFAULT '[]',
     error TEXT,
     created_at TEXT NOT NULL,
@@ -89,12 +96,28 @@ class FindingNotFoundError(KeyError):
     pass
 
 
+class Progress(BaseModel):
+    """解析の進捗。stage は ingest / structure / paragraph_check / flow_check / suggestion。"""
+
+    stage: str | None = None
+    done: int = 0
+    total: int = 0
+
+
+class PaperRecord(BaseModel):
+    doc_id: str
+    filename: str
+    size: int
+    uploaded_at: str
+
+
 class AnalysisRecord(BaseModel):
     analysis_id: str
     doc_id: str
     kind: str
     status: AnalysisStatus
     settings: dict[str, Any]
+    progress: Progress = Progress()
     warnings: list[str]
     error: str | None
     created_at: str
@@ -111,6 +134,9 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            columns = {r["name"] for r in conn.execute("PRAGMA table_info(analyses)")}
+            if "progress" not in columns:  # M3 で作ったデータベースへの列の追加
+                conn.execute("ALTER TABLE analyses ADD COLUMN progress TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -123,6 +149,21 @@ class Store:
                 yield conn
         finally:
             conn.close()
+
+    # ------------------------------------------------------------ アップロードされた論文
+
+    def save_paper(self, doc_id: str, *, filename: str, size: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO papers (doc_id, filename, size, uploaded_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(doc_id) DO UPDATE SET filename=excluded.filename",
+                (doc_id, filename, size, _now()),
+            )
+
+    def get_paper(self, doc_id: str) -> PaperRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM papers WHERE doc_id = ?", (doc_id,)).fetchone()
+        return PaperRecord(**dict(row)) if row else None
 
     # ------------------------------------------------------------ 文書
 
@@ -142,15 +183,109 @@ class Store:
 
     # ------------------------------------------------------------ 解析
 
-    def create_analysis(self, doc_id: str, *, kind: str, settings: BaseModel) -> str:
+    def create_analysis(
+        self,
+        doc_id: str,
+        *,
+        kind: str,
+        settings: BaseModel,
+        status: AnalysisStatus = "running",
+    ) -> str:
         analysis_id = f"A-{uuid.uuid4().hex[:12]}"
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, created_at) "
-                "VALUES (?, ?, ?, 'running', ?, ?)",
-                (analysis_id, doc_id, kind, settings.model_dump_json(), _now()),
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (analysis_id, doc_id, kind, status, settings.model_dump_json(), _now()),
             )
         return analysis_id
+
+    def set_status(self, analysis_id: str, status: AnalysisStatus) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE analyses SET status = ? WHERE analysis_id = ?", (status, analysis_id)
+            )
+
+    def set_progress(self, analysis_id: str, stage: str, done: int, total: int) -> None:
+        progress = Progress(stage=stage, done=done, total=total).model_dump_json()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE analyses SET progress = ? WHERE analysis_id = ?", (progress, analysis_id)
+            )
+
+    def recover_interrupted(self) -> tuple[list[str], list[str]]:
+        """ワーカーの起動時に呼ぶ。実行中だった解析を失敗にし、順番待ちの解析の ID を返す。
+
+        戻り値：(失敗にした解析, 順番待ちの解析)
+        """
+        with self._connect() as conn:
+            running = [
+                r["analysis_id"]
+                for r in conn.execute("SELECT analysis_id FROM analyses WHERE status = 'running'")
+            ]
+            queued = [
+                r["analysis_id"]
+                for r in conn.execute(
+                    "SELECT analysis_id FROM analyses WHERE status = 'queued' ORDER BY created_at"
+                )
+            ]
+            conn.execute(
+                "UPDATE analyses SET status = 'failed', finished_at = ?, "
+                "error = 'ワーカーの再起動により解析が中断されました。もう一度解析してください' "
+                "WHERE status = 'running'",
+                (_now(),),
+            )
+        return running, queued
+
+    def list_analyses(self, limit: int = 100) -> list[AnalysisRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analyses ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self._analysis(r) for r in rows]
+
+    def find_previous(self, analysis_id: str) -> AnalysisRecord | None:
+        """同じ論文（同じ ID、または同じタイトル・ファイル名）の、これより前の完了した解析。"""
+        current = self.get_analysis(analysis_id)
+        if current is None:
+            return None
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT a.*, d.title AS title, p.filename AS filename FROM analyses a "
+                "LEFT JOIN documents d ON d.doc_id = a.doc_id "
+                "LEFT JOIN papers p ON p.doc_id = a.doc_id "
+                "WHERE a.status = 'completed' AND a.analysis_id != ? AND a.created_at <= ? "
+                "ORDER BY a.created_at DESC, a.rowid DESC",
+                (analysis_id, current.created_at),
+            ).fetchall()
+            mine = conn.execute(
+                "SELECT d.title AS title, p.filename AS filename FROM analyses a "
+                "LEFT JOIN documents d ON d.doc_id = a.doc_id "
+                "LEFT JOIN papers p ON p.doc_id = a.doc_id WHERE a.analysis_id = ?",
+                (analysis_id,),
+            ).fetchone()
+        for row in rows:
+            same_doc = row["doc_id"] == current.doc_id
+            same_title = bool(mine["title"]) and row["title"] == mine["title"]
+            same_file = bool(mine["filename"]) and row["filename"] == mine["filename"]
+            if same_doc or same_title or same_file:
+                return self._analysis(row)
+        return None
+
+    @staticmethod
+    def _analysis(row: sqlite3.Row) -> AnalysisRecord:
+        return AnalysisRecord(
+            analysis_id=row["analysis_id"],
+            doc_id=row["doc_id"],
+            kind=row["kind"],
+            status=row["status"],
+            settings=json.loads(row["settings"]),
+            progress=Progress.model_validate_json(row["progress"] or "{}"),
+            warnings=json.loads(row["warnings"]),
+            error=row["error"],
+            created_at=row["created_at"],
+            finished_at=row["finished_at"],
+        )
 
     def finish_analysis(
         self,
@@ -181,19 +316,7 @@ class Store:
             row = conn.execute(
                 "SELECT * FROM analyses WHERE analysis_id = ?", (analysis_id,)
             ).fetchone()
-        if row is None:
-            return None
-        return AnalysisRecord(
-            analysis_id=row["analysis_id"],
-            doc_id=row["doc_id"],
-            kind=row["kind"],
-            status=row["status"],
-            settings=json.loads(row["settings"]),
-            warnings=json.loads(row["warnings"]),
-            error=row["error"],
-            created_at=row["created_at"],
-            finished_at=row["finished_at"],
-        )
+        return self._analysis(row) if row is not None else None
 
     def save_structures(self, analysis_id: str, structures: list[ParagraphStructure]) -> None:
         with self._connect() as conn:
@@ -250,10 +373,19 @@ class Store:
         category: str | None = None,
         severity: str | None = None,
         status: str | None = None,
+        section_id: str | None = None,
+        confidence: str | None = None,
     ) -> list[Finding]:
         query = "SELECT data, status, dismiss_reason FROM findings WHERE analysis_id = ?"
         params: list[Any] = [analysis_id]
-        for column, value in (("category", category), ("severity", severity), ("status", status)):
+        filters = (
+            ("category", category),
+            ("severity", severity),
+            ("status", status),
+            ("section_id", section_id),
+            ("confidence", confidence),
+        )
+        for column, value in filters:
             if value is not None:
                 query += f" AND {column} = ?"
                 params.append(value)

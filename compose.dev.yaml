@@ -23,6 +23,4 @@ services:
     volumes:
       - ./searcher:/app/searcher:ro
 
-  web:
-    volumes:
-      - ./docker/web/static:/usr/share/nginx/html:ro
+  # web はビルド済みのフロントエンドを配信する（変更後は make dev で再ビルドされる）

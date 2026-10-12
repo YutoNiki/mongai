@@ -99,7 +99,8 @@ def extract_lines(pdf: pymupdf.Document) -> list[Line]:
         page = pdf[page_index]
         page_no = page_index + 1
         # 合字（ﬀ・ﬁ など）は通常の文字に展開する（引用の照合で "Raﬀel" と "Raffel" を一致させるため）
-        raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE)
+        # 図などのクリップ領域の外にあって表示されない文字（埋め込まれた図に残った本文の複製など）は除く
+        raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_CLIP)
         for block in raw["blocks"]:
             if block.get("type") != 0:
                 continue
