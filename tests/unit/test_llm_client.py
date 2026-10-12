@@ -280,3 +280,46 @@ def test_split_reasoning_without_open_tag() -> None:
     answer, reasoning = split_reasoning("考え中…</think>回答")
     assert answer == "回答"
     assert reasoning == "考え中…"
+
+
+@respx.mock
+async def test_usage_counts_requests_retries_and_tokens(
+    client: OitomaClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    respx.post(CHAT_URL).mock(side_effect=[httpx.Response(503), chat_response("ok")])
+    with caplog.at_level(logging.INFO, logger="core.llm.usage"):
+        await client.chat_role("fast", [{"role": "user", "content": "秘密の本文"}])
+    rows = client.usage.rows()
+    assert len(rows) == 1
+    row = rows[0]
+    assert (row.endpoint, row.model, row.role) == ("chat/completions", "fast-model", "fast")
+    assert (row.calls, row.requests, row.retries, row.failures) == (1, 2, 1, 0)
+    assert (row.prompt_tokens, row.completion_tokens) == (10, 5)
+    request_lines = [r.message for r in caplog.records if "oitoma_request" in r.message]
+    assert len(request_lines) == 2
+    assert "status=503" in request_lines[0]
+    assert "attempt=2" in request_lines[1]
+    assert "秘密の本文" not in caplog.text
+
+
+@respx.mock
+async def test_usage_counts_failures(client: OitomaClient) -> None:
+    respx.post(CHAT_URL).mock(return_value=httpx.Response(400))
+    with pytest.raises(OitomaHTTPError):
+        await client.chat([{"role": "user", "content": "x"}], model="m")
+    row = client.usage.rows()[0]
+    assert (row.calls, row.requests, row.failures) == (1, 1, 1)
+
+
+@respx.mock
+async def test_usage_summary_logged_on_close(caplog: pytest.LogCaptureFixture) -> None:
+    respx.post(EMBED_URL).mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"index": 0, "embedding": [0.1]}], "usage": {"prompt_tokens": 3}}
+        )
+    )
+    with caplog.at_level(logging.INFO, logger="core.llm.usage"):
+        async with OitomaClient(make_config(), api_key="k", sleep=no_sleep) as c:
+            await c.embed(["a"], role="retrieval")
+    assert "oitoma_usage_total requests=1" in caplog.text
+    assert "role=embedding:retrieval" in caplog.text
