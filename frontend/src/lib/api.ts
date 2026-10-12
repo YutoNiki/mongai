@@ -109,6 +109,38 @@ export interface FindingFilters {
   status?: string;
 }
 
+export interface ExternalRequest {
+  kind: string;
+  doi?: string | null;
+  title?: string | null;
+  first_author?: string | null;
+  year?: number | null;
+  term?: string;
+  lang?: string;
+}
+
+export interface AuditEntry {
+  seq: number;
+  ts: string;
+  request_id: string;
+  analysis_id: string | null;
+  doc_id: string | null;
+  kind: string | null;
+  request: ExternalRequest | string;
+  decision: string;
+  reason: string | null;
+}
+
+export interface QueueItem {
+  request_id: string;
+  analysis_id: string;
+  doc_id: string;
+  kind: string;
+  request: ExternalRequest;
+  status: string;
+  created_at: string;
+}
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -163,7 +195,16 @@ export const api = {
       },
     );
   },
-  auditLog: () => request<{ available: boolean; entries: Record<string, string>[] }>("/audit-log"),
+  auditLog: (analysisId?: string) =>
+    request<{ available: boolean; mode: string | null; entries: AuditEntry[] }>(
+      `/audit-log${analysisId ? `?analysis_id=${encodeURIComponent(analysisId)}` : ""}`,
+    ),
+  queue: () => request<QueueItem[]>("/gateway/queue"),
+  decide: (requestId: string, action: "approve" | "reject") =>
+    request<{ request_id: string; decision: string; reason: string | null }>(
+      `/gateway/queue/${encodeURIComponent(requestId)}/${action}`,
+      { method: "POST" },
+    ),
   csvUrl: (id: string, filters: FindingFilters = {}) =>
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
   annotatedUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/annotated.pdf`,

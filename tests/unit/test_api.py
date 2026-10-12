@@ -2,17 +2,27 @@
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.main import app, get_queue, get_store
+from core.api.main import app, get_gateway, get_queue, get_store
+from core.gateway_client import GatewayClient
 from core.ingest.models import BBox
 from core.store import Store
+from shared.schemas import GatewayResponse
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
 from tests.unit.test_annotate import finding
+
+
+class OfflineGateway(GatewayClient):
+    """接続できない gateway（外部通信の件数は 0、ログは「利用できない」になる）。"""
+
+    def __init__(self) -> None:
+        super().__init__("http://127.0.0.1:9")
 
 
 class FakeQueue:
@@ -32,6 +42,7 @@ def ctx(
     queue = FakeQueue()
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_queue] = lambda: queue
+    app.dependency_overrides[get_gateway] = lambda: OfflineGateway()
     pdf = make_pdf(tmp_path / "p.pdf", [[Text(72, 120, "A synthetic paper.")]]).read_bytes()
     yield TestClient(app), store, queue, pdf
     app.dependency_overrides.clear()
@@ -148,6 +159,51 @@ def test_findings_filters_status_and_csv(ctx: tuple[TestClient, Store, FakeQueue
     assert "F-0001,論理,主張の過大,重大" in text and "却下,意図した表現" in text
 
 
-def test_audit_log_placeholder(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
+def test_audit_log_when_gateway_unavailable(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
     client, *_ = ctx
-    assert client.get("/api/audit-log").json() == {"available": False, "entries": []}
+    assert client.get("/api/audit-log").json() == {"available": False, "mode": None, "entries": []}
+
+
+class RecordingGateway(GatewayClient):
+    def __init__(self) -> None:
+        super().__init__("http://gateway.test")
+        self.decided: list[tuple[str, str]] = []
+
+    async def mode(self) -> str:
+        return "standard"
+
+    async def audit(self, analysis_id: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        return [{"seq": 1, "decision": "sent", "kind": "bib_lookup", "analysis_id": analysis_id}]
+
+    async def queue(self) -> list[dict[str, Any]]:
+        return [{"request_id": "R-1", "kind": "term_lookup", "request": {"term": "BERT"}}]
+
+    async def approve(self, request_id: str) -> GatewayResponse:
+        self.decided.append((request_id, "approve"))
+        return GatewayResponse(request_id=request_id, decision="sent")
+
+    async def reject(self, request_id: str) -> GatewayResponse:
+        self.decided.append((request_id, "reject"))
+        return GatewayResponse(request_id=request_id, decision="rejected")
+
+    async def external_count(self, analysis_id: str) -> int:
+        return 7
+
+
+def test_audit_log_and_queue_via_gateway(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
+    client, store, _, pdf = ctx
+    gateway = RecordingGateway()
+    app.dependency_overrides[get_gateway] = lambda: gateway
+    log = client.get("/api/audit-log", params={"analysis_id": "A-1"}).json()
+    assert (
+        log["available"] and log["mode"] == "standard" and log["entries"][0]["analysis_id"] == "A-1"
+    )
+    assert client.get("/api/gateway/queue").json()[0]["request"]["term"] == "BERT"
+    assert client.post("/api/gateway/queue/R-1/approve").json()["decision"] == "sent"
+    assert client.post("/api/gateway/queue/R-1/reject").json()["decision"] == "rejected"
+    assert client.post("/api/gateway/queue/R-1/delete").status_code == 422
+    assert gateway.decided == [("R-1", "approve"), ("R-1", "reject")]
+    aid = seed(store, upload(client, pdf))
+    assert client.get(f"/api/analyses/{aid}").json()["external_requests"] == 7
