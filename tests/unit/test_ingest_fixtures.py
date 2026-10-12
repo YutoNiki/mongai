@@ -79,6 +79,8 @@ async def test_known_sentences(en_doc: Document, ja_doc: Document) -> None:
         "In sequence-to-sequence tasks, we need a parallel corpus to train neural encoder-decoders."
         in en
     )
+    # 段・ページの区切りと図をまたいで続く文
+    assert any(t.endswith("to the extracted text to obtain diverse pseudo summaries.") for t in en)
     ja = {s.text for s in ja_doc.sentences}
     assert "本研究では見出し生成タスクと文書要約タスクで実験を行う．" in ja
 

@@ -36,7 +36,13 @@ ignore_missing_imports = true
 
 # PyMuPDF は型注釈が不完全なため、呼び出し側でだけ型なしの呼び出しを許す
 [[tool.mypy.overrides]]
-module = ["core.ingest.layout", "tests.unit.pdf_factory"]
+module = [
+    "core.ingest.layout",
+    "core.annotate.pdf",
+    "tests.unit.pdf_factory",
+    "tests.unit.test_annotate",
+    "tests.unit.test_api_annotated",
+]
 disallow_untyped_calls = false
 
 [tool.pytest.ini_options]

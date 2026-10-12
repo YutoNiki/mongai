@@ -1,6 +1,7 @@
 """論理・読みやすさの解析の確認用 CLI。
 
-python -m core.analyze <PDF> [--max-paragraphs N] [--output-lang paper|ja] [--db PATH] [--json]
+python -m core.analyze <PDF> [--max-paragraphs N] [--output-lang paper|ja] [--db PATH]
+                       [--annotate OUT.pdf] [--json]
 
 公開論文・合成データでの動作確認用。実際の未発表論文は、Claude Code 等を使わずに扱うこと。
 """
@@ -8,8 +9,10 @@ python -m core.analyze <PDF> [--max-paragraphs N] [--output-lang paper|ja] [--db
 import argparse
 import asyncio
 from collections import Counter
+from pathlib import Path
 
 from core.analyze.pipeline import AnalysisSettings, analyze_logic
+from core.annotate.pdf import annotate_pdf
 from core.ingest.pipeline import ingest_pdf
 from core.llm.client import OitomaClient
 from core.logging_config import configure_logging
@@ -53,6 +56,9 @@ async def _run(args: argparse.Namespace) -> None:
                 api_usage=result.api_usage,
             )
 
+    if args.annotate:
+        Path(args.annotate).write_bytes(annotate_pdf(Path(args.pdf).read_bytes(), result.findings))
+        print(f"注釈付きPDF：{args.annotate}")
     if args.json:
         print(result.model_dump_json(indent=2))
         return
@@ -90,6 +96,7 @@ def main() -> None:
     parser.add_argument("--no-flow", action="store_true", help="段落間のチェックを省く")
     parser.add_argument("--no-suggestions", action="store_true", help="改善案を省く")
     parser.add_argument("--db", help="結果を保存する SQLite のパス")
+    parser.add_argument("--annotate", metavar="OUT.pdf", help="注釈付きPDFを書き出す")
     parser.add_argument("--json", action="store_true")
     asyncio.run(_run(parser.parse_args()))
 

@@ -112,3 +112,29 @@ def test_hanging_indent_references(tmp_path: Path) -> None:
         "Bahdanau, D., Cho, K., and Bengio, Y. (2015). Neural machine translation by jointly learning to align and translate. In ICLR.",
         "Bolshakov, I. A. and Gelbukh, A. (2004). Synonymous paraphrasing using WordNet and Internet. In NLDB, pp. 312-323.",
     ]
+
+
+def test_paragraph_continues_across_columns_and_figures(tmp_path: Path) -> None:
+    # 左の段の最後で文が途切れ、図中の文字（小さい字）を挟んで右の段の先頭に続く
+    left = lines(
+        60,
+        700,
+        [
+            "Then we apply a paraphrasing method to the",
+            "extracted text in order to obtain diverse",
+        ],
+        font="cour",
+    )
+    figure = [Text(330, 80, "Figure text", size=7), Text(330, 90, "more figure text", size=7)]
+    right = [
+        Text(310, 120, "pseudo summaries for the training data.", font="cour"),
+        Text(310, 160, "Back-translation 3.8M (1K) 38.51 19.52", font="cour"),
+    ]
+    layout = analyze_layout(make_pdf(tmp_path / "c.pdf", [[*left, *figure, *right]]))
+    body = [p.text for p in layout.paragraphs if p.kind == "body"]
+    assert (
+        "Then we apply a paraphrasing method to the extracted text in order to obtain diverse "
+        "pseudo summaries for the training data."
+    ) in body
+    # 大文字で始まる表の行はつながない
+    assert not any("diverse Back-translation" in t for t in body)
