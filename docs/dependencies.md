@@ -16,6 +16,8 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | pyyaml | 6.0.3 | core / gateway | なし |
 | arq | 0.28.0 | worker | なし（Redis にだけ接続） |
 | redis | 5.3.1 | worker | なし。arq 0.28 が `redis<6` を要求するため 5 系に固定 |
+| pymupdf | 1.28.2 | core / worker | なし。**ライセンスは AGPL-3.0**（または Artifex の商用ライセンス）。学内サービスとしてネットワーク越しに提供する場合、AGPL によりソースコードを利用者に提供する義務がある（本リポジトリを公開していれば満たせる）。SPEC 7 で指定されたライブラリ |
+| pysbd | 0.3.4 | core / worker | なし（MIT）。Python 3.12 で正規表現リテラルの SyntaxWarning が出るが動作に影響しない（pytest では抑制） |
 | pytest / pytest-asyncio / respx | 9.1.1 / 1.4.0 / 0.23.1 | テストのみ | なし。テストは `network_mode: none` のコンテナで実行 |
 | ruff / mypy / types-PyYAML | 0.17.0 / 2.4.0 / 6.0.12.20260906 | lint のみ | なし |
 
@@ -33,5 +35,5 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | `python:3.12.15-slim` | core / worker / gateway / searcher | なし。実行イメージから pip を削除 |
 | `nginxinc/nginx-unprivileged:1.30.5-alpine` | web | なし。CSP で外部リソースの読み込みを禁止 |
 | `redis:8.10.2-alpine` | redis | なし。永続化なし |
-| `grobid/grobid:0.9.1-crf` | grobid | なし。ただし **書誌の consolidation（`consolidateHeader` / `consolidateCitations`）を有効にすると Crossref 等に問い合わせる**ため、core からは常に `0` を指定する（internal_net なので外には届かないが、タイムアウト待ちになる） |
+| `grobid/grobid:0.9.1-crf` | grobid | なし（`core/ingest/grobid.py` で `consolidateHeader`・`consolidateCitations`・`consolidateFunders` を常に `0` にしている）。ただし **書誌の consolidation（`consolidateHeader` / `consolidateCitations`）を有効にすると Crossref 等に問い合わせる**ため、core からは常に `0` を指定する（internal_net なので外には届かないが、タイムアウト待ちになる） |
 | `ubuntu/squid:6.6-24.04_edge` | oitoma_proxy / egress_proxy | なし。キャッシュ無効、ログは標準出力 |
