@@ -139,10 +139,18 @@ def test_term_close_to_novelty_claim_is_rejected(env: Env) -> None:
 def test_coined_term_and_own_title_are_rejected(env: Env) -> None:
     r = env.submit({"kind": "term_lookup", "term": "ExtraPhrase", "lang": "en"})
     assert r.json()["decision"] == "blocked" and "造語" in r.json()["reason"]
+    for title in [
+        "ExtraPhrase: 生成型要約のための効率的データ拡張",
+        "生成型要約のための効率的データ拡張",  # 接頭辞を除いた原稿のタイトル
+    ]:
+        r = env.submit({"kind": "bib_lookup", "title": title})
+        assert r.json()["decision"] == "blocked" and "タイトル" in r.json()["reason"]
+    # 原稿のタイトルと語が重なるだけの、別の文献は照会できる
     r = env.submit(
-        {"kind": "bib_lookup", "title": "ExtraPhrase: 生成型要約のための効率的データ拡張"}
+        {"kind": "bib_lookup", "title": "Data augmentation for abstractive summarization"}
     )
-    assert r.json()["decision"] == "blocked" and "タイトル" in r.json()["reason"]
+    assert r.json()["decision"] == "sent"
+    env.sent.clear()
     r = env.submit(
         {
             "kind": "bib_lookup",

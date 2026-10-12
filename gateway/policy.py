@@ -36,6 +36,18 @@ def contains_manuscript_text(value: str, manuscript: RegisteredManuscript, min_l
     return any(text[i : i + min_len] in body for i in range(len(text) - min_len + 1))
 
 
+def is_own_title(title: str, own_title: str) -> bool:
+    """原稿自身のタイトル（またはその主要な部分）か。未発表のタイトルは、それ自体が秘密情報。"""
+    a, b = normalize(title), normalize(own_title)
+    if not a or not b:
+        return False
+    if SequenceMatcher(None, a, b).ratio() >= 0.9:
+        return True
+    # 副題だけ・接頭辞を除いたものなど、一方が他方に含まれる場合（短すぎる一致は除く）
+    shorter, longer = sorted((a, b), key=len)
+    return len(shorter) >= 10 and shorter in longer
+
+
 async def check(
     request: BibLookup | OATextFetch | TermLookup,
     manuscript: RegisteredManuscript | None,
@@ -59,10 +71,8 @@ async def check(
         ):
             return Verdict(False, "著者名の欄に原稿本文の文字列が含まれています")
         own_title = manuscript.guard.title
-        if request.title and own_title:
-            ratio = SequenceMatcher(None, normalize(request.title), normalize(own_title)).ratio()
-            if ratio >= 0.9:
-                return Verdict(False, "原稿自身のタイトルは照会できません")
+        if request.title and own_title and is_own_title(request.title, own_title):
+            return Verdict(False, "原稿自身のタイトルは照会できません")
         if request.doi and contains_manuscript_text(request.doi, manuscript, min_len):
             return Verdict(False, "DOI の欄に原稿本文の文字列が含まれています")
         return OK
