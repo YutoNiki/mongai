@@ -1,4 +1,4 @@
-# TODO（門外不出 / MonGAI）
+# TODO（門外不出 / MongAI）
 
 仕様の詳細は `docs/SPEC.md` を参照。タスクを終えるたびにチェックを入れ、決定事項・保留事項を末尾に記録する。
 
@@ -178,6 +178,7 @@
 | 2026-10-12 | トークン数は文字種から保守的に見積もる（tiktoken は実行時に外部からデータを取得するため使わない） |
 | 2026-10-12 | `searcher` は おいとまAPIを使わない。検索結果の候補を gateway 経由で core に返し、最も一致する文献の選択は core 側の高速モデルで行う（APIキーを searcher に渡さない、oitoma_proxy を gateway_net に繋がない） |
 | 2026-10-12 | プロキシは2つとも HTTPS の CONNECT（443番）だけを許可する |
+| 2026-10-13 | サービス名の英字表記を、新しいロゴに合わせて「MonGAI」から「MongAI」に改める（識別子の `mongai` は変えない） |
 | 2026-10-12 | `make check-api` の結果から、`api.json_mode: json_schema`、`api.thinking_param: chat_template_kwargs` とする（qwen3.8-27b-it は既定で思考オフ） |
 | 2026-10-13 | テスト用論文は、同じ研究の英語版（ACL Anthology）と日本語版（自然言語処理、J-STAGE）を使う（どちらも CC BY 4.0） |
 | 2026-10-13 | 見出しはレイアウト（PyMuPDF）からの検出を優先し、GROBID は参考文献と、見出しを検出できない場合の補完に使う（GROBID は日本語論文の見出しを取れなかったため） |

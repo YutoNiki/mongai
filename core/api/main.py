@@ -40,7 +40,7 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 # ダッシュボードのメタ情報に表示する役割
 DISPLAYED_ROLES = ("structure_extraction", "logic_check", "citation_support", "suggestion")
 
-app = FastAPI(title="MonGAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 class JobQueue(Protocol):

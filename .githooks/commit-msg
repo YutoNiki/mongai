@@ -1,5 +1,5 @@
 #!/bin/sh
-# MonGAI commit-msg フック（SPEC 10.1）
+# MongAI commit-msg フック（SPEC 10.1）
 # AI（Claude / Anthropic 等）を共同著者・生成元として記録するコミットメッセージを拒否する。
 #
 # 拒否する行：

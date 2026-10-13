@@ -1,6 +1,6 @@
 {
-  "name": "門外不出（MonGAI）論文セルフレビュー",
-  "short_name": "MonGAI",
+  "name": "門外不出（MongAI）論文セルフレビュー",
+  "short_name": "MongAI",
   "description": "学内ローカルLLMによる論文の投稿前セルフレビューシステム",
   "lang": "ja",
   "start_url": "/",

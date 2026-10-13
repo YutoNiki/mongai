@@ -12,7 +12,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <Link href="/" className="site-logo">
           <img
             src="/brand/header-logo.png"
-            alt="門外不出（MonGAI） 学内ローカルLLM論文セルフレビューシステム"
+            alt="門外不出（MongAI） 学内ローカルLLM論文セルフレビューシステム"
             width={252}
             height={40}
           />

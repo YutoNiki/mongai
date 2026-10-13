@@ -55,7 +55,7 @@ def test_download_annotated_pdf(env: tuple[TestClient, Store, str]) -> None:
     assert f'filename="{doc_id}_annotated.pdf"' in response.headers["content-disposition"]
     with pymupdf.open(stream=response.content, filetype="pdf") as doc:
         titles = [a.info["title"] for a in doc[0].annots()]
-    assert titles == ["MonGAI F-0001"]  # 却下した指摘は書き込まない
+    assert titles == ["MongAI F-0001"]  # 却下した指摘は書き込まない
     # 原本は変更しない
     assert paper_path(doc_id).read_bytes() != response.content
 

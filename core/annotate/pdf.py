@@ -68,7 +68,7 @@ def popup_text(finding: Finding) -> str:
         lines.append("改善案：")
         lines += [f"{i}. {s}" for i, s in enumerate(finding.suggestions, start=1)]
     lines.append(
-        f"（MonGAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
+        f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
     )
     return "\n".join(lines)
 
@@ -198,7 +198,7 @@ def annotate_pdf(
                 rects = _target_rects(page, finding, boxes)
                 for annot in _add_shape(page, finding.category, rects):
                     annot.set_info(
-                        title=f"MonGAI {finding.finding_id}",
+                        title=f"MongAI {finding.finding_id}",
                         subject=subcategory_label(finding.subcategory),
                         content=popup_text(finding),
                     )
