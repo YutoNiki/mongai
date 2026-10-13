@@ -318,12 +318,15 @@ class OitomaClient:
         """役割の設定で呼び出し、出力を schema で検証して返す。
 
         検証に失敗したら、エラー内容を伝えて再生成させる。
+        回答の本文が空のとき（思考の途中で生成が止まった。finish=stop でも起きる）は、
+        エラーを伝えても意味がないので、同じ依頼を最初から送り直す。
         """
         cfg = self.config.role(role)
         schema_text = json.dumps(schema.model_json_schema(), ensure_ascii=False)
-        conversation = _with_system_suffix(
+        initial = _with_system_suffix(
             messages, load_prompt("json_output", lang, schema=schema_text)
         )
+        conversation = initial
         last_error = ""
         for _ in range(max_attempts):
             result = await self.chat(
@@ -332,6 +335,18 @@ class OitomaClient:
                 role=role,
                 **self._role_kwargs(cfg),
             )
+            if not result.content.strip():
+                logger.warning(
+                    "回答の本文が空でした（role=%s finish=%s completion_tokens=%s reasoning=%s）。"
+                    "送り直します",
+                    role,
+                    result.finish_reason,
+                    result.completion_tokens,
+                    "あり" if result.reasoning else "なし",
+                )
+                last_error = "empty content"
+                conversation = initial
+                continue
             try:
                 return schema.model_validate(extract_json(result.content))
             except (ValueError, ValidationError) as exc:
