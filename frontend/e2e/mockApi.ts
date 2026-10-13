@@ -95,6 +95,9 @@ export interface MockApi {
   queue: QueueItem[];
   /** この解析で照会した用語 */
   terms: TermLookup[];
+  /** アップロードされたファイルの数と、解析を始めた論文の ID */
+  uploads: number;
+  started: string[];
 }
 
 /** core の GET /findings と同じ絞り込み（指定がなければ却下済みも含めてすべて返す） */
@@ -116,6 +119,8 @@ export async function mockApi(page: Page): Promise<MockApi> {
     requests: [],
     queue: [],
     terms: [],
+    uploads: 0,
+    started: [],
   };
   const json = (body: unknown, status = 200) => ({
     status,
@@ -202,6 +207,16 @@ export async function mockApi(page: Page): Promise<MockApi> {
     if (labDelete && request.method() === "DELETE") {
       state.labComments = state.labComments.filter((c) => c.comment_id !== decodeURIComponent(labDelete[1] ?? ""));
       return route.fulfill({ status: 204 });
+    }
+    if (path === "/api/documents" && request.method() === "POST") {
+      state.uploads += 1;
+      const docId = `${state.uploads}`.padStart(16, "0");
+      return route.fulfill(json({ doc_id: docId, filename: `paper${state.uploads}.pdf`, size: 10 }, 201));
+    }
+    if (path === "/api/analyses" && request.method() === "POST") {
+      const body = request.postDataJSON() as { doc_id: string };
+      state.started.push(body.doc_id);
+      return route.fulfill(json({ ...summary, analysis: { ...summary.analysis, status: "queued" } }, 201));
     }
     if (path === "/api/gateway/queue") return route.fulfill(json(state.queue));
     if (path === `${base}/terms`) return route.fulfill(json(state.terms));

@@ -155,6 +155,7 @@ label {
 .error {
   color: var(--color-error);
   font-weight: 700;
+  white-space: pre-line;
 }
 
 .upload-form {

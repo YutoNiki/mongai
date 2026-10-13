@@ -65,9 +65,12 @@ export function HomePage() {
   const [items, setItems] = useState<AnalysisListItem[] | null>(null);
   const [usage, setUsage] = useState<DailyUsage | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [outputLang, setOutputLang] = useState<"paper" | "ja">("paper");
   const [busy, setBusy] = useState(false);
+  // 送信後にファイルの選択を空にするため、フォームを作り直す
+  const [formKey, setFormKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -107,19 +110,37 @@ export function HomePage() {
     }
   };
 
+  // 複数の論文は1件ずつアップロードして解析を始める（解析はワーカーが順番に、または並行して進める）
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!file) return;
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
-    try {
-      const uploaded = await api.upload(file);
-      const summary = await api.startAnalysis(uploaded.doc_id, outputLang);
-      navigate(`/analyses/${summary.analysis.analysis_id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "解析を開始できませんでした");
-      setBusy(false);
+    setNotice(null);
+    const started: string[] = [];
+    const failed: string[] = [];
+    for (const [index, file] of files.entries()) {
+      setNotice(`アップロード中…（${index + 1} / ${files.length}）${file.name}`);
+      try {
+        const uploaded = await api.upload(file);
+        const summary = await api.startAnalysis(uploaded.doc_id, outputLang);
+        started.push(summary.analysis.analysis_id);
+      } catch (e) {
+        failed.push(`${file.name}：${e instanceof Error ? e.message : "解析を開始できませんでした"}`);
+      }
     }
+    setBusy(false);
+    setNotice(null);
+    // 1件だけなら、これまでどおり解析結果の画面を開く
+    if (files.length === 1 && started.length === 1) {
+      navigate(`/analyses/${started[0]}`, "forward");
+      return;
+    }
+    setFiles([]);
+    setFormKey((k) => k + 1);
+    if (started.length > 0) setNotice(`${started.length}件の論文の解析を始めました。下の一覧で進み具合を確認できます`);
+    if (failed.length > 0) setError(`解析を始められなかった論文があります：\n${failed.join("\n")}`);
+    load();
   };
 
   return (
@@ -159,10 +180,16 @@ export function HomePage() {
           <p className="note">
             アップロードした論文は学内のサーバーにだけ保存され、学外には送信されません。
           </p>
-          <form onSubmit={submit} className="upload-form">
+          <form key={formKey} onSubmit={submit} className="upload-form">
             <label>
-              論文のPDF
-              <input type="file" accept="application/pdf,.pdf" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              論文のPDF（複数選べます）
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                required
+                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              />
             </label>
             <label>
               指摘を書く言語
@@ -171,10 +198,19 @@ export function HomePage() {
                 <option value="ja">日本語</option>
               </select>
             </label>
-            <button type="submit" disabled={!file || busy}>
-              {busy ? "アップロード中…" : "アップロードして解析を始める"}
+            <button type="submit" disabled={files.length === 0 || busy}>
+              {busy
+                ? "アップロード中…"
+                : files.length > 1
+                  ? `${files.length}件をアップロードして解析を始める`
+                  : "アップロードして解析を始める"}
             </button>
           </form>
+          {notice && (
+            <p className="note" aria-live="polite">
+              {notice}
+            </p>
+          )}
         </section>
       </div>
       {error && (
