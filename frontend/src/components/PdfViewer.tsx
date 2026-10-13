@@ -11,13 +11,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 interface Props {
   url: string;
   page: number;
-  boxes: BBox[];
-  color: string;
-  label: string;
+  boxes?: BBox[];
+  color?: string;
+  label?: string;
   onPageChange: (page: number) => void;
 }
 
-export function PdfViewer({ url, page, boxes, color, label, onPageChange }: Props) {
+export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", onPageChange }: Props) {
   const [doc, setDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);

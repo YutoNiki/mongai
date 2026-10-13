@@ -103,9 +103,9 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           <h1>{title}</h1>
         </div>
         <div className="downloads">
-          <a className="button-secondary" href={api.annotatedUrl(analysisId)}>
+          <Link className="button-secondary" href={`/analyses/${analysisId}/annotated`}>
             注釈付きPDF
-          </a>
+          </Link>
           <a className="button-secondary" href={api.csvUrl(analysisId)}>
             指摘の一覧（CSV）
           </a>
