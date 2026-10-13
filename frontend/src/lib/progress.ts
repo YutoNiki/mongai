@@ -10,7 +10,8 @@ const STAGE_WEIGHTS: Record<(typeof STAGES)[number], number> = {
   structure: 8,
   paragraph_check: 60,
   flow_check: 5,
-  citation: 10,
+  citation: 8,
+  double_check: 2,
   suggestion: 10,
   locate: 2,
 };

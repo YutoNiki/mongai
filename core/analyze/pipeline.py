@@ -1,4 +1,5 @@
-"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証を同時に）→ 改善案。"""
+"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証を同時に）
+→ 二重チェック → 改善案。"""
 
 import asyncio
 import inspect
@@ -29,6 +30,8 @@ from core.analyze.models import (
 )
 from core.analyze.paragraph_check import ROLE as CHECK_ROLE
 from core.analyze.paragraph_check import check_paragraph
+from core.analyze.second_opinion import ROLE as SECOND_ROLE
+from core.analyze.second_opinion import apply_opinion, needs_second_opinion, second_opinion
 from core.analyze.structure import extract_structure, fallback_structure
 from core.analyze.suggest import suggest
 from core.analyze.voting import Voted, most_common
@@ -53,6 +56,8 @@ class AnalysisSettings(BaseModel):
     with_citation_check: bool = True
     # 引用内容の支持判定の上限（引用×文献の組の数）
     max_support_checks: int = Field(default=60, ge=0)
+    # 重大・要修正の論理・読みやすさの指摘を、第2のモデルでも判定する（SPEC 3.3-4）
+    with_double_check: bool = True
     with_suggestions: bool = True
 
 
@@ -110,7 +115,10 @@ def _sort_key(f: Finding) -> tuple[int, int, float, float]:
 
 
 def _confidence(votes: int, samples: int) -> Literal["high", "low"]:
-    """複数回の判定がすべて一致したときだけ high（1回だけの判定は low）。M9 で二重チェックに置き換える。"""
+    """複数回の判定がすべて一致したときだけ high（1回だけの判定は low）。
+
+    重大・要修正の指摘は、このあと二重チェック（第2のモデルとの一致）で決め直す。
+    """
     return "high" if samples >= 2 and votes == samples else "low"
 
 
@@ -371,6 +379,28 @@ async def analyze_logic(
         group.create_task(paragraph_checks())
         group.create_task(flow_checks())
         group.create_task(citation_checks())
+
+    # 4. 二重チェック（重大・要修正の論理・読みやすさの指摘を、第2のモデルで独立に判定する）
+    if settings.with_double_check:
+        to_check = [i for i, f in enumerate(findings) if needs_second_opinion(f)]
+        secondary = client.config.role(SECOND_ROLE).model
+        checked = 0
+        await _notify(on_progress, "double_check", checked, len(to_check))
+
+        async def check_twice(index: int) -> None:
+            nonlocal checked
+            finding = findings[index]
+            try:
+                opinion = await second_opinion(
+                    client, doc, finding, prompt_lang=prompt_lang, output_language=out_lang
+                )
+                findings[index] = apply_opinion(finding, opinion, secondary)
+            except OitomaError as exc:
+                warnings.append(f"{finding.finding_id} の二重チェックに失敗しました：{exc}")
+            checked += 1
+            await _notify(on_progress, "double_check", checked, len(to_check))
+
+        await asyncio.gather(*(check_twice(i) for i in to_check))
 
     # 5. 改善案（書誌の不一致のように、正しい書誌を案として既に持つ指摘は除く）
     if settings.with_suggestions:

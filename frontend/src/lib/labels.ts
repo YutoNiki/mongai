@@ -48,6 +48,7 @@ export const STAGE_LABELS: Record<string, string> = {
   paragraph_check: "段落内のチェック",
   flow_check: "段落間のチェック",
   citation: "引用の検証",
+  double_check: "二重チェック",
   suggestion: "改善案の作成",
   locate: "指摘の位置の確認",
 };
@@ -58,6 +59,7 @@ export const STAGES = [
   "paragraph_check",
   "flow_check",
   "citation",
+  "double_check",
   "suggestion",
   "locate",
 ] as const;

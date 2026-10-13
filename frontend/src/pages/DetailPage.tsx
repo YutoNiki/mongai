@@ -132,7 +132,10 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
             </dd>
             <dt>確度</dt>
             <dd>
-              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘）
+              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
+              {finding.models.secondary &&
+                `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
+              ）
             </dd>
           </dl>
 
