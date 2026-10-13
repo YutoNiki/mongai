@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Link } from "../lib/router";
+import logoUrl from "../assets/header-logo.png";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -11,7 +12,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <header className="site-header">
         <Link href="/" className="site-logo">
           <img
-            src="/brand/header-logo.png"
+            src={logoUrl}
             alt="門外不出（MongAI） 学内ローカルLLM論文セルフレビューシステム"
             width={252}
             height={40}

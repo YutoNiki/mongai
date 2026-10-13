@@ -4,8 +4,9 @@
  * 画面の部品（HTML・JS・CSS・アイコン・フォント・PDF.js の部品）だけをキャッシュする。
  * 論文・解析結果（/api 以下）は端末に保存しない（キャッシュしない）。
  */
-const CACHE = "mongai-shell-v1";
-const SHELL = ["/", "/manifest.webmanifest", "/favicon.ico", "/icons/icon-192.png", "/brand/header-logo.png"];
+// 中身を変えたら番号を上げる（古いキャッシュは activate で消える）
+const CACHE = "mongai-shell-v2";
+const SHELL = ["/", "/manifest.webmanifest", "/favicon.ico", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -39,8 +40,8 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-  // ファイル名にハッシュが付く部品・アイコン・PDF.js の部品：キャッシュを優先する
-  if (/^\/(assets|icons|brand|pdfjs)\//.test(url.pathname)) {
+  // ファイル名にハッシュが付く部品（ロゴを含む）と PDF.js の部品：キャッシュを優先する
+  if (/^\/(assets|pdfjs)\//.test(url.pathname)) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>
@@ -53,6 +54,21 @@ self.addEventListener("fetch", (event) => {
             return response;
           }),
       ),
+    );
+    return;
+  }
+  // アイコン・ファビコン（ファイル名が変わらない）：ネットワークを優先し、つながらないときだけ保存したものを返す
+  if (/^\/(icons\/|favicon\.ico$|manifest\.webmanifest$)/.test(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || Response.error())),
     );
   }
 });

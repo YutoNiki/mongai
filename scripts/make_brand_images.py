@@ -1,6 +1,7 @@
 """ロゴ・アイコンの元画像（frontend/design/）から、Web 用の画像（frontend/public/）を作る。
 
-- header.jpeg      → 余白をトリミングして、ヘッダー用のロゴ（brand/header-logo.png）
+- header.jpeg      → 余白をトリミングして、ヘッダー用のロゴ（frontend/src/assets/header-logo.png。
+                     Vite がファイル名にハッシュを付けるので、差し替えるとブラウザのキャッシュも更新される）
 - icon_fabicon.jpeg（左：アプリアイコン、右：ファビコン、上に見出しの文字がある）
     → アプリアイコン：PWA 用（192・512・マスカブル 512）と iPhone のホーム画面用（180）
     → ファビコン：背景の白を透過にして、favicon.ico（16・32・48）と PNG（32・192）
@@ -71,14 +72,13 @@ def rounded_icon(img: Image.Image, radius_ratio: float = 0.2) -> Image.Image:
 
 
 def main() -> None:
-    (OUT / "brand").mkdir(parents=True, exist_ok=True)
     (OUT / "icons").mkdir(parents=True, exist_ok=True)
 
     # ヘッダーのロゴ（高さ 2 倍表示に十分な解像度に縮小）
     header = trim(Image.open(SRC / "header.jpeg").convert("RGB"), pad=8)
     header = white_to_alpha(header)
     header.thumbnail((1400, 400), Image.Resampling.LANCZOS)
-    header.save(OUT / "brand" / "header-logo.png", optimize=True)
+    header.save(ROOT / "frontend" / "src" / "assets" / "header-logo.png", optimize=True)
 
     sheet = Image.open(SRC / "icon_fabicon.jpeg").convert("RGB")
     w, h = sheet.size
