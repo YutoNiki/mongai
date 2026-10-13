@@ -1,8 +1,10 @@
-"""ルールの LLM 判定（SPEC 3.3-3 の「ルール」）。段落ごとに、当てはまる承認済みのルールで違反を判定する。
+"""ルールの LLM 判定（SPEC 3.3-3 の「ルール」）。節ごとに、当てはまる承認済みのルールで違反を判定する。
 
-- 当てはまるルール：対象セクションが段落のセクションの役割と合うもの（「全体」はすべて、「図表」は図表に言及する
-  段落、「引用」は文献を引用している段落）。原稿の言語に合わないルールは除く
-- ルールが多い場合は、段落とルールの埋め込みの近さで上位だけを使う（1回のプロンプトを短く保つため）
+- 判定の単位は節（長い節は、段落のまとまりに分ける）。「はじめにで目的を述べる」のような節全体に関わる
+  ルールを、段落ごとに判定すると誤検出になるため
+- 当てはまるルール：対象セクションが節の役割と合うもの（「全体」はすべて、「図表」は図表に言及する段落を含む
+  まとまり、「引用」は文献を引用している段落を含むまとまり）。原稿の言語に合わないルールは除く
+- ルールが多い場合は、本文とルールの埋め込みの近さで上位だけを使う（1回のプロンプトを短く保つため）
 - 判定は高速モデル（役割 rule_check）で1回だけ行う
 """
 
@@ -14,6 +16,7 @@ from pydantic import Field
 from core.analyze.context import Target, normalize, numbered_paragraph
 from core.analyze.models import Severity, _LLMOutput
 from core.ingest.models import Document, Lang
+from core.llm.budget import estimate_tokens
 from core.llm.client import OitomaClient
 from core.llm.prompts import load_prompt
 from core.rules.mechanical import RuleViolation
@@ -21,8 +24,12 @@ from core.rules.models import SECTION_ROLES, Rule
 
 ROLE = "rule_check"
 EMBEDDING_ROLE = "retrieval"
-# 1段落の判定に使うルールの上限
-MAX_RULES_PER_PARAGRAPH = 12
+# 1回の判定に使うルールの上限
+MAX_RULES_PER_CHECK = 12
+# 1回の判定に入れる本文のトークン数の目安（これを超える節は段落のまとまりに分ける）
+MAX_TEXT_TOKENS = 4000
+# 1回の判定で、1つのルールについて挙げる違反の上限
+MAX_PER_RULE = 2
 _FIGURE = re.compile(r"(図|表)\s*[0-9０-９]|\b(Fig\.|Figures?|Tables?)\s*[0-9]", re.IGNORECASE)
 
 
@@ -39,11 +46,31 @@ class RuleCheckOutput(_LLMOutput):
     violations: list[RuleViolationItem] = Field(default_factory=list)
 
 
+def group_targets(targets: list[Target], max_tokens: int = MAX_TEXT_TOKENS) -> list[list[Target]]:
+    """解析の対象の段落を、節ごと（長い節は max_tokens 以下のまとまりごと）に分ける。順序は保つ。"""
+    groups: list[list[Target]] = []
+    used = 0
+    for target in targets:
+        cost = estimate_tokens(target.paragraph.text)
+        same_section = bool(groups) and (
+            groups[-1][-1].paragraph.section_id == target.paragraph.section_id
+        )
+        if same_section and used + cost <= max_tokens:
+            groups[-1].append(target)
+            used += cost
+        else:
+            groups.append([target])
+            used = cost
+    return groups
+
+
 def applicable_rules(
-    rules: list[Rule], target: Target, doc: Document, cited: set[str]
+    rules: list[Rule], group: list[Target], doc: Document, cited: set[str]
 ) -> list[Rule]:
-    role = target.section.role if target.section else None
-    text = target.paragraph.text
+    first = group[0]
+    role = first.section.role if first.section else None
+    texts = [t.paragraph.text for t in group]
+    sentence_ids = {sid for t in group for sid in t.paragraph.sentence_ids}
     chosen: list[Rule] = []
     for rule in rules:
         if rule.status != "approved" or rule.check_type != "llm":
@@ -54,10 +81,10 @@ def applicable_rules(
         if section == "全体":
             chosen.append(rule)
         elif section == "図表":
-            if _FIGURE.search(text):
+            if any(_FIGURE.search(text) for text in texts):
                 chosen.append(rule)
         elif section == "引用":
-            if cited & set(target.paragraph.sentence_ids):
+            if cited & sentence_ids:
                 chosen.append(rule)
         elif role is not None and role in SECTION_ROLES.get(section, frozenset()):
             chosen.append(rule)
@@ -73,25 +100,26 @@ def _cosine(a: list[float], b: list[float]) -> float:
 async def select_rules(
     client: OitomaClient,
     rules: list[Rule],
-    target: Target,
+    group: list[Target],
     rule_vectors: dict[str, list[float]],
     *,
-    limit: int = MAX_RULES_PER_PARAGRAPH,
+    limit: int = MAX_RULES_PER_CHECK,
 ) -> list[Rule]:
-    """ルールが limit を超える場合は、段落の埋め込みに近い順に limit 件を選ぶ。"""
+    """ルールが limit を超える場合は、本文の埋め込みに近い順に limit 件を選ぶ。"""
     if len(rules) <= limit:
         return rules
     with_vectors = [r for r in rules if r.rule_id in rule_vectors]
     if not with_vectors:
         return rules[:limit]
-    (vector,) = await client.embed([target.paragraph.text], role=EMBEDDING_ROLE)
+    text = "\n".join(t.paragraph.text for t in group)
+    (vector,) = await client.embed([text], role=EMBEDDING_ROLE)
     ranked = sorted(with_vectors, key=lambda r: -_cosine(vector, rule_vectors[r.rule_id]))
     return ranked[:limit]
 
 
 async def check_rules(
     client: OitomaClient,
-    target: Target,
+    group: list[Target],
     rules: list[Rule],
     *,
     prompt_lang: Lang,
@@ -110,22 +138,22 @@ async def check_rules(
             "content": load_prompt(
                 "rule_check_input",
                 prompt_lang,
-                section=target.section_label,
-                paragraph=numbered_paragraph(target.sentences),
+                section=group[0].section_label,
+                paragraph="\n\n".join(numbered_paragraph(t.sentences) for t in group),
                 rules="\n".join(f"[{r.rule_id}] {r.rule}" for r in rules),
             ),
         },
     ]
     output = await client.chat_json(ROLE, messages, RuleCheckOutput, lang=prompt_lang)
-    texts = {s.sentence_id: s for s in target.sentences}
+    texts = {s.sentence_id: s for t in group for s in t.sentences}
     violations: list[RuleViolation] = []
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     for item in output.violations:
         rule = by_id.get(item.rule_id)
         ids = [sid for sid in item.sentence_ids if sid in texts]
-        if rule is None or not ids or rule.rule_id in seen:
+        if rule is None or not ids or seen.get(rule.rule_id, 0) >= MAX_PER_RULE:
             continue
-        seen.add(rule.rule_id)
+        seen[rule.rule_id] = seen.get(rule.rule_id, 0) + 1
         joined = normalize("".join(texts[sid].text for sid in ids))
         quote = item.quote.strip()
         if not quote or normalize(quote) not in joined:

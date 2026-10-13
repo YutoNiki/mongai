@@ -13,7 +13,7 @@ from core.analyze.pipeline import AnalysisSettings, analyze_logic
 from core.jobs import run_rule_extraction
 from core.llm.client import DEFAULT_BASE_URL, OitomaClient
 from core.llm.config import ModelsConfig
-from core.rules.check import applicable_rules, check_rules
+from core.rules.check import applicable_rules, check_rules, group_targets
 from core.rules.extract import (
     ExtractedRule,
     chunk_pages,
@@ -315,8 +315,8 @@ def test_applicable_rules_by_section_and_language() -> None:
         rule("R-off", "無効のルール", status="disabled"),
         rule("R-adv", "手続きの注意", check_type="advisory"),
     ]
-    intro = {r.rule_id for r in applicable_rules(rules, targets[0], doc, set())}
-    results = {r.rule_id for r in applicable_rules(rules, targets[1], doc, set())}
+    intro = {r.rule_id for r in applicable_rules(rules, [targets[0]], doc, set())}
+    results = {r.rule_id for r in applicable_rules(rules, [targets[1]], doc, set())}
     assert intro == {"R-all", "R-intro", "R-fig"}
     assert results == {"R-all", "R-res"}
 
@@ -348,7 +348,7 @@ async def test_check_rules_validates_output() -> None:
         respx.post(CHAT_URL).mock(return_value=chat(payload))
         async with OitomaClient(config(), api_key="k") as client:
             (found,) = await check_rules(
-                client, target, rules, prompt_lang="ja", output_language="日本語"
+                client, [target], rules, prompt_lang="ja", output_language="日本語"
             )
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert "[R-1] 主観的な形容を避ける" in sent
@@ -420,3 +420,33 @@ async def test_pipeline_adds_rule_findings() -> None:
     assert violation.evidence[0].type == "rule" and violation.evidence[0].ref == "R-1"
     assert "規定.pdf p.3" in violation.evidence[0].excerpt
     assert violation.confidence == "low"
+
+
+def test_group_targets_by_section_and_size() -> None:
+    long = "長い段落の文である。" * 60
+    doc = make_doc(
+        [
+            ("1 はじめに", "introduction", [["背景を述べる。"], ["目的を述べる。"]]),
+            ("2 手法", "methods", [[long], [long], [long]]),
+        ]
+    )
+    targets = select_targets(doc, min_chars=1)
+    groups = group_targets(targets, max_tokens=800)
+    sizes = [len(g) for g in groups]
+    assert sizes[0] == 2  # はじめにの2段落は1回で判定する
+    assert sum(sizes) == len(targets) and len(groups) >= 3  # 長い節は分ける
+    assert all(len({t.paragraph.section_id for t in g}) == 1 for g in groups)
+
+
+def test_mechanical_rules_merge_into_builtin() -> None:
+    builtin = BUILTIN["abbreviation_definition"]
+    extracted = rule(
+        "R-abbr",
+        "略語は初出時に定義すること",
+        check_type="mechanical",
+        checker="abbreviation_definition",
+        source=RuleSource(doc="手引き.md"),
+    )
+    kept, updated = merge_rules([extracted], [None], {builtin.rule_id: builtin}, {})
+    assert kept == []
+    assert updated[builtin.rule_id].merged_sources == [RuleSource(doc="手引き.md")]

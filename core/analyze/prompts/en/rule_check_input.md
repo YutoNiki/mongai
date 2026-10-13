@@ -1,6 +1,6 @@
 Section: $section
 
-Paragraph (sentence IDs in 【】):
+Text (sentence IDs in 【】):
 $paragraph
 
 Rules:

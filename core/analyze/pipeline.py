@@ -39,7 +39,7 @@ from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
-from core.rules.check import applicable_rules, check_rules, select_rules
+from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
 from core.rules.mechanical import RuleViolation, run_mechanical
 from core.rules.models import Rule
 
@@ -426,30 +426,30 @@ async def analyze_logic(
         if new:
             await _notify(on_findings, new)
         cited = {c.sentence_id for c in doc.citations}
+        # 節ごと（長い節は段落のまとまりごと）に判定する
+        groups = group_targets(targets)
         checked = 0
-        await progress("rule_check", checked, len(targets))
+        await progress("rule_check", checked, len(groups))
 
-        async def check_target(t: Target) -> None:
+        async def check_group(group: list[Target]) -> None:
             nonlocal checked
             try:
-                chosen = applicable_rules(approved, t, doc, cited)
-                chosen = await select_rules(client, chosen, t, rule_vectors or {})
+                chosen = applicable_rules(approved, group, doc, cited)
+                chosen = await select_rules(client, chosen, group, rule_vectors or {})
                 found = await check_rules(
-                    client, t, chosen, prompt_lang=prompt_lang, output_language=out_lang
+                    client, group, chosen, prompt_lang=prompt_lang, output_language=out_lang
                 )
             except OitomaError as exc:
-                warnings.append(
-                    f"段落 {t.paragraph.paragraph_id} のルールの判定に失敗しました：{exc}"
-                )
+                warnings.append(f"{group[0].section_label} のルールの判定に失敗しました：{exc}")
             else:
                 made = [f for f in (builder.from_violation(v) for v in found) if f is not None]
                 findings.extend(made)
                 if made:
                     await _notify(on_findings, made)
             checked += 1
-            await progress("rule_check", checked, len(targets))
+            await progress("rule_check", checked, len(groups))
 
-        await asyncio.gather(*(check_target(t) for t in targets))
+        await asyncio.gather(*(check_group(g) for g in groups))
         progress.finish("rule_check")
 
     # 1つが例外で止まったら、ほかも取り消す（解析の失敗として扱う）

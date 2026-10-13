@@ -181,6 +181,9 @@ def merge_rules(
     updated: dict[str, Rule] = {}
 
     def same(a: Rule, va: list[float] | None, b: Rule, vb: list[float] | None) -> bool:
+        # 同じ種類の機械判定は同じルール（組み込みのルールに出典をまとめる）
+        if a.check_type == b.check_type == "mechanical":
+            return a.checker == b.checker
         if a.target_section != b.target_section and "全体" not in (
             a.target_section,
             b.target_section,
@@ -270,7 +273,7 @@ async def extract_rules(
             "ルールの埋め込みに失敗しました（%s）。文面の一致だけで統合します", type(exc).__name__
         )
         vectors = [None] * len(new)
-    existing = {r.rule_id: r for r in store.list_rules() if not r.builtin}
+    existing = {r.rule_id: r for r in store.list_rules()}
     kept, updated = merge_rules(new, vectors, existing, store.embeddings())
     for rule in updated.values():
         store.replace_rule(rule)
