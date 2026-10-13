@@ -23,6 +23,7 @@ export const SUBCATEGORY_LABELS: Record<string, string> = {
   abbreviation_definition: "略語の定義",
   figure_table_reference: "図表の参照",
   unit_consistency: "単位の表記ゆれ",
+  similar_past_comment: "過去の指摘に類似",
 };
 
 export const SEVERITY_LABELS: Record<string, string> = {
@@ -53,6 +54,7 @@ export const STAGE_LABELS: Record<string, string> = {
   flow_check: "段落間のチェック",
   citation: "引用の検証",
   rule_check: "ルールの判定",
+  lab_check: "研究室知識との照合",
   double_check: "二重チェック",
   suggestion: "改善案の作成",
   locate: "指摘の位置の確認",
@@ -65,6 +67,7 @@ export const STAGES = [
   "flow_check",
   "citation",
   "rule_check",
+  "lab_check",
   "double_check",
   "suggestion",
   "locate",

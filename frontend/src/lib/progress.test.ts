@@ -16,7 +16,7 @@ describe("overallPercent", () => {
   });
 
   it("工程が増えても進捗は戻らない", () => {
-    const stages = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "rule_check", "double_check", "suggestion", "locate"];
+    const stages = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "rule_check", "lab_check", "double_check", "suggestion", "locate"];
     const values = stages.map((stage) => overallPercent("running", { stage, done: 0, total: 1 }));
     expect(values).toEqual([...values].sort((a, b) => a - b));
   });
