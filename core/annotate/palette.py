@@ -22,6 +22,12 @@ YELLOW_800: Final = "#A58000"
 WHITE: Final = "#FFFFFF"
 TEXT_BLACK: Final = "#000000"
 
+# 画面の色（frontend/src/theme/palette.ts の label・backgroundStandard・backgroundControl と同じ値）。
+# PDF注釈では使わず、評価結果の比較ページ（eval/report.py）で使う
+LABEL_GRAY: Final = "#626264"
+BACKGROUND_STANDARD: Final = "#F8F8FB"
+BACKGROUND_CONTROL: Final = "#F1F1F4"
+
 # 指摘のカテゴリ → 注釈の色（SPEC 4章）
 ANNOTATION_COLORS: Final[dict[str, str]] = {
     "logic": RED_900,
