@@ -245,3 +245,13 @@ async def test_failures_become_warnings() -> None:
     assert result.findings == []
     assert any("論証構造" in w for w in result.warnings)
     assert any("チェックに失敗" in w for w in result.warnings)
+
+
+async def test_document_without_targets() -> None:
+    # 解析の対象になる段落が1つも無い論文でも、失敗せずに空の結果を返す
+    doc = make_doc([("1 はじめに", "introduction", [["短い。"]])])
+    async with OitomaClient(config(), api_key="k") as client:
+        result = await analyze_logic(
+            doc, client, AnalysisSettings(with_flow_check=False, with_citation_check=False)
+        )
+    assert result.findings == []
