@@ -181,7 +181,7 @@ def delete_document(doc_id: str, store: StoreDep) -> Response:
     if store.get_paper(doc_id) is None:
         raise HTTPException(status_code=404, detail="論文が見つかりません")
     if is_sample(doc_id):
-        raise HTTPException(status_code=403, detail="例の論文は削除できません")
+        raise HTTPException(status_code=403, detail="デモの論文は削除できません")
     try:
         store.delete_paper(doc_id)
     except PaperBusyError:

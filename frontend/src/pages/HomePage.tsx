@@ -197,7 +197,7 @@ export function HomePage() {
                   <tr key={item.analysis_id}>
                     <th scope="row" data-label="論文">
                       <Link href={`/analyses/${item.analysis_id}`}>
-                        {item.sample && "（例）"}
+                        {item.sample && "（デモ）"}
                         {item.title ?? item.filename ?? item.doc_id}
                       </Link>
                     </th>

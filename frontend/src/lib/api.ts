@@ -93,7 +93,7 @@ export interface AnalysisSummary {
   api_usage: UsageRow[];
   api_requests: number;
   external_requests: number;
-  /** 例の論文の解析（削除できない） */
+  /** デモの論文の解析（削除できない） */
   sample: boolean;
 }
 
@@ -115,7 +115,7 @@ export interface AnalysisListItem {
   finished_at: string | null;
   total: number;
   progress: Progress;
-  /** 例の論文（削除できない） */
+  /** デモの論文（削除できない） */
   sample: boolean;
 }
 

@@ -280,7 +280,7 @@ class Store:
     def import_analysis(
         self, record: AnalysisRecord, findings: list[Finding], api_usage: list[UsageRow]
     ) -> None:
-        """保存済みの解析結果（ID・日時を含む）をそのまま取り込む（例の解析に使う）。"""
+        """保存済みの解析結果（ID・日時を含む）をそのまま取り込む（デモの解析に使う）。"""
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, progress, "

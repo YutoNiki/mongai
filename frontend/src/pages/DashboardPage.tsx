@@ -200,7 +200,7 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
         <div>
           <p className="eyebrow">論理・読みやすさの指摘（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）</p>
           <h1>
-            {summary.sample && "（例）"}
+            {summary.sample && "（デモ）"}
             {title}
           </h1>
         </div>
