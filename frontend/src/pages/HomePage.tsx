@@ -134,7 +134,6 @@ export function HomePage() {
                   <dd>{number(usage.completion_tokens)}</dd>
                 </div>
               </dl>
-              <p className="note">おいとまAPIへの回数（再試行を含む）。日本時間の0時に切り替わります。</p>
             </>
           )}
         </section>
@@ -144,7 +143,6 @@ export function HomePage() {
           </h2>
           <p className="note">
             アップロードした論文は学内のサーバーにだけ保存され、学外には送信されません。
-            実際の未発表論文を扱うときは、開発用のAIツール（Claude Code など）を起動していない状態で操作してください。
           </p>
           <form onSubmit={submit} className="upload-form">
             <label>
