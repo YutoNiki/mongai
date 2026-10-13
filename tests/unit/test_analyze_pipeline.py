@@ -197,7 +197,11 @@ async def test_analyze_logic_end_to_end() -> None:
     assert len({f.finding_id for f in result.findings}) == 2
     # 段落の判定が終わるたびに、改善案を付ける前の指摘が通知される
     assert {f.subcategory for f in streamed} == {"overclaim", "section_role_violation"}
-    assert ("paragraph_check", 2, 2) in progress and ("suggestion", 2, 2) in progress
+    # 同時に進む工程も、表示は工程の順に進む（戻らない）
+    order = ["structure", "paragraph_check", "flow_check", "citation", "suggestion"]
+    shown = [order.index(stage) for stage, _, _ in progress]
+    assert shown == sorted(shown)
+    assert ("paragraph_check", 1, 2) in progress and ("suggestion", 2, 2) in progress
     assert {s.paragraph_id for s in result.structures} == {"P-0001", "P-0002"}
     usage = {r.role: r.requests for r in result.api_usage}
     assert usage == {"structure_extraction": 2, "logic_check": 9, "suggestion": 2}

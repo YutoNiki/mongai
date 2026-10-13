@@ -1,0 +1,17 @@
+{
+  "name": "門外不出（MongAI）論文セルフレビュー",
+  "short_name": "MongAI",
+  "description": "学内ローカルLLMによる論文の投稿前セルフレビューシステム",
+  "lang": "ja",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F8F8FB",
+  "theme_color": "#0017C1",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

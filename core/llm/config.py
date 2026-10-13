@@ -29,6 +29,8 @@ class RoleConfig(_Strict):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     samples: int = Field(default=1, ge=1)
     vote: Literal["majority"] | None = None
+    # 多数決の結果が決まった時点で残りの判定を送らない（core/analyze/voting.py）
+    early_stop: bool = False
     thinking: bool | None = None
     max_tokens: int | None = Field(default=None, ge=1)
 

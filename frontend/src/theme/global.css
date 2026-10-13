@@ -8,6 +8,7 @@
 
 body {
   margin: 0;
+  overflow-x: hidden;
   font-family: "Noto Sans JP", sans-serif;
   font-size: 16px;
   line-height: 1.7;
@@ -120,6 +121,11 @@ button {
   color: var(--color-primary);
   text-decoration: none;
   display: inline-block;
+}
+button.button-danger {
+  background: var(--color-bg);
+  color: var(--color-error);
+  border-color: var(--color-error);
 }
 button:disabled {
   background: var(--color-bg-control);
@@ -235,6 +241,9 @@ label {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 0;
+}
+.kpi-breakdown.two {
+  grid-template-columns: repeat(2, 1fr);
 }
 .kpi-breakdown dt {
   font-size: 14px;
@@ -406,4 +415,240 @@ blockquote {
 }
 .definitions dd {
   margin: 0 0 4px;
+}
+
+/* ---- ヘッダーのロゴ・セーフエリア（PWA のスタンドアロン表示） ---- */
+
+.site-header {
+  padding-left: max(24px, env(safe-area-inset-left));
+  padding-right: max(24px, env(safe-area-inset-right));
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+.site-logo img {
+  display: block;
+  height: 40px;
+  width: auto;
+}
+.site-nav a {
+  display: inline-block;
+  padding: 6px 2px;
+}
+.mobile-only {
+  display: none;
+}
+
+/* ---- スマートフォン（幅 640px 以下） ---- */
+
+@media (max-width: 640px) {
+  body {
+    font-size: 15px;
+  }
+  .site-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 0;
+  }
+  .site-logo img {
+    height: 30px;
+  }
+  /* メニューは横にスクロールできる1行にし、押しやすい大きさにする */
+  .site-nav-wrap {
+    /* 縦並びの flex の中で、中身の幅に合わせて広がらないようにする（横スクロールを枠の中に収める） */
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .site-nav {
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .site-nav a {
+    padding: 12px 10px;
+    min-height: 44px;
+  }
+  .page {
+    padding: 12px 12px max(32px, env(safe-area-inset-bottom));
+  }
+  h1 {
+    font-size: 20px;
+  }
+  .panel {
+    padding: 14px;
+  }
+  button,
+  .button-secondary {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 16px;
+  }
+  select,
+  input,
+  textarea {
+    font-size: 16px; /* iOS で入力時に拡大されないように */
+    min-height: 44px;
+  }
+  .upload-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .upload-form label,
+  .upload-form select,
+  .upload-form input,
+  .upload-form button {
+    width: 100%;
+  }
+  .dashboard-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .downloads {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .downloads a {
+    text-align: center;
+  }
+  .filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+  }
+  .filters label,
+  .filters select {
+    width: 100%;
+  }
+  .filters button {
+    grid-column: span 2;
+  }
+  .kpi-value {
+    font-size: 44px;
+  }
+  .chart-actions button {
+    flex: 1;
+  }
+
+  /* 表はカード形式にする（各セルの前に列名を表示する） */
+  table.responsive thead {
+    display: none;
+  }
+  table.responsive tr {
+    display: block;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  table.responsive th[scope="row"],
+  table.responsive td {
+    display: flex;
+    gap: 8px;
+    padding: 3px 0;
+    border: none;
+    text-align: left;
+  }
+  table.responsive th[data-label]::before,
+  table.responsive td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 5.5em;
+    color: var(--color-label);
+    font-size: 13px;
+    font-weight: 400;
+  }
+  table.responsive td.status-buttons {
+    flex-wrap: wrap;
+  }
+  table.responsive td.num {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  /* 詳細画面：指摘の内容を先に表示し、PDF はその下に */
+  .mobile-only {
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .finding-detail {
+    order: -1;
+  }
+  .status-buttons button {
+    flex: 1 1 100%;
+  }
+  .pager button {
+    flex: 1;
+  }
+  .meta dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* トップページ：今日の利用回数とアップロード */
+.home-top {
+  margin-bottom: 16px;
+}
+td.row-actions {
+  text-align: right;
+}
+
+/* 解析の進捗バー（トップページの一覧・解析の画面） */
+.progress-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 12em;
+}
+.progress-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-bg-control);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}
+.progress-bar-text {
+  font-size: 13px;
+  color: var(--color-label);
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar-fill {
+    transition: none;
+  }
+}
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  min-width: 36px;
+  min-height: 36px;
+}
+@media (max-width: 640px) {
+  button.icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* 注釈付きPDFの画面：ページ内の指摘の一覧 */
+.page-findings {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.page-findings li {
+  border-top: 1px solid var(--color-border);
+  padding: 8px 0;
+}
+.page-findings p {
+  margin: 4px 0;
+}
+.elapsed {
+  display: block;
+  font-size: 13px;
+  color: var(--color-label);
+  margin-top: 2px;
 }

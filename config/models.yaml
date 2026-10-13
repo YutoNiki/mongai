@@ -15,7 +15,9 @@ api:
   # 思考モードの切り替え方法：chat_template_kwargs（vLLM 形式の enable_thinking）| none（切り替えない）
   # 2026-10-12 確認：qwen3.8-27b-it は既定で思考オフ。enable_thinking: true で思考し、内容は message.reasoning に入る
   thinking_param: chat_template_kwargs
-  timeout_seconds: 300
+  # 1本の生成は毎秒約28トークン（2026-10-13 の make bench-concurrency）。思考を含めて
+  # max_tokens（16384）まで出し切れるよう長めにする。300秒では打ち切りと送り直しが続いた
+  timeout_seconds: 900
   max_retries: 4
   # 同時リクエスト数の上限（おいとまは負荷制限なし。クライアント側の資源保護のため）
   max_concurrency: 32
@@ -26,7 +28,8 @@ roles:
   structure_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   rule_extraction:      {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   reference_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # GROBID が失敗した場合の参考文献の構造化
-  logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, thinking: true, max_tokens: 16384}
+  # early_stop：最初の2回が一致すれば3回目を送らない（残る指摘は3回の多数決と同じ）
+  logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, early_stop: true, thinking: true, max_tokens: 16384}
   rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true, max_tokens: 8192}
   suggestion:           {model: qwen3.8-27b-it, temperature: 0.4, thinking: true, max_tokens: 12288}

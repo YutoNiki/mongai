@@ -41,3 +41,7 @@ def save_paper(data: bytes) -> str:
 def load_paper(doc_id: str) -> bytes | None:
     path = paper_path(doc_id)
     return path.read_bytes() if path.exists() else None
+
+
+def delete_paper_file(doc_id: str) -> None:
+    paper_path(doc_id).unlink(missing_ok=True)

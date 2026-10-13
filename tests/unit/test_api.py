@@ -11,7 +11,8 @@ from core.analyze.pipeline import AnalysisSettings
 from core.api.main import app, get_gateway, get_queue, get_store
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox
-from core.store import Store
+from core.llm.usage import UsageRow
+from core.store import Store, today_jst
 from shared.schemas import GatewayResponse
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
@@ -76,6 +77,9 @@ def test_upload_and_start_analysis(ctx: tuple[TestClient, Store, FakeQueue, byte
     assert queue.enqueued == [aid]
     assert client.post("/api/analyses", json={"doc_id": "0" * 16}).status_code == 404
     assert [a["analysis_id"] for a in client.get("/api/analyses").json()] == [aid]
+    store.set_progress(aid, "paragraph_check", 3, 10)
+    listed = client.get("/api/analyses").json()[0]
+    assert listed["progress"] == {"stage": "paragraph_check", "done": 3, "total": 10}
 
 
 def seed(store: Store, doc_id: str) -> str:
@@ -207,3 +211,79 @@ def test_audit_log_and_queue_via_gateway(ctx: tuple[TestClient, Store, FakeQueue
     assert gateway.decided == [("R-1", "approve"), ("R-1", "reject")]
     aid = seed(store, upload(client, pdf))
     assert client.get(f"/api/analyses/{aid}").json()["external_requests"] == 7
+
+
+def test_delete_document_removes_paper_and_analyses(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    aid = seed(store, doc_id)
+    other = upload(client, pdf + b"\n% other")
+    other_aid = seed(store, other)
+    store.add_daily_usage(today_jst(), [_usage(3)])
+
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 204
+    assert store.get_paper(doc_id) is None and store.get_document(doc_id) is None
+    assert store.get_analysis(aid) is None and store.get_findings(aid) == []
+    assert client.get(f"/api/documents/{doc_id}/paper.pdf").status_code == 404
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 404
+    # ほかの論文と、その日の利用回数は残る
+    assert store.get_analysis(other_aid) is not None
+    assert client.get(f"/api/documents/{other}/paper.pdf").status_code == 200
+    assert client.get("/api/usage/today").json()["requests"] == 3
+
+
+def test_delete_document_refuses_while_analysis_runs(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings(), status="queued")
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 409
+    store.set_status(aid, "running")
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 409
+    assert store.get_paper(doc_id) is not None
+    assert client.get(f"/api/documents/{doc_id}/paper.pdf").status_code == 200
+
+
+def _usage(requests: int, prompt: int = 100, completion: int = 50) -> UsageRow:
+    return UsageRow(
+        endpoint="chat/completions",
+        model="m",
+        role="logic_check",
+        calls=requests,
+        requests=requests,
+        retries=0,
+        failures=0,
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        latency_s=1.0,
+    )
+
+
+def test_usage_today(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
+    client, store, *_ = ctx
+    assert client.get("/api/usage/today").json() == {
+        "day": today_jst(),
+        "requests": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+    }
+    store.add_daily_usage(today_jst(), [_usage(2), _usage(3, 10, 5)])
+    store.add_daily_usage("2000-01-01", [_usage(99)])  # ほかの日は数えない
+    body = client.get("/api/usage/today").json()
+    assert (body["requests"], body["prompt_tokens"], body["completion_tokens"]) == (5, 110, 55)
+
+
+def test_usage_unreported_returns_increments() -> None:
+    from core.llm.usage import ApiUsage
+
+    usage = ApiUsage()
+    kw = {"endpoint": "chat/completions", "model": "m", "role": "r"}
+    usage.record_request(**kw, attempt=1, status=200, latency_s=1.0)
+    usage.record_tokens(**kw, prompt_tokens=10, completion_tokens=5)
+    assert [(r.requests, r.prompt_tokens) for r in usage.unreported()] == [(1, 10)]
+    assert usage.unreported() == []
+    usage.record_request(**kw, attempt=2, status=200, latency_s=1.0)
+    assert [(r.requests, r.prompt_tokens) for r in usage.unreported()] == [(1, 0)]

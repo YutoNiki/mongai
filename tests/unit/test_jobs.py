@@ -11,7 +11,7 @@ from core.analyze.pipeline import AnalysisSettings
 from core.gateway_client import GatewayClient
 from core.jobs import run_analysis
 from core.llm.client import OitomaClient
-from core.store import Store
+from core.store import Store, today_jst
 from core.store.files import save_paper
 from shared.schemas import GatewayResponse
 from tests.unit.test_analyze_pipeline import CHAT_URL, FakeLLM, config
@@ -63,10 +63,15 @@ async def test_run_analysis_saves_progress_findings_and_usage(
     assert any("offline" in w for w in record.warnings), record.warnings
     record = store.get_analysis(aid)
     assert record is not None and record.status == "completed"
-    assert record.progress.stage == "suggestion"
+    assert record.progress.stage == "locate"  # 最後に指摘の位置を確かめる
     assert store.get_document(doc_id) is not None
     assert store.get_structures(aid)
-    assert sum(r.requests for r in store.get_api_usage(aid)) > 0
+    usage = store.get_api_usage(aid)
+    assert sum(r.requests for r in usage) > 0
+    # 日ごとの集計にも、同じ回数・トークン数が入る
+    today = store.get_daily_usage(today_jst())
+    assert today.requests == sum(r.requests for r in usage)
+    assert today.completion_tokens == sum(r.completion_tokens for r in usage) > 0
 
 
 async def test_run_analysis_failure_is_recorded(

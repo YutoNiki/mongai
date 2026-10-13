@@ -1,5 +1,6 @@
 import { Layout } from "./components/Layout";
 import { matchRoute, usePath } from "./lib/router";
+import { AnnotatedPage } from "./pages/AnnotatedPage";
 import { AuditPage } from "./pages/AuditPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DefinitionsPage } from "./pages/DefinitionsPage";
@@ -10,6 +11,8 @@ import { QueuePage } from "./pages/QueuePage";
 function Route({ path }: { path: string }) {
   let m = matchRoute("/analyses/:id/findings/:fid", path);
   if (m) return <DetailPage key={m.id} analysisId={m.id ?? ""} findingId={m.fid ?? ""} />;
+  m = matchRoute("/analyses/:id/annotated", path);
+  if (m) return <AnnotatedPage key={m.id} analysisId={m.id ?? ""} />;
   m = matchRoute("/analyses/:id", path);
   if (m) return <DashboardPage key={m.id} analysisId={m.id ?? ""} />;
   if (path === "/audit") return <AuditPage />;

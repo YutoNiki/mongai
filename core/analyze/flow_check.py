@@ -1,20 +1,26 @@
 """段落間のチェック（接続の断絶・セクションの役割違反、SPEC 3.3-3）。
 
-全段落の要約を並べて判定する。長い論文は区切って判定し、区切りの前後で1段落ずつ重ねる。
+段落の要約を並べて判定する。論文は MAX_PARAGRAPHS_PER_CHUNK 段落ずつの束に区切り、束の前後で
+1段落ずつ重ねる。束を小さくするのは、1回の出力（思考を含む）を短くして同時に送れるようにするため
+（大きな束では思考が長くなり、応答の打ち切りと送り直しが続いた）。
 """
 
 import asyncio
+import inspect
+from collections.abc import Awaitable, Callable
 
 from core.analyze.context import Target
 from core.analyze.models import FlowCheckOutput, FlowIssue, ParagraphStructure
-from core.analyze.paragraph_check import samples_for
-from core.analyze.voting import Voted, majority
+from core.analyze.paragraph_check import early_stop_for, samples_for
+from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
 from core.llm.budget import estimate_tokens
 from core.llm.client import JSONOutputError, OitomaClient
 from core.llm.prompts import load_prompt
 
 ROLE = "logic_check"
+# 1つの束に入れる段落の数の上限
+MAX_PARAGRAPHS_PER_CHUNK = 16
 
 
 def paragraph_line(target: Target, structure: ParagraphStructure) -> str:
@@ -25,14 +31,15 @@ def paragraph_line(target: Target, structure: ParagraphStructure) -> str:
     )
 
 
-def chunk_lines(lines: list[str], max_tokens: int) -> list[list[int]]:
-    """行の番号を、max_tokens 以下の束に分ける。束どうしは1行ずつ重ねる。"""
+def chunk_lines(lines: list[str], max_tokens: int, max_lines: int | None = None) -> list[list[int]]:
+    """行の番号を、max_tokens 以下・max_lines 行以下の束に分ける。束どうしは1行ずつ重ねる。"""
     chunks: list[list[int]] = []
     current: list[int] = []
     used = 0
     for i, line in enumerate(lines):
         cost = estimate_tokens(line) + 1
-        if current and used + cost > max_tokens:
+        full = max_lines is not None and len(current) >= max(max_lines, 2)
+        if current and (used + cost > max_tokens or full):
             chunks.append(current)
             current = [current[-1]]
             used = estimate_tokens(lines[current[0]]) + 1
@@ -77,8 +84,13 @@ async def check_flow(
     *,
     prompt_lang: Lang,
     output_language: str,
+    max_paragraphs: int = MAX_PARAGRAPHS_PER_CHUNK,
+    on_chunk: Callable[[int, int], Awaitable[None] | None] | None = None,
 ) -> tuple[list[Voted[FlowIssue]], int, list[str]]:
-    """段落間の問題（多数決後）、判定回数 n、警告を返す。"""
+    """段落間の問題（多数決後）、判定回数の上限 n、警告を返す。実際の回数は Voted.samples。
+
+    on_chunk(終わった束の数, 束の数) は、束の判定が終わるたびに呼ぶ（進捗の表示用）。
+    """
     if len(targets) < 2:
         return [], samples_for(client, ROLE), []
     system = load_prompt("flow_check", prompt_lang, output_language=output_language)
@@ -86,7 +98,7 @@ async def check_flow(
     cfg = client.config
     max_output = cfg.role(ROLE).max_tokens or cfg.api.default_max_tokens
     limit = (cfg.context_window - max_output) // 2 - estimate_tokens(system)
-    chunks = chunk_lines(lines, max(limit, 500))
+    chunks = chunk_lines(lines, max(limit, 500), max_paragraphs)
     n = samples_for(client, ROLE)
     warnings: list[str] = []
 
@@ -95,24 +107,36 @@ async def check_flow(
             "flow_check_input", prompt_lang, paragraphs="\n".join(lines[i] for i in indexes)
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-        outcomes = await asyncio.gather(
-            *(
-                client.chat_json(ROLE, messages, FlowCheckOutput, lang=prompt_lang)
-                for _ in range(n)
-            ),
-            return_exceptions=True,
-        )
-        samples = [
-            clean_flow_issues(o.issues, targets, indexes)
-            for o in outcomes
-            if isinstance(o, FlowCheckOutput)
-        ]
-        if not samples:
-            error = next(o for o in outcomes if isinstance(o, BaseException))
-            raise JSONOutputError("段落間の判定に失敗しました") from error
-        return majority(samples, same=same_flow_issue, n=n)
 
-    results = await asyncio.gather(*(judge(c) for c in chunks), return_exceptions=True)
+        async def once() -> list[FlowIssue]:
+            output = await client.chat_json(ROLE, messages, FlowCheckOutput, lang=prompt_lang)
+            return clean_flow_issues(output.issues, targets, indexes)
+
+        ballot = await vote(
+            once, same=same_flow_issue, n=n, early_stop=early_stop_for(client, ROLE)
+        )
+        if ballot.all_failed:
+            raise JSONOutputError("段落間の判定に失敗しました") from ballot.errors[0]
+        return ballot.voted
+
+    finished = 0
+
+    async def report() -> None:
+        if on_chunk is not None:
+            notified = on_chunk(finished, len(chunks))
+            if inspect.isawaitable(notified):
+                await notified
+
+    async def judge_and_report(indexes: list[int]) -> list[Voted[FlowIssue]]:
+        nonlocal finished
+        try:
+            return await judge(indexes)
+        finally:
+            finished += 1
+            await report()
+
+    await report()
+    results = await asyncio.gather(*(judge_and_report(c) for c in chunks), return_exceptions=True)
     voted: list[Voted[FlowIssue]] = []
     seen: set[tuple[str, str]] = set()
     for result in results:

@@ -1,4 +1,4 @@
-# 門外不出（MonGAI）本番相当の構成（SPEC 2.2・7.1）
+# 門外不出（MongAI）本番相当の構成（SPEC 2.2・7.1）
 #
 # 外に出られるのは、oitoma_net に繋がった oitoma_proxy（おいとまAPIのみ）と、
 # outbound_net に繋がった egress_proxy（許可した書誌APIのみ）だけ。

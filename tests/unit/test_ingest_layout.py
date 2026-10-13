@@ -138,3 +138,27 @@ def test_paragraph_continues_across_columns_and_figures(tmp_path: Path) -> None:
     ) in body
     # 大文字で始まる表の行はつながない
     assert not any("diverse Back-translation" in t for t in body)
+
+
+def test_title_from_largest_text_on_first_page(tmp_path: Path) -> None:
+    page = [
+        Text(72, 40, "Journal of Synthetic Studies", size=8),
+        Text(72, 100, "A Two-Line Title About Reviewing", font="hebo", size=18),
+        Text(72, 122, "Manuscripts Before Submission", font="hebo", size=18),
+        Text(72, 160, "Taro Yamada, Hanako Suzuki", size=11),
+        *lines(
+            72,
+            200,
+            ["Abstract text starts here and it should not be part of the title at all."],
+            size=10,
+        ),
+    ]
+    layout = analyze_layout(make_pdf(tmp_path / "t.pdf", [page]))
+    assert layout.title == "A Two-Line Title About Reviewing Manuscripts Before Submission"
+
+
+def test_title_absent_when_no_large_text(tmp_path: Path) -> None:
+    layout = analyze_layout(
+        make_pdf(tmp_path / "n.pdf", [lines(72, 100, ["Only body text here."])])
+    )
+    assert layout.title is None

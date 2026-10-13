@@ -1,4 +1,4 @@
-# MonGAI の共通操作。コマンドはすべてコンテナ内で実行する（ホストに必要なのは Docker と make だけ）。
+# MongAI の共通操作。コマンドはすべてコンテナ内で実行する（ホストに必要なのは Docker と make だけ）。
 
 COMPOSE      := docker compose -f compose.yaml
 COMPOSE_DEV  := $(COMPOSE) -f compose.dev.yaml
@@ -8,7 +8,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-api config clean clean-data
+.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -58,8 +58,17 @@ eval: ## モデル評価（例：make eval ROLE=logic_check MODELS=qwen3.8-27b-i
 	@test -n "$(MODELS)" || (echo "MODELS を指定してください" >&2; exit 1)
 	$(COMPOSE) run --rm -v ./eval:/app/eval worker python -m eval.run --role $(ROLE) --models $(MODELS)
 
+check-highlights: ## 指摘の位置の診断（例：make check-highlights ANALYSIS=A-xxxx。FIX=1 で位置を保存）。本文は表示しない
+	@test -n "$(ANALYSIS)" || (echo "ANALYSIS を指定してください" >&2; exit 1)
+	$(COMPOSE) exec -T core python -m core.annotate.check $(ANALYSIS) $(if $(FIX),--fix,)
+
 check-api: ## おいとまAPIへの疎通と機能の確認（oitoma_proxy 経由）
 	$(COMPOSE_TEST) run --rm api_check
+
+LEVELS ?= 1,4,8,16,32
+bench-concurrency: ## 同時リクエスト数ごとの おいとまAPI の処理量を測る（合成データのみ。LEVELS=1,4,8,16,32 THINKING=1）
+	$(COMPOSE_TEST) build api_check
+	$(COMPOSE_TEST) run --rm api_check python -m core.llm.bench --levels $(LEVELS) $(if $(THINKING),--thinking,)
 
 config: ## compose ファイルの検証
 	$(COMPOSE) config -q

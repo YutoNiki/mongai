@@ -99,6 +99,7 @@ export interface AnalysisListItem {
   created_at: string;
   finished_at: string | null;
   total: number;
+  progress: Progress;
 }
 
 export interface FindingFilters {
@@ -141,6 +142,13 @@ export interface QueueItem {
   created_at: string;
 }
 
+export interface DailyUsage {
+  day: string;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -155,6 +163,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(detail);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -181,6 +190,9 @@ export const api = {
       body: JSON.stringify({ doc_id: docId, output_lang: outputLang }),
     });
   },
+  deleteDocument: (docId: string) =>
+    request<undefined>(`/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
+  usageToday: () => request<DailyUsage>("/usage/today"),
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
   findings: (id: string, filters: FindingFilters = {}) =>

@@ -29,6 +29,12 @@ def headings(doc: Document) -> list[str]:
     return [f"{s.number} {s.title}" if s.number else s.title for s in doc.sections[1:]]
 
 
+async def test_titles_from_first_page(en_doc: Document, ja_doc: Document) -> None:
+    # GROBID を使わなくても、1ページ目の文字の大きさからタイトルを取れる
+    assert en_doc.title == "ExtraPhrase: Efficient Data Augmentation for Abstractive Summarization"
+    assert ja_doc.title == "ExtraPhrase: 生成型要約のための効率的データ拡張"
+
+
 async def test_en_sections(en_doc: Document) -> None:
     assert en_doc.lang == "en"
     assert en_doc.page_count == 9

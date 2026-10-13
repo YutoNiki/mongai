@@ -90,6 +90,7 @@ class Layout:
     page_count: int
     paragraphs: list[RawParagraph]
     body_size: float
+    title: str | None = None
 
 
 def extract_lines(pdf: pymupdf.Document) -> list[Line]:
@@ -403,13 +404,53 @@ def _kind(lines: list[Line], body_size: float, use_bold: bool) -> ParagraphKind:
     return "body"
 
 
+def detect_title(lines: list[Line], body_size: float) -> str | None:
+    """1ページ目のタイトル：ページの上半分で最も大きな文字の行と、同じ大きさで続く行をつなげたもの。
+
+    GROBID はアブストラクトの一部をタイトルに含めることがあるため、文字の大きさと位置から決める。
+    """
+    first_page = [ln for ln in lines if ln.page == 1]
+    candidates = [
+        ln
+        for ln in first_page
+        if ln.bbox[1] < ln.page_height * 0.5
+        and ln.size >= body_size * 1.2
+        and sum(ch.isalpha() for ch in ln.text) >= 4
+        and not _UNNUMBERED_HEADINGS.match(re.sub(r"\s+", "", ln.text.strip()))
+        # 「1 はじめに」のような数字の番号付き見出しは除く（"A Study of ..." を付録の見出しと誤認しない）
+        and not (_NUMBERED_HEADING.match(ln.text.strip()) and ln.text.strip()[0].isdigit())
+    ]
+    if not candidates:
+        return None
+    largest = max(ln.size for ln in candidates)
+    start = next(
+        i for i, ln in enumerate(first_page) if ln in candidates and ln.size >= largest - 0.5
+    )
+    group = [first_page[start]]
+    for ln in first_page[start + 1 :]:
+        prev = group[-1]
+        same_size = abs(ln.size - largest) <= 0.5
+        close = -largest * 0.5 <= ln.bbox[1] - prev.bbox[3] <= largest * 1.2
+        if not (same_size and close):
+            break
+        group.append(ln)
+    chars: list[Char] = []
+    for i, ln in enumerate(group):
+        if i > 0:
+            chars.extend(_join(chars, ln))
+        chars.extend(_strip_chars(ln.chars))
+    title = " ".join("".join(c.c for c in chars).split())
+    return title[:500] or None
+
+
 def analyze_layout(path: str | Path) -> Layout:
     with pymupdf.open(path) as pdf:
         page_count = pdf.page_count
         lines = extract_lines(pdf)
     lines = remove_running_heads(merge_same_baseline(lines), page_count)
     paragraphs, body_size = build_paragraphs(lines)
-    return Layout(page_count=page_count, paragraphs=paragraphs, body_size=body_size)
+    title = detect_title(lines, body_size)
+    return Layout(page_count=page_count, paragraphs=paragraphs, body_size=body_size, title=title)
 
 
 def split_hanging_entries(paragraphs: list[RawParagraph]) -> list[str]:

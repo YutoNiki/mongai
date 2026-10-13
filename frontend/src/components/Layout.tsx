@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Link } from "../lib/router";
+import logoUrl from "../assets/header-logo.png";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -9,10 +10,15 @@ export function Layout({ children }: { children: ReactNode }) {
         本文へ移動
       </a>
       <header className="site-header">
-        <Link href="/" className="site-title">
-          門外不出（MonGAI）
+        <Link href="/" className="site-logo">
+          <img
+            src={logoUrl}
+            alt="門外不出（MongAI） 学内ローカルLLM論文セルフレビューシステム"
+            width={252}
+            height={40}
+          />
         </Link>
-        <nav aria-label="メニュー">
+        <nav aria-label="メニュー" className="site-nav-wrap">
           <ul className="site-nav">
             <li>
               <Link href="/">解析の一覧</Link>

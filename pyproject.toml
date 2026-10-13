@@ -1,7 +1,7 @@
 [project]
 name = "mongai"
 version = "0.1.0"
-description = "門外不出（MonGAI）：学内ローカルLLM基盤「おいとま」上で動く論文の投稿前セルフレビューシステム"
+description = "門外不出（MongAI）：学内ローカルLLM基盤「おいとま」上で動く論文の投稿前セルフレビューシステム"
 requires-python = ">=3.12,<3.13"
 
 # 依存ライブラリは requirements/*.txt でサービスごとに固定する（docs/dependencies.md も参照）
@@ -39,9 +39,12 @@ ignore_missing_imports = true
 module = [
     "core.ingest.layout",
     "core.annotate.pdf",
+    "core.annotate.locate",
+    "core.annotate.check",
     "tests.unit.pdf_factory",
     "tests.unit.test_annotate",
     "tests.unit.test_api_annotated",
+    "tests.unit.test_locate",
 ]
 disallow_untyped_calls = false
 

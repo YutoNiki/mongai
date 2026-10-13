@@ -112,14 +112,14 @@ def test_each_category_has_distinct_shape(pdf_and_boxes: tuple[bytes, list[BBox]
     findings = [finding(f"F-000{i + 1}", c, boxes[i], LINES[i]) for i, c in enumerate(categories)]
     out = annotate_pdf(data, findings)
     annots = {a["title"]: a for a in read_annots(out)}
-    assert set(annots) == {f"MonGAI F-000{i}" for i in range(1, 6)}
+    assert set(annots) == {f"MongAI F-000{i}" for i in range(1, 6)}
     for i, category in enumerate(categories, start=1):
-        annot = annots[f"MonGAI F-000{i}"]
+        annot = annots[f"MongAI F-000{i}"]
         assert annot["type"] == SHAPES[category]
         assert annot["stroke"] == pytest.approx(hex_to_rgb(ANNOTATION_COLORS[category]), abs=0.01)
-    assert annots["MonGAI F-0002"]["opacity"] == pytest.approx(HIGHLIGHT_OPACITY, abs=0.01)
-    assert annots["MonGAI F-0005"]["dashes"]  # 研究室知識は点線の枠
-    assert not annots["MonGAI F-0004"]["dashes"]  # 引用は実線の枠
+    assert annots["MongAI F-0002"]["opacity"] == pytest.approx(HIGHLIGHT_OPACITY, abs=0.01)
+    assert annots["MongAI F-0005"]["dashes"]  # 研究室知識は点線の枠
+    assert not annots["MongAI F-0004"]["dashes"]  # 引用は実線の枠
     # 余白のラベルに、種類名が文字で入っている（色だけで区別しない）
     text = page_text(out)
     for label in [
@@ -171,7 +171,7 @@ def test_dismissed_findings_are_not_written(pdf_and_boxes: tuple[bytes, list[BBo
         ),
         finding("F-0003", "logic", boxes[2], LINES[2], status="accepted"),
     ]
-    assert [a["title"] for a in read_annots(annotate_pdf(data, findings))] == ["MonGAI F-0001"]
+    assert [a["title"] for a in read_annots(annotate_pdf(data, findings))] == ["MongAI F-0001"]
     both = annotate_pdf(data, findings, statuses=frozenset({"open", "accepted"}))
     assert len(read_annots(both)) == 2
 

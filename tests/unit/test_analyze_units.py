@@ -7,7 +7,7 @@ from core.analyze.flow_check import chunk_lines, clean_flow_issues
 from core.analyze.models import FlowIssue, ParagraphIssue
 from core.analyze.paragraph_check import clean_issues
 from core.analyze.suggest import keeps_terms, protected_terms
-from core.analyze.voting import majority, most_common
+from core.analyze.voting import majority, most_common, vote
 from tests.unit.doc_factory import make_doc
 
 LONG = "本研究では論文の読みにくさを検出する新しい手法を提案し，その有効性を二つのデータセットで評価する．"
@@ -34,6 +34,50 @@ def test_majority_counts_failed_samples_against() -> None:
     same = lambda a, b: a == b  # noqa: E731
     assert majority([["x"]], same=same, n=3) == []
     assert [v.votes for v in majority([["x"]], same=same, n=1)] == [1]
+
+
+def _judge(answers: list[list[str] | Exception]) -> tuple[list[int], object]:
+    calls: list[int] = []
+    queue = iter(answers)
+
+    async def judge() -> list[str]:
+        calls.append(1)
+        answer = next(queue)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return calls, judge
+
+
+async def test_vote_stops_early_when_first_samples_agree() -> None:
+    same = lambda a, b: a == b  # noqa: E731
+    calls, judge = _judge([["x"], ["x"], ["y"]])
+    ballot = await vote(judge, same=same, n=3, early_stop=True)  # type: ignore[arg-type]
+    assert len(calls) == 2 and ballot.attempts == 2
+    assert [(v.item, v.votes, v.samples) for v in ballot.voted] == [("x", 2, 2)]
+
+
+async def test_vote_continues_when_undecided() -> None:
+    same = lambda a, b: a == b  # noqa: E731
+    calls, judge = _judge([["x"], ["y"], ["x"]])
+    ballot = await vote(judge, same=same, n=3, early_stop=True)  # type: ignore[arg-type]
+    assert len(calls) == 3
+    assert [(v.item, v.votes, v.samples) for v in ballot.voted] == [("x", 2, 3)]
+    # 1回失敗したら、もう1回判定する
+    calls, judge = _judge([[], RuntimeError("x"), []])
+    ballot = await vote(judge, same=same, n=3, early_stop=True)  # type: ignore[arg-type]
+    assert len(calls) == 2 and ballot.voted == [] and not ballot.all_failed
+    calls, judge = _judge([RuntimeError("a"), RuntimeError("b"), RuntimeError("c")])
+    ballot = await vote(judge, same=same, n=3, early_stop=True)  # type: ignore[arg-type]
+    assert len(calls) == 3 and ballot.all_failed
+
+
+async def test_vote_without_early_stop_runs_all() -> None:
+    same = lambda a, b: a == b  # noqa: E731
+    calls, judge = _judge([["x"], ["x"], ["y"]])
+    ballot = await vote(judge, same=same, n=3)  # type: ignore[arg-type]
+    assert len(calls) == 3 and [(v.votes, v.samples) for v in ballot.voted] == [(2, 3)]
 
 
 def test_most_common_prefers_first_on_tie() -> None:
@@ -149,6 +193,14 @@ def test_chunk_lines_overlap() -> None:
     assert chunks[0][0] == 0 and chunks[-1][-1] == 9
     for a, b in itertools.pairwise(chunks):
         assert b[0] == a[-1]  # 1行ずつ重ねる
+
+
+def test_chunk_lines_max_lines() -> None:
+    chunks = chunk_lines(["短い行"] * 40, max_tokens=10_000, max_lines=16)
+    assert all(len(c) <= 16 for c in chunks) and len(chunks) == 3
+    assert chunks[0][0] == 0 and chunks[-1][-1] == 39
+    for a, b in itertools.pairwise(chunks):
+        assert b[0] == a[-1]
 
 
 def test_protected_terms() -> None:

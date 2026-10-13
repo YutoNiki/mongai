@@ -36,7 +36,7 @@ export function AuditPage() {
           <p>学外への通信の記録はありません。</p>
         ) : (
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table responsive">
               <thead>
                 <tr>
                   <th scope="col">日時</th>
@@ -50,12 +50,12 @@ export function AuditPage() {
               <tbody>
                 {log.entries.map((e) => (
                   <tr key={e.seq}>
-                    <td>{new Date(e.ts).toLocaleString("ja-JP")}</td>
-                    <td>{label(DECISION_LABELS, e.decision)}</td>
-                    <td>{e.kind ? label(REQUEST_KIND_LABELS, e.kind) : "—"}</td>
-                    <td>{describeRequest(e.request)}</td>
-                    <td>{e.reason ?? ""}</td>
-                    <td>{e.analysis_id ? <Link href={`/analyses/${e.analysis_id}`}>{e.analysis_id}</Link> : "—"}</td>
+                    <td data-label="日時">{new Date(e.ts).toLocaleString("ja-JP")}</td>
+                    <td data-label="判定">{label(DECISION_LABELS, e.decision)}</td>
+                    <td data-label="種類">{e.kind ? label(REQUEST_KIND_LABELS, e.kind) : "—"}</td>
+                    <td data-label="内容">{describeRequest(e.request)}</td>
+                    <td data-label="理由">{e.reason ?? ""}</td>
+                    <td data-label="解析">{e.analysis_id ? <Link href={`/analyses/${e.analysis_id}`}>{e.analysis_id}</Link> : "—"}</td>
                   </tr>
                 ))}
               </tbody>

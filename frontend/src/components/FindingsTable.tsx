@@ -16,7 +16,7 @@ export function FindingsTable({ analysisId, findings }: { analysisId: string; fi
   if (findings.length === 0) return <p>条件に合う指摘はありません。</p>;
   return (
     <div className="table-scroll">
-      <table className="data-table findings">
+      <table className="data-table findings responsive">
         <caption className="visually-hidden">指摘の一覧（重大度の順）</caption>
         <thead>
           <tr>
@@ -34,25 +34,27 @@ export function FindingsTable({ analysisId, findings }: { analysisId: string; fi
         <tbody>
           {sortFindings(findings).map((f) => (
             <tr key={f.finding_id}>
-              <th scope="row">
+              <th scope="row" data-label="番号">
                 <Link href={`/analyses/${analysisId}/findings/${f.finding_id}`}>{f.finding_id}</Link>
               </th>
-              <td>
+              <td data-label="重大度">
                 <SeverityBadge severity={f.severity} />
               </td>
-              <td>
+              <td data-label="種類">
                 <CategoryBadge category={f.category} />
                 <div className="sub">{label(SUBCATEGORY_LABELS, f.subcategory)}</div>
               </td>
-              <td className="num">{f.page}</td>
-              <td>{f.issue}</td>
-              <td>
+              <td className="num" data-label="ページ">
+                {f.page}
+              </td>
+              <td data-label="指摘">{f.issue}</td>
+              <td data-label="確度">
                 {f.confidence === "high" ? "高" : "低"}
                 <span className="sub">
                   （{f.samples}回中{f.votes}回）
                 </span>
               </td>
-              <td>
+              <td data-label="ステータス">
                 <StatusBadge status={f.status} />
               </td>
             </tr>

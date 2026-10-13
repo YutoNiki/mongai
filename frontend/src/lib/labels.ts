@@ -49,9 +49,18 @@ export const STAGE_LABELS: Record<string, string> = {
   flow_check: "段落間のチェック",
   citation: "引用の検証",
   suggestion: "改善案の作成",
+  locate: "指摘の位置の確認",
 };
 
-export const STAGES = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "suggestion"] as const;
+export const STAGES = [
+  "ingest",
+  "structure",
+  "paragraph_check",
+  "flow_check",
+  "citation",
+  "suggestion",
+  "locate",
+] as const;
 
 /** 検索ゲートウェイの判定 */
 export const DECISION_LABELS: Record<string, string> = {

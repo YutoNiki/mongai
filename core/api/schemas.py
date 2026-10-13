@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.analyze.context import OutputLang
 from core.llm.usage import UsageRow
-from core.store import AnalysisRecord, PaperRecord
+from core.store import AnalysisRecord, PaperRecord, Progress
 
 
 class UploadResponse(BaseModel):
@@ -80,6 +80,7 @@ class AnalysisListItem(BaseModel):
     created_at: str
     finished_at: str | None
     total: int
+    progress: Progress = Progress()  # トップページの進捗バー
 
 
 class AuditLog(BaseModel):
