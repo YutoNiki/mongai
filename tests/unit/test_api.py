@@ -8,10 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.main import app, get_gateway, get_queue, get_store
+from core.api.main import app, get_gateway, get_queue, get_rule_store, get_store
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox
 from core.llm.usage import UsageRow
+from core.rules.store import RuleStore
 from core.store import Store, today_jst
 from shared.schemas import GatewayResponse
 from tests.unit.doc_factory import make_doc
@@ -33,6 +34,9 @@ class FakeQueue:
     async def enqueue(self, analysis_id: str) -> None:
         self.enqueued.append(analysis_id)
 
+    async def enqueue_rules(self, document_id: str) -> None:
+        self.enqueued.append(document_id)
+
 
 @pytest.fixture
 def ctx(
@@ -44,6 +48,8 @@ def ctx(
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_queue] = lambda: queue
     app.dependency_overrides[get_gateway] = lambda: OfflineGateway()
+    rule_store = RuleStore(tmp_path / "db.sqlite3")
+    app.dependency_overrides[get_rule_store] = lambda: rule_store
     pdf = make_pdf(tmp_path / "p.pdf", [[Text(72, 120, "A synthetic paper.")]]).read_bytes()
     yield TestClient(app), store, queue, pdf
     app.dependency_overrides.clear()
@@ -335,3 +341,39 @@ def test_diff_json_and_text_report(ctx: tuple[TestClient, Store, FakeQueue, byte
     assert "前回との差分：解消 1件、新規 1件、継続 2件。" in text
     assert "■ 主な指摘（重大・要修正、3件）" in text
     assert "■ 前回から解消された指摘（1件）" in text
+
+
+def test_rule_documents_and_rules(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
+    client, _, queue, _ = ctx
+    bad = client.post(
+        "/api/rule-documents", files={"file": ("x.docx", b"x", "application/octet-stream")}
+    )
+    assert bad.status_code == 415
+    r = client.post(
+        "/api/rule-documents",
+        files={"file": ("投稿規定.md", "要旨には目的を書く。".encode(), "text/markdown")},
+    )
+    assert r.status_code == 201
+    doc = r.json()
+    assert doc["kind"] == "markdown" and doc["status"] == "queued"
+    assert queue.enqueued == [doc["document_id"]]
+    assert [d["document_id"] for d in client.get("/api/rule-documents").json()] == [
+        doc["document_id"]
+    ]
+    # 抽出中は削除できない
+    assert client.delete(f"/api/rule-documents/{doc['document_id']}").status_code == 409
+
+    rules = client.get("/api/rules").json()
+    assert {x["rule_id"] for x in rules} >= {"B-ABBR", "B-FIGREF", "B-UNIT"}
+    off = client.patch("/api/rules/B-UNIT", json={"status": "disabled"}).json()
+    assert off["status"] == "disabled"
+    assert client.patch("/api/rules/R-none", json={"status": "approved"}).status_code == 404
+    assert client.patch("/api/rules/B-UNIT", json={"status": "bogus"}).status_code == 422
+    bulk = client.post(
+        "/api/rules/bulk-status",
+        json={"rule_ids": ["B-UNIT", "B-ABBR", "R-none"], "status": "approved"},
+    ).json()
+    assert [x["rule_id"] for x in bulk] == ["B-UNIT", "B-ABBR"]
+    assert {
+        x["rule_id"] for x in client.get("/api/rules", params={"status": "disabled"}).json()
+    } == set()

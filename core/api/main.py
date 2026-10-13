@@ -3,6 +3,7 @@
 認証は無い（web は 127.0.0.1 にだけ公開し、SSH のポートフォワード等で利用する前提）。
 """
 
+import contextlib
 import csv
 import io
 import json
@@ -23,6 +24,7 @@ from core.api.schemas import (
     AnalysisListItem,
     AnalysisSummary,
     AuditLog,
+    BulkRuleStatus,
     CreateAnalysisRequest,
     DocumentInfo,
     PersistingPair,
@@ -36,6 +38,9 @@ from core.llm.config import get_models_config
 from core.logging_config import configure_logging
 from core.report.diff import FindingsDiff, diff_findings
 from core.report.text import text_report
+from core.rules.extract import SUFFIXES, delete_rule_file, save_document_file
+from core.rules.models import Rule, RuleDocument, RuleStatus, RuleUpdate
+from core.rules.store import RuleNotFoundError, RuleStore
 from core.store import (
     AnalysisRecord,
     DailyUsage,
@@ -64,6 +69,8 @@ app = FastAPI(title="MongAI core", docs_url="/api/docs", openapi_url="/api/opena
 class JobQueue(Protocol):
     async def enqueue(self, analysis_id: str) -> None: ...
 
+    async def enqueue_rules(self, document_id: str) -> None: ...
+
 
 class ArqQueue:
     """解析ジョブを Redis（arq）に積む。"""
@@ -71,11 +78,19 @@ class ArqQueue:
     def __init__(self) -> None:
         self._pool: ArqRedis | None = None
 
-    async def enqueue(self, analysis_id: str) -> None:
+    async def _redis(self) -> ArqRedis:
         if self._pool is None:
             dsn = os.environ.get("REDIS_URL", "redis://redis:6379/0")
             self._pool = await create_pool(RedisSettings.from_dsn(dsn))
-        await self._pool.enqueue_job("run_analysis", analysis_id, _job_id=analysis_id)
+        return self._pool
+
+    async def enqueue(self, analysis_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_analysis", analysis_id, _job_id=analysis_id)
+
+    async def enqueue_rules(self, document_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_rule_extraction", document_id, _job_id=document_id)
 
 
 _queue = ArqQueue()
@@ -83,6 +98,10 @@ _queue = ArqQueue()
 
 def get_store() -> Store:
     return Store()
+
+
+def get_rule_store() -> RuleStore:
+    return RuleStore()
 
 
 def get_queue() -> JobQueue:
@@ -96,6 +115,7 @@ def get_gateway() -> GatewayClient:
 StoreDep = Annotated[Store, Depends(get_store)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 GatewayDep = Annotated[GatewayClient, Depends(get_gateway)]
+RuleStoreDep = Annotated[RuleStore, Depends(get_rule_store)]
 
 
 def _analysis_or_404(store: Store, analysis_id: str) -> AnalysisRecord:
@@ -487,3 +507,76 @@ async def gateway_decide(
         "decision": response.decision,
         "reason": response.reason,
     }
+
+
+# ---------------------------------------------------------------- ルール（SPEC 3.2）
+
+MAX_RULE_DOCUMENT_BYTES = 30 * 1024 * 1024
+
+
+@app.get("/api/rules")
+def list_rules(rules: RuleStoreDep, status: RuleStatus | None = None) -> list[Rule]:
+    return rules.list_rules(status=status)
+
+
+@app.patch("/api/rules/{rule_id}")
+def update_rule(rule_id: str, update: RuleUpdate, rules: RuleStoreDep) -> Rule:
+    """ルールの確認・編集・承認・無効化。組み込みのルールは有効・無効だけを変えられる。"""
+    try:
+        return rules.update_rule(rule_id, update)
+    except RuleNotFoundError:
+        raise HTTPException(status_code=404, detail="ルールが見つかりません") from None
+
+
+@app.post("/api/rules/bulk-status")
+def bulk_rule_status(request: BulkRuleStatus, rules: RuleStoreDep) -> list[Rule]:
+    """複数のルールをまとめて承認・無効・保留にする（見つからない ID は無視する）。"""
+    updated: list[Rule] = []
+    for rule_id in request.rule_ids:
+        try:
+            updated.append(rules.update_rule(rule_id, RuleUpdate(status=request.status)))
+        except RuleNotFoundError:
+            continue
+    return updated
+
+
+@app.get("/api/rule-documents")
+def list_rule_documents(rules: RuleStoreDep) -> list[RuleDocument]:
+    return rules.list_documents()
+
+
+@app.post("/api/rule-documents", status_code=201)
+async def upload_rule_document(
+    file: UploadFile, rules: RuleStoreDep, queue: QueueDep
+) -> RuleDocument:
+    """ルール資料（PDF・Markdown・テキスト）を登録し、ルールの抽出を始める。資料は data_private に保存する。"""
+    filename = os.path.basename(file.filename or "rules.txt")[:255]
+    kind = SUFFIXES.get(os.path.splitext(filename)[1].lower())
+    if kind is None:
+        raise HTTPException(
+            status_code=415,
+            detail="PDF・Markdown（.md）・テキスト（.txt）のファイルを選んでください",
+        )
+    data = await file.read(MAX_RULE_DOCUMENT_BYTES + 1)
+    if len(data) > MAX_RULE_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 30MB）")
+    if kind == "pdf" and not data.startswith(b"%PDF-"):
+        raise HTTPException(status_code=415, detail="PDF ファイルとして読めません")
+    doc = rules.create_document(filename, kind)
+    save_document_file(doc.document_id, kind, data)
+    await queue.enqueue_rules(doc.document_id)
+    return doc
+
+
+@app.delete("/api/rule-documents/{document_id}", status_code=204)
+def delete_rule_document(document_id: str, rules: RuleStoreDep) -> Response:
+    """資料と、そこから抽出したルールを削除する（ほかの資料のルールに統合された出典の記録は残る）。"""
+    doc = rules.get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="ルール資料が見つかりません")
+    if doc.status in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="ルールの抽出中は削除できません")
+    rules.delete_document(document_id)
+    with contextlib.suppress(ValueError):
+        delete_rule_file(document_id, doc.kind)
+    return Response(status_code=204)

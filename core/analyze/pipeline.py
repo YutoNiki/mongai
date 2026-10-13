@@ -1,4 +1,4 @@
-"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証を同時に）
+"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証・ルールの判定を同時に）
 → 二重チェック → 改善案。"""
 
 import asyncio
@@ -39,6 +39,9 @@ from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
+from core.rules.check import applicable_rules, check_rules, select_rules
+from core.rules.mechanical import RuleViolation, run_mechanical
+from core.rules.models import Rule
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,8 @@ class AnalysisSettings(BaseModel):
     with_citation_check: bool = True
     # 引用内容の支持判定の上限（引用×文献の組の数）
     max_support_checks: int = Field(default=60, ge=0)
+    # 承認済みのルールで判定する（機械判定と LLM 判定。SPEC 3.2・3.3-3）
+    with_rule_check: bool = True
     # 重大・要修正の論理・読みやすさの指摘を、第2のモデルでも判定する（SPEC 3.3-4）
     with_double_check: bool = True
     with_suggestions: bool = True
@@ -200,6 +205,38 @@ class _Builder:
             models=ModelInfo(primary=draft.model),
         )
 
+    def from_violation(self, v: RuleViolation) -> Finding | None:
+        if not v.bboxes:
+            return None
+        section_id = next(
+            (self.sentences[s].section_id for s in v.sentence_ids if s in self.sentences), None
+        )
+        source = v.rule.source
+        where = f"{source.doc}" + (f" p.{source.page}" if source.page else "")
+        return Finding(
+            finding_id=self._next_id(),
+            doc_id=self.doc.doc_id,
+            category="rule",
+            subcategory=v.subcategory,
+            severity=v.severity,
+            section_id=section_id,
+            page=v.bboxes[0].page,
+            bboxes=v.bboxes,
+            sentence_ids=v.sentence_ids,
+            quote=v.quote,
+            issue=v.issue,
+            rationale=v.rationale,
+            evidence=[
+                Evidence(type="rule", ref=v.rule.rule_id, excerpt=f"{v.rule.rule}（{where}）")
+            ],
+            suggestions=v.suggestions,
+            # 機械判定は確実なので高、LLM の判定は1回だけなので低
+            confidence="high" if v.model == "mechanical" else "low",
+            votes=1,
+            samples=1,
+            models=ModelInfo(primary=v.model),
+        )
+
     def from_flow(self, voted: Voted[FlowIssue]) -> Finding | None:
         issue = voted.item
         para = self.paragraphs.get(issue.paragraph_id)
@@ -241,8 +278,11 @@ async def analyze_logic(
     on_findings: FindingsCallback | None = None,
     gateway: GatewayClient | None = None,
     analysis_id: str | None = None,
+    rules: list[Rule] | None = None,
+    rule_vectors: dict[str, list[float]] | None = None,
 ) -> LogicAnalysis:
-    """論理・読みやすさの解析。gateway と analysis_id を渡すと引用の検証も行う。"""
+    """論理・読みやすさの解析。gateway と analysis_id を渡すと引用の検証も、rules（承認済みのルール）を
+    渡すとルールの判定も行う。rule_vectors はルールの埋め込み（ルールが多いときの絞り込みに使う）。"""
     settings = settings or AnalysisSettings()
     prompt_lang = doc.lang
     out_lang = output_language(prompt_lang, doc.lang, settings.output_lang)
@@ -280,7 +320,7 @@ async def analyze_logic(
 
     # 2〜4. 段落内チェック・段落間チェック・引用の検証は互いに依存しないので、同時に進める
     # （1つの工程の終わり際に、遅い数本の応答を待つ間もほかの工程の要求を送れる）
-    stages = ["paragraph_check", "flow_check", "citation"]
+    stages = ["paragraph_check", "flow_check", "citation", "rule_check"]
     progress = _StageProgress(on_progress, stages)
     done = 0
     await progress("paragraph_check", done, len(targets))
@@ -374,11 +414,50 @@ async def analyze_logic(
             await _notify(on_findings, new)
         progress.finish("citation")
 
+    # ルールの判定（機械判定は LLM を使わずにすぐ終わる。LLM 判定は段落ごと）
+    async def rule_checks() -> None:
+        approved = [r for r in rules or [] if r.status == "approved"]
+        if not settings.with_rule_check or not approved:
+            progress.finish("rule_check")
+            return
+        violations = run_mechanical(doc, approved, out_lang_code)
+        new = [f for f in (builder.from_violation(v) for v in violations) if f is not None]
+        findings.extend(new)
+        if new:
+            await _notify(on_findings, new)
+        cited = {c.sentence_id for c in doc.citations}
+        checked = 0
+        await progress("rule_check", checked, len(targets))
+
+        async def check_target(t: Target) -> None:
+            nonlocal checked
+            try:
+                chosen = applicable_rules(approved, t, doc, cited)
+                chosen = await select_rules(client, chosen, t, rule_vectors or {})
+                found = await check_rules(
+                    client, t, chosen, prompt_lang=prompt_lang, output_language=out_lang
+                )
+            except OitomaError as exc:
+                warnings.append(
+                    f"段落 {t.paragraph.paragraph_id} のルールの判定に失敗しました：{exc}"
+                )
+            else:
+                made = [f for f in (builder.from_violation(v) for v in found) if f is not None]
+                findings.extend(made)
+                if made:
+                    await _notify(on_findings, made)
+            checked += 1
+            await progress("rule_check", checked, len(targets))
+
+        await asyncio.gather(*(check_target(t) for t in targets))
+        progress.finish("rule_check")
+
     # 1つが例外で止まったら、ほかも取り消す（解析の失敗として扱う）
     async with asyncio.TaskGroup() as group:
         group.create_task(paragraph_checks())
         group.create_task(flow_checks())
         group.create_task(citation_checks())
+        group.create_task(rule_checks())
 
     # 4. 二重チェック（重大・要修正の論理・読みやすさの指摘を、第2のモデルで独立に判定する）
     if settings.with_double_check:

@@ -19,6 +19,10 @@ export const SUBCATEGORY_LABELS: Record<string, string> = {
   bib_not_found: "書誌が見つからない",
   bib_mismatch: "書誌の不一致",
   citation_unsupported: "引用内容が支持されない",
+  rule_violation: "ルールへの違反",
+  abbreviation_definition: "略語の定義",
+  figure_table_reference: "図表の参照",
+  unit_consistency: "単位の表記ゆれ",
 };
 
 export const SEVERITY_LABELS: Record<string, string> = {
@@ -48,6 +52,7 @@ export const STAGE_LABELS: Record<string, string> = {
   paragraph_check: "段落内のチェック",
   flow_check: "段落間のチェック",
   citation: "引用の検証",
+  rule_check: "ルールの判定",
   double_check: "二重チェック",
   suggestion: "改善案の作成",
   locate: "指摘の位置の確認",
@@ -59,6 +64,7 @@ export const STAGES = [
   "paragraph_check",
   "flow_check",
   "citation",
+  "rule_check",
   "double_check",
   "suggestion",
   "locate",

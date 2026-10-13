@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from core.analyze.context import OutputLang
 from core.analyze.models import Finding
 from core.llm.usage import UsageRow
+from core.rules.models import RuleStatus
 from core.store import AnalysisRecord, PaperRecord, Progress
 
 
@@ -102,3 +103,10 @@ class AuditLog(BaseModel):
     available: bool
     mode: str | None = None
     entries: list[dict[str, Any]]
+
+
+class BulkRuleStatus(BaseModel):
+    """複数のルールのステータスをまとめて変える。"""
+
+    rule_ids: list[str] = Field(min_length=1, max_length=1000)
+    status: RuleStatus
