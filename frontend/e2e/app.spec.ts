@@ -244,3 +244,19 @@ test("解析結果の左上の「＜」でダッシュボードに戻る（ブ�
   await page.goBack();
   await expect(page).toHaveURL("/");
 });
+
+test("論文を複数まとめてアップロードし、それぞれの解析を始める", async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto("/");
+  const pdf = { mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") };
+  await page.getByLabel("論文のPDF（複数選べます）").setInputFiles([
+    { name: "a.pdf", ...pdf },
+    { name: "b.pdf", ...pdf },
+    { name: "c.pdf", ...pdf },
+  ]);
+  await page.getByRole("button", { name: "3件をアップロードして解析を始める" }).click();
+  await expect(page.getByText("3件の論文の解析を始めました")).toBeVisible();
+  expect(api.uploads).toBe(3);
+  expect(api.started).toEqual(["0000000000000001", "0000000000000002", "0000000000000003"]);
+  await expect(page).toHaveURL("/"); // 複数のときはトップページに留まる
+});
