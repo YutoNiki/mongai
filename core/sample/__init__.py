@@ -1,6 +1,7 @@
 """例の解析：デモ用の合成論文（demo/demo_paper_ja.pdf）の解析結果を、最初から一覧に表示する。
 
-解析結果は 2026-10-13 に実際に解析したもの（E2E テストのモックと同じ）。合成データなので未発表の論文は含まない。
+解析結果は 2026-10-13 に実際に解析したもの（未知の用語の照会を加えた版のデモ論文）。
+合成データなので未発表の論文は含まない。
 ワーカーの起動時に、無ければ取り込む。例の論文は削除できない（画面では「（例）」と表示する）。
 """
 
@@ -19,8 +20,8 @@ from core.store.files import doc_id_for, save_paper
 logger = logging.getLogger(__name__)
 
 SAMPLE_DIR = Path(__file__).parent
-SAMPLE_DOC_ID = "d97c600f1a79d612"
-SAMPLE_ANALYSIS_ID = "A-11196770680f"
+SAMPLE_DOC_ID = "67dc154e691a70a2"
+SAMPLE_ANALYSIS_ID = "A-e8f312ab9445"
 
 
 class _SampleAnalysis(BaseModel):
