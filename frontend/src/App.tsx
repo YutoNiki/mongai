@@ -1,10 +1,10 @@
+import { Suspense } from "react";
+
 import { Layout } from "./components/Layout";
+import { AnnotatedPage, DashboardPage, DetailPage } from "./lib/pages";
 import { matchRoute, usePath } from "./lib/router";
-import { AnnotatedPage } from "./pages/AnnotatedPage";
 import { AuditPage } from "./pages/AuditPage";
-import { DashboardPage } from "./pages/DashboardPage";
 import { DefinitionsPage } from "./pages/DefinitionsPage";
-import { DetailPage } from "./pages/DetailPage";
 import { HomePage } from "./pages/HomePage";
 import { LabPage } from "./pages/LabPage";
 import { QueuePage } from "./pages/QueuePage";
@@ -30,7 +30,9 @@ export function App() {
   const path = usePath();
   return (
     <Layout>
-      <Route path={path} />
+      <Suspense fallback={<p className="page">読み込み中…</p>}>
+        <Route path={path} />
+      </Suspense>
     </Layout>
   );
 }
