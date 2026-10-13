@@ -35,6 +35,7 @@ from core.analyze.second_opinion import apply_opinion, needs_second_opinion, sec
 from core.analyze.structure import extract_structure, fallback_structure
 from core.analyze.suggest import suggest
 from core.analyze.templates import text as template
+from core.analyze.terms import lookup_terms
 from core.analyze.voting import Voted, most_common
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
@@ -68,6 +69,8 @@ class AnalysisSettings(BaseModel):
     with_lab_check: bool = True
     # 重大・要修正の論理・読みやすさの指摘を、第2のモデルでも判定する（SPEC 3.3-4）
     with_double_check: bool = True
+    # 定義なしで使われている一般的な専門用語を gateway に照会する（standard モードでは承認制。M7）
+    with_term_lookup: bool = True
     with_suggestions: bool = True
 
 
@@ -448,6 +451,22 @@ async def analyze_logic(
         findings.extend(new)
         if new:
             await _notify(on_findings, new)
+        if settings.with_term_lookup and targets:
+            # 原稿は check_citations で gateway に登録済み。用語の照会は承認キューに積まれる
+            terms = await lookup_terms(
+                client,
+                gateway,
+                targets,
+                analysis_id=analysis_id,
+                doc_id=doc.doc_id,
+                lang=prompt_lang,
+            )
+            warnings.extend(terms.warnings)
+            if terms.pending:
+                warnings.append(
+                    f"未知の用語 {len(terms.pending)} 語（{'、'.join(terms.pending)}）の照会を承認キューに"
+                    "積みました。「承認キュー」の画面で承認すると、その用語だけを学外に送信します"
+                )
         progress.finish("citation")
 
     # ルールの判定（機械判定は LLM を使わずにすぐ終わる。LLM 判定は段落ごと）

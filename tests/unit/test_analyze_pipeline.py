@@ -32,6 +32,7 @@ def config() -> ModelsConfig:
                 "reference_extraction": {"model": "fast"},
                 "citation_support": {"model": "think"},
                 "second_opinion": {"model": "second"},
+                "term_extraction": {"model": "fast"},
             },
             "embeddings": {},
         }
@@ -143,6 +144,9 @@ class FakeLLM:
                     "提案手法は全てのタスクで既存手法を上回り，データ拡張の問題を完全に解決する．",
                 ]
             }
+        elif "未知の用語" in system:
+            stage = "term_extraction"
+            payload = {"terms": []}
         else:
             raise AssertionError(system[:50])
         self.calls[stage] = self.calls.get(stage, 0) + 1

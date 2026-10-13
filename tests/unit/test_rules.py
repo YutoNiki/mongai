@@ -45,6 +45,7 @@ def config() -> ModelsConfig:
                 "second_opinion": {"model": "second"},
                 "rule_extraction": {"model": "fast"},
                 "rule_check": {"model": "fast"},
+                "term_extraction": {"model": "fast"},
             },
             "embeddings": {"retrieval": {"model": "embed"}},
         }
