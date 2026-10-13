@@ -307,6 +307,41 @@ async def _submit(
     return None
 
 
+def support_messages(
+    *,
+    sentence: str,
+    context: str,
+    reference: str,
+    abstract: str,
+    source: str,
+    prompt_lang: Lang,
+    output_language: str,
+) -> list[dict[str, str]]:
+    """引用内容の支持判定のプロンプト。アブストラクト（外部データ）は <external_data> で囲む。"""
+    return [
+        {
+            "role": "system",
+            "content": load_prompt(
+                "citation_support",
+                prompt_lang,
+                external_data_notice=external_data_notice(prompt_lang),
+                output_language=output_language,
+            ),
+        },
+        {
+            "role": "user",
+            "content": load_prompt(
+                "citation_support_input",
+                prompt_lang,
+                sentence=sentence,
+                context=context,
+                reference=reference,
+                abstract=wrap_external(abstract, source=source),
+            ),
+        },
+    ]
+
+
 def _ref_location(
     ref: Reference, citing: dict[str, list[Sentence]]
 ) -> tuple[list[str], list[BBox]] | None:
@@ -413,28 +448,15 @@ async def check_citations(
             context = " ".join(
                 sentences[order[j]].text for j in range(max(0, i - 1), min(len(order), i + 2))
             )
-            messages = [
-                {
-                    "role": "system",
-                    "content": load_prompt(
-                        "citation_support",
-                        prompt_lang,
-                        external_data_notice=external_data_notice(prompt_lang),
-                        output_language=output_language,
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": load_prompt(
-                        "citation_support_input",
-                        prompt_lang,
-                        sentence=sentence.text,
-                        context=context,
-                        reference=short_label(refs[ref_id]),
-                        abstract=wrap_external(abstract, source=doi),
-                    ),
-                },
-            ]
+            messages = support_messages(
+                sentence=sentence.text,
+                context=context,
+                reference=short_label(refs[ref_id]),
+                abstract=abstract,
+                source=doi,
+                prompt_lang=prompt_lang,
+                output_language=output_language,
+            )
             try:
                 judgements[(citation_id, ref_id)] = await client.chat_json(
                     ROLE_SUPPORT, messages, SupportJudgement, lang=prompt_lang
