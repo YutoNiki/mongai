@@ -176,6 +176,7 @@ def list_analyses(store: StoreDep) -> list[AnalysisListItem]:
                 created_at=record.created_at,
                 finished_at=record.finished_at,
                 total=sum(f.status != "dismissed" for f in findings),
+                progress=record.progress,
             )
         )
     return items

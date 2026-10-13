@@ -99,6 +99,7 @@ export interface AnalysisListItem {
   created_at: string;
   finished_at: string | null;
   total: number;
+  progress: Progress;
 }
 
 export interface FindingFilters {

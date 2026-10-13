@@ -589,3 +589,32 @@ blockquote {
 td.row-actions {
   text-align: right;
 }
+
+/* 解析の進捗バー（トップページの一覧・解析の画面） */
+.progress-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 12em;
+}
+.progress-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-bg-control);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.4s ease;
+}
+.progress-bar-text {
+  font-size: 13px;
+  color: var(--color-label);
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar-fill {
+    transition: none;
+  }
+}

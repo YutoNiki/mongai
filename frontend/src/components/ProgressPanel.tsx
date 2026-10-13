@@ -1,5 +1,6 @@
 import type { AnalysisRecord } from "../lib/api";
 import { STAGES, STAGE_LABELS, label } from "../lib/labels";
+import { ProgressBar } from "./ProgressBar";
 
 /** 解析の進捗（工程ごと）。SPEC 6.5「待たせすぎない」 */
 export function ProgressPanel({ analysis }: { analysis: AnalysisRecord }) {
@@ -11,6 +12,7 @@ export function ProgressPanel({ analysis }: { analysis: AnalysisRecord }) {
         解析の進捗
       </h2>
       {analysis.status === "queued" && <p>順番を待っています。</p>}
+      <ProgressBar status={analysis.status} progress={analysis.progress} />
       <ol className="progress-steps">
         {STAGES.map((stage, i) => {
           const state = i < currentIndex ? "done" : i === currentIndex ? "current" : "todo";

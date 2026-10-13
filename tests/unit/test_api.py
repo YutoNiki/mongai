@@ -77,6 +77,9 @@ def test_upload_and_start_analysis(ctx: tuple[TestClient, Store, FakeQueue, byte
     assert queue.enqueued == [aid]
     assert client.post("/api/analyses", json={"doc_id": "0" * 16}).status_code == 404
     assert [a["analysis_id"] for a in client.get("/api/analyses").json()] == [aid]
+    store.set_progress(aid, "paragraph_check", 3, 10)
+    listed = client.get("/api/analyses").json()[0]
+    assert listed["progress"] == {"stage": "paragraph_check", "done": 3, "total": 10}
 
 
 def seed(store: Store, doc_id: str) -> str:

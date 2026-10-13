@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
+import { ProgressBar } from "../components/ProgressBar";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 
@@ -11,8 +12,9 @@ const ANALYSIS_STATUS: Record<string, string> = {
 };
 
 const ACTIVE = new Set(["queued", "running"]);
-// 解析中は「今日の利用」と一覧を、この間隔で読み直す
+// 「今日の利用」と一覧を読み直す間隔（解析中・順番待ちがあるときは短くする）
 const REFRESH_MS = 15_000;
+const REFRESH_ACTIVE_MS = 5_000;
 
 const number = (value: number) => value.toLocaleString("ja-JP");
 
@@ -30,10 +32,11 @@ export function HomePage() {
     api.usageToday().then(setUsage, () => setUsage(null));
   }, []);
   useEffect(load, [load]);
+  const active = items?.some((i) => ACTIVE.has(i.status)) ?? false;
   useEffect(() => {
-    const timer = window.setInterval(load, REFRESH_MS);
+    const timer = window.setInterval(load, active ? REFRESH_ACTIVE_MS : REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, active]);
 
   const remove = async (item: AnalysisListItem) => {
     const name = item.title ?? item.filename ?? item.doc_id;
@@ -161,7 +164,13 @@ export function HomePage() {
                     <th scope="row" data-label="論文">
                       <Link href={`/analyses/${item.analysis_id}`}>{item.title ?? item.filename ?? item.doc_id}</Link>
                     </th>
-                    <td data-label="状態">{ANALYSIS_STATUS[item.status] ?? item.status}</td>
+                    <td data-label="状態">
+                      {ACTIVE.has(item.status) ? (
+                        <ProgressBar status={item.status} progress={item.progress} />
+                      ) : (
+                        (ANALYSIS_STATUS[item.status] ?? item.status)
+                      )}
+                    </td>
                     <td className="num" data-label="指摘数">
                       {item.total}件
                     </td>
