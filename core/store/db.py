@@ -104,6 +104,15 @@ CREATE TABLE IF NOT EXISTS term_lookups (
     PRIMARY KEY (analysis_id, term)
 );
 CREATE INDEX IF NOT EXISTS term_lookups_by_request ON term_lookups(request_id);
+-- 承認キューでの承認・却下の結果（要求ごと）。解析の途中で承認しても失われないよう、解析の記録とは分けて持つ
+CREATE TABLE IF NOT EXISTS term_decisions (
+    request_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    matched TEXT,
+    description TEXT,
+    source TEXT,
+    decided_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS api_usage_daily (
     day TEXT NOT NULL,
     endpoint TEXT NOT NULL,
@@ -490,11 +499,18 @@ class Store:
             )
 
     def get_term_lookups(self, analysis_id: str) -> list[TermLookupRecord]:
+        """解析の照会の記録に、承認キューでの決定（あれば）を重ねて返す。"""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT term, query, request_id, status, matched, description, source, reason, "
-                "updated_at "
-                "FROM term_lookups WHERE analysis_id = ? ORDER BY rowid",
+                "SELECT t.term, t.query, t.request_id, "
+                "COALESCE(d.status, t.status) AS status, "
+                "CASE WHEN d.request_id IS NULL THEN t.matched ELSE d.matched END AS matched, "
+                "CASE WHEN d.request_id IS NULL THEN t.description ELSE d.description END "
+                "AS description, "
+                "CASE WHEN d.request_id IS NULL THEN t.source ELSE d.source END AS source, "
+                "t.reason, COALESCE(d.decided_at, t.updated_at) AS updated_at "
+                "FROM term_lookups t LEFT JOIN term_decisions d ON d.request_id = t.request_id "
+                "WHERE t.analysis_id = ? ORDER BY t.rowid",
                 (analysis_id,),
             ).fetchall()
         return [TermLookupRecord(**dict(r)) for r in rows]
@@ -507,14 +523,18 @@ class Store:
         matched: str | None = None,
         description: str | None = None,
         source: str | None = None,
-    ) -> int:
-        """承認キューで承認・却下した結果を、その要求を積んだすべての解析に反映し、更新した数を返す。"""
+    ) -> None:
+        """承認キューで承認・却下した結果を、要求ごとに記録する。
+
+        その要求を積んだすべての解析に反映される（解析がまだ終わっておらず、照会の記録が保存される前に
+        承認した場合も、後から保存された記録に重ねて表示する）。
+        """
         with self._connect() as conn:
-            return conn.execute(
-                "UPDATE term_lookups SET status = ?, matched = ?, description = ?, source = ?, "
-                "updated_at = ? WHERE request_id = ?",
-                (status, matched, description, source, _now(), request_id),
-            ).rowcount
+            conn.execute(
+                "INSERT OR REPLACE INTO term_decisions (request_id, status, matched, description, "
+                "source, decided_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (request_id, status, matched, description, source, _now()),
+            )
 
     # ------------------------------------------------------------ 指摘
 

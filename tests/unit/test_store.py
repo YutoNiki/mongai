@@ -8,7 +8,7 @@ from core.analyze.models import Finding, ModelInfo
 from core.analyze.pipeline import AnalysisSettings
 from core.ingest.models import BBox
 from core.llm.usage import UsageRow
-from core.store import FindingNotFoundError, Store
+from core.store import FindingNotFoundError, Store, TermLookupRecord
 from tests.unit.doc_factory import make_doc
 
 
@@ -101,3 +101,37 @@ def test_recover_interrupted(tmp_path: Path) -> None:
     assert record is not None and record.status == "failed" and record.error
     assert store.get_analysis(queued).status == "queued"  # type: ignore[union-attr]
     assert store.get_analysis(done).status == "completed"  # type: ignore[union-attr]
+
+
+def test_term_decision_survives_analysis_saving_later(tmp_path: Path) -> None:
+    """解析の途中で承認キューの用語を承認しても、解析の終わりに保存される記録で上書きされない。"""
+    store = Store(tmp_path / "db.sqlite3")
+    store.save_document(make_doc([("1 はじめに", "introduction", [["文．"]])]))
+    aid = store.create_analysis("doc-test", kind="logic", settings=AnalysisSettings())
+    # 解析の途中：利用者が承認・却下する（この時点では、解析の照会の記録はまだ無い）
+    store.decide_term_lookup(
+        "R-1",
+        "approved",
+        matched="Isochrone",
+        description="等時間で到達できる範囲",
+        source="openalex",
+    )
+    store.decide_term_lookup("R-2", "rejected")
+    # 解析の終わり：照会したときの状態（承認待ち）で記録を保存する
+    store.save_term_lookups(
+        aid,
+        [
+            TermLookupRecord(
+                term="アイソクローン", query="Isochrone", request_id="R-1", status="pending"
+            ),
+            TermLookupRecord(term="通院", request_id="R-2", status="pending"),
+            TermLookupRecord(term="平均絶対誤差", request_id="R-3", status="pending"),
+        ],
+    )
+    terms = {t.term: t for t in store.get_term_lookups(aid)}
+    assert terms["アイソクローン"].status == "approved"
+    assert terms["アイソクローン"].matched == "Isochrone"
+    assert terms["アイソクローン"].description == "等時間で到達できる範囲"
+    assert terms["アイソクローン"].query == "Isochrone"
+    assert terms["通院"].status == "rejected"
+    assert terms["平均絶対誤差"].status == "pending"
