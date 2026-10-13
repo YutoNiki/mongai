@@ -541,6 +541,7 @@ async def gateway_decide(
         store.decide_term_lookup(
             request_id,
             "approved",
+            matched=found.term if found else None,
             description=found.description if found else None,
             source=found.source if found else None,
         )

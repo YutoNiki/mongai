@@ -93,8 +93,10 @@ CREATE TABLE IF NOT EXISTS api_usage (
 CREATE TABLE IF NOT EXISTS term_lookups (
     analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
     term TEXT NOT NULL,
+    query TEXT,
     request_id TEXT,
     status TEXT NOT NULL,
+    matched TEXT,
     description TEXT,
     source TEXT,
     reason TEXT,
@@ -153,9 +155,11 @@ class TermLookupRecord(BaseModel):
     blocked gateway が拒否した / failed 検索に失敗した。description は学外の辞書の説明（外部データ）。
     """
 
-    term: str
+    term: str  # 論文の中の用語
+    query: str | None = None  # 実際に照会した語（日本語の論文では英語の対応語）
     request_id: str | None = None
     status: TermStatus
+    matched: str | None = None  # 学外の辞書で該当した見出し
     description: str | None = None
     source: str | None = None
     reason: str | None = None
@@ -195,6 +199,10 @@ class Store:
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(analyses)")}
             if "progress" not in columns:  # M3 で作ったデータベースへの列の追加
                 conn.execute("ALTER TABLE analyses ADD COLUMN progress TEXT NOT NULL DEFAULT '{}'")
+            term_columns = {r["name"] for r in conn.execute("PRAGMA table_info(term_lookups)")}
+            for column in ("query", "matched"):  # 英語での照会を加える前の表への列の追加
+                if column not in term_columns:
+                    conn.execute(f"ALTER TABLE term_lookups ADD COLUMN {column} TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -461,14 +469,17 @@ class Store:
         now = _now()
         with self._connect() as conn:
             conn.executemany(
-                "INSERT OR REPLACE INTO term_lookups (analysis_id, term, request_id, status, "
-                "description, source, reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO term_lookups (analysis_id, term, query, request_id, status, "
+                "matched, description, source, reason, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         analysis_id,
                         r.term,
+                        r.query,
                         r.request_id,
                         r.status,
+                        r.matched,
                         r.description,
                         r.source,
                         r.reason,
@@ -481,7 +492,8 @@ class Store:
     def get_term_lookups(self, analysis_id: str) -> list[TermLookupRecord]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT term, request_id, status, description, source, reason, updated_at "
+                "SELECT term, query, request_id, status, matched, description, source, reason, "
+                "updated_at "
                 "FROM term_lookups WHERE analysis_id = ? ORDER BY rowid",
                 (analysis_id,),
             ).fetchall()
@@ -492,15 +504,16 @@ class Store:
         request_id: str,
         status: TermStatus,
         *,
+        matched: str | None = None,
         description: str | None = None,
         source: str | None = None,
     ) -> int:
         """承認キューで承認・却下した結果を、その要求を積んだすべての解析に反映し、更新した数を返す。"""
         with self._connect() as conn:
             return conn.execute(
-                "UPDATE term_lookups SET status = ?, description = ?, source = ?, updated_at = ? "
-                "WHERE request_id = ?",
-                (status, description, source, _now(), request_id),
+                "UPDATE term_lookups SET status = ?, matched = ?, description = ?, source = ?, "
+                "updated_at = ? WHERE request_id = ?",
+                (status, matched, description, source, _now(), request_id),
             ).rowcount
 
     # ------------------------------------------------------------ 指摘

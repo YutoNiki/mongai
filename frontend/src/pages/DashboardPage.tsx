@@ -83,8 +83,9 @@ function TermsPanel({ terms }: { terms: TermLookup[] }) {
         未知の用語の照会（{terms.length}語）
       </h2>
       <p className="note">
-        論文の中で定義せずに使われている一般的な専門用語を、学外の辞書（OpenAlex）で照会します。照会は承認制で、
-        承認するまで学外には送信されません。説明は学外のデータベースから取得したもので、内容は保証されません。
+        論文の中で定義せずに使われている一般的な専門用語を、学外の辞書（OpenAlex の分野の辞書）で照会します。
+        辞書は英語の見出しだけを持つので、日本語の用語は英語の対応語で照会します。照会は承認制で、承認するまで学外には送信されません。
+        説明は学外のデータベースで該当した見出しのもので、用語そのものの定義とは限らず、内容も保証されません。
         {pending > 0 && (
           <>
             {" "}
@@ -107,6 +108,7 @@ function TermsPanel({ terms }: { terms: TermLookup[] }) {
               <tr key={t.term}>
                 <th scope="row" data-label="用語">
                   {t.term}
+                  {t.query && t.query !== t.term && <span className="sub">（照会した語：{t.query}）</span>}
                 </th>
                 <td data-label="状態">
                   {TERM_STATUS[t.status]}
@@ -117,6 +119,7 @@ function TermsPanel({ terms }: { terms: TermLookup[] }) {
                     <Link href="/queue">承認すると表示されます</Link>
                   ) : t.description ? (
                     <>
+                      {t.matched && <strong>{t.matched}：</strong>}
                       {t.description}
                       {t.source && <span className="sub">（出典：{t.source}）</span>}
                     </>

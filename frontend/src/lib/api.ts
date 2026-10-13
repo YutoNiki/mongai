@@ -152,8 +152,12 @@ export interface AuditEntry {
 /** 解析で照会した未知の用語と、その結果（GET /analyses/{id}/terms）。description は学外の辞書の説明 */
 export interface TermLookup {
   term: string;
+  /** 実際に照会した語（日本語の論文では英語の対応語） */
+  query: string | null;
   request_id: string | null;
   status: "pending" | "approved" | "rejected" | "found" | "blocked" | "failed";
+  /** 学外の辞書で該当した見出し */
+  matched: string | null;
   description: string | null;
   source: string | null;
   reason: string | null;

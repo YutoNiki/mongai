@@ -524,6 +524,7 @@ def test_term_lookups_follow_queue_decisions(
     assert terms["アイソクローン"]["status"] == "approved"
     assert terms["アイソクローン"]["description"] == "等時間で到達できる範囲"
     assert terms["アイソクローン"]["source"] == "openalex"
+    assert terms["アイソクローン"]["matched"] == "Isochrone"
     assert terms["通院"]["status"] == "rejected" and terms["通院"]["description"] is None
     assert terms["DRT-Opt"]["status"] == "blocked" and terms["DRT-Opt"]["reason"] == "造語"
     assert client.get("/api/analyses/A-none/terms").status_code == 404

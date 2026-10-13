@@ -6,7 +6,7 @@ from typing import Any
 import respx
 
 from core.analyze.context import select_targets
-from core.analyze.terms import MAX_TERMS, lookup_terms, pick_terms
+from core.analyze.terms import MAX_TERMS, lookup_query, lookup_terms, pick_terms
 from core.gateway_client import GatewayClient
 from core.llm.client import DEFAULT_BASE_URL, OitomaClient
 from shared.schemas import GatewayResponse
@@ -26,9 +26,16 @@ class QueueingGateway(GatewayClient):
 
     async def submit(self, analysis_id: str, doc_id: str, request: Any) -> GatewayResponse:
         self.requests.append(request.model_dump())
-        if request.term in self.blocked:
+        if request.term in self.blocked:  # 照会した語（英語の対応語）で判定する
             return GatewayResponse(request_id="R-0", decision="blocked", reason="造語")
         return GatewayResponse(request_id="R-1", decision="pending", reason="承認待ち")
+
+
+def test_lookup_query_prefers_english_for_japanese() -> None:
+    assert lookup_query("アイソクローン", "isochrone", "ja") == ("isochrone", "en")
+    assert lookup_query("アイソクローン", None, "ja") == ("アイソクローン", "ja")
+    assert lookup_query("アイソクローン", "a b c", "ja") == ("アイソクローン", "ja")  # 3語は不可
+    assert lookup_query("isochrone", "isochrone map", "en") == ("isochrone", "en")
 
 
 def test_pick_terms_dedupes_and_drops_invalid() -> None:
@@ -59,16 +66,22 @@ async def test_lookup_terms_queues_for_approval() -> None:
     targets = select_targets(doc, min_chars=1)
     gateway = QueueingGateway(blocked={"DRT-Opt"})
     with respx.mock:
-        respx.post(CHAT_URL).mock(return_value=chat({"terms": ["アイソクローン", "DRT-Opt"]}))
+        respx.post(CHAT_URL).mock(
+            return_value=chat(
+                {"terms": [{"term": "アイソクローン", "english": "isochrone"}, "DRT-Opt"]}
+            )
+        )
         async with OitomaClient(config(), api_key="k") as client:
             result = await lookup_terms(client, gateway, doc, targets, analysis_id="A-1", lang="ja")
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert "アイソクローン" in sent  # 段落を渡している
     assert result.pending == ["アイソクローン"] and result.blocked == 1
-    assert gateway.requests[0] == {"kind": "term_lookup", "term": "アイソクローン", "lang": "ja"}
-    assert [(r.term, r.status, r.request_id) for r in result.records] == [
-        ("アイソクローン", "pending", "R-1"),
-        ("DRT-Opt", "blocked", "R-0"),
+    # 日本語の用語は英語の対応語で照会する（対応語が無ければ日本語のまま）
+    assert gateway.requests[0] == {"kind": "term_lookup", "term": "isochrone", "lang": "en"}
+    assert gateway.requests[1] == {"kind": "term_lookup", "term": "DRT-Opt", "lang": "ja"}
+    assert [(r.term, r.query, r.status, r.request_id) for r in result.records] == [
+        ("アイソクローン", "isochrone", "pending", "R-1"),
+        ("DRT-Opt", "DRT-Opt", "blocked", "R-0"),
     ]
     assert result.records[1].reason == "造語"
 

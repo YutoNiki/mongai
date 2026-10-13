@@ -3,7 +3,8 @@
 1. 高速モデル（役割 term_extraction）が、節ごとに「定義なしで使われていて、隣接分野の読者が調べたくなる
    一般的な専門用語」を選ぶ（著者の造語・既存の手法名・固有名詞・論文の主題の語は選ばない。
    タイトルに含まれる語は、コードでも除く）
-2. 論文全体で最大 MAX_TERMS 語を、gateway に term_lookup（1語だけのスキーマ）として送る
+2. 論文全体で最大 MAX_TERMS 語を、gateway に term_lookup（1語だけのスキーマ）として送る。
+   学外の辞書（OpenAlex）は英語の見出しだけを持つので、日本語の論文では、モデルが同時に答えた英語の対応語で照会する
 3. standard モードでは term_lookup は承認制なので、承認キューに積まれる。利用者が承認するまで学外には出ない。
    gateway は、原稿で定義された造語や、新規性に関わる主張に近い語を拒否する
 
@@ -13,8 +14,9 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from typing import Any
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 from core.analyze.context import Target, numbered_paragraph
 from core.analyze.models import _LLMOutput
@@ -32,8 +34,30 @@ ROLE = "term_extraction"
 MAX_TERMS = 5
 
 
+class TermCandidate(_LLMOutput):
+    term: str
+    english: str | None = None  # 英語の対応する用語（学外の辞書は英語の見出しだけを持つため）
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_str(cls, value: Any) -> Any:
+        return {"term": value} if isinstance(value, str) else value
+
+
 class TermOutput(_LLMOutput):
-    terms: list[str] = Field(default_factory=list)
+    terms: list[TermCandidate] = Field(default_factory=list)
+
+
+def lookup_query(term: str, english: str | None, lang: Lang) -> tuple[str, Lang]:
+    """照会に使う語と言語。日本語の論文では、英語の対応語があればそれを使う（無ければ日本語のまま）。"""
+    if lang == "ja" and english:
+        candidate = english.strip()
+        try:
+            TermLookup(kind="term_lookup", term=candidate, lang="en")
+        except ValidationError:
+            return term, lang
+        return candidate, "en"
+    return term, lang
 
 
 @dataclass
@@ -82,7 +106,7 @@ def pick_terms(
 
 async def extract_terms(
     client: OitomaClient, group: list[Target], *, prompt_lang: Lang
-) -> list[str]:
+) -> list[TermCandidate]:
     paragraphs = "\n\n".join(numbered_paragraph(t.sentences) for t in group)
     messages = [
         {"role": "system", "content": load_prompt(ROLE, prompt_lang)},
@@ -116,19 +140,26 @@ async def lookup_terms(
         *(extract_terms(client, g, prompt_lang=lang) for g in groups), return_exceptions=True
     )
     candidates: list[str] = []
+    english: dict[str, str] = {}
     for output in outputs:
         if isinstance(output, OitomaError):
             result.warnings.append(f"用語の抽出に失敗しました：{output}")
         elif isinstance(output, BaseException):
             raise output
         else:
-            candidates.extend(output)
+            for c in output:
+                candidates.append(c.term)
+                if c.english:
+                    english.setdefault(c.term.strip().casefold(), c.english)
     citing = {c.sentence_id for c in doc.citations}
     cited_sentences = [s.text for s in doc.sentences if s.sentence_id in citing]
     for term in pick_terms(candidates, lang, title=doc.title, cited_sentences=cited_sentences):
+        query, query_lang = lookup_query(term, english.get(term.casefold()), lang)
         try:
             response = await gateway.submit(
-                analysis_id, doc.doc_id, TermLookup(kind="term_lookup", term=term, lang=lang)
+                analysis_id,
+                doc.doc_id,
+                TermLookup(kind="term_lookup", term=query, lang=query_lang),
             )
         except GatewayError as exc:
             result.warnings.append(f"用語の照会を行えませんでした（{exc}）")
@@ -146,8 +177,10 @@ async def lookup_terms(
         result.records.append(
             TermLookupRecord(
                 term=term,
+                query=query,
                 request_id=response.request_id,
                 status=status,
+                matched=found.term if found else None,
                 description=found.description if found else None,
                 source=found.source if found else None,
                 reason=response.reason if status in ("blocked", "failed") else None,

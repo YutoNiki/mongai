@@ -22,4 +22,6 @@ Rules:
 - Write the term exactly as it appears in the paper
 - If there is no such term, return an empty list. Choose at most three terms
 
-Output JSON in the form {"terms": ["term", ...]}.
+- In english, write the corresponding English technical term (a single word, compound terms up to two words). It may be the same as the term. If you do not know, use null
+
+Output JSON in the form {"terms": [{"term": "term", "english": "English term"}, ...]}.

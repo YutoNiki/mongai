@@ -187,11 +187,23 @@ test("承認待ちの外部通信をポップアップで知らせ、承認し�
     },
   ];
   api.terms = [
-    { term: "アイソクローン", request_id: "R-000000000001", status: "pending", description: null, source: null, reason: null, updated_at: "" },
+    {
+      term: "アイソクローン",
+      query: "isochrone",
+      request_id: "R-000000000001",
+      status: "pending",
+      matched: null,
+      description: null,
+      source: null,
+      reason: null,
+      updated_at: "",
+    },
     {
       term: "平均絶対誤差",
+      query: "mean absolute error",
       request_id: "R-000000000002",
       status: "approved",
+      matched: "Forecasting Methods",
       description: "予測値と実測値の差の絶対値の平均",
       source: "openalex",
       reason: null,
@@ -212,7 +224,9 @@ test("承認待ちの外部通信をポップアップで知らせ、承認し�
   await page.goto(`/analyses/${analysisId}`);
   const panel = page.getByRole("region", { name: /未知の用語の照会/ });
   await expect(panel).toContainText("承認待ちが1語あります");
-  await expect(panel.getByRole("row", { name: /平均絶対誤差/ })).toContainText("予測値と実測値の差の絶対値の平均");
+  const approved = panel.getByRole("row", { name: /平均絶対誤差/ });
+  await expect(approved).toContainText("照会した語：mean absolute error");
+  await expect(approved).toContainText("Forecasting Methods：予測値と実測値の差の絶対値の平均");
   await expect(panel.getByRole("row", { name: /アイソクローン/ })).toContainText("承認すると表示されます");
   expect(external).toEqual([]);
 });
