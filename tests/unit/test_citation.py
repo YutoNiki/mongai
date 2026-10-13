@@ -72,6 +72,23 @@ def test_title_similarity_and_match() -> None:
     assert match_record(ref(doi="10.18653/v1/w19-5206", title="全然違う"), [record()]) == record()
 
 
+def test_match_title_with_venue_appended() -> None:
+    # GROBID がタイトルに掲載誌を続けて読んだ場合（"Random Forests. Machine Learning"）
+    breiman = ref(
+        surnames=["Breiman"],
+        authors=["L Breiman"],
+        title="Random Forests. Machine Learning",
+        year=1999,
+    )
+    right = record(
+        doi="10.1023/a:1010933404324", title="Random Forests", authors=["Leo Breiman"], year=2001
+    )
+    assert match_record(breiman, [right]) == right
+    # 第一著者が違えば、先頭の短いタイトルだけでは同じ文献とみなさない
+    other = record(doi="10.1/other", title="Random Forests", authors=["Jane Doe"], year=1999)
+    assert match_record(breiman, [other]) is None
+
+
 def test_compare_detects_mismatches() -> None:
     # 2年以上の年のずれ・第一著者の違いは指摘する
     diffs = compare(

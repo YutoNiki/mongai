@@ -128,14 +128,20 @@ def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibRes
     title = lookup_title(ref)
     if not title:
         return []
+    # GROBID がタイトルに掲載誌を続けて読むことがある（"Random Forests. Machine Learning"）。
+    # その場合は最初の「. 」までも比べる。ただし短いタイトルで別の文献を拾わないよう、第一著者の一致を必須にする
+    head, sep, _ = title.partition(". ")
     scored: list[tuple[bool, float, BibResult]] = []
     for c in candidates:
         if not c.title:
             continue
         sim = title_similarity(title, c.title)
+        author_ok = _author_matches(ref, c)
+        if sim < MATCH_THRESHOLD and sep and author_ok and ref.surnames:
+            sim = title_similarity(head, c.title)
         if sim < MATCH_THRESHOLD:
             continue
-        if not (_author_matches(ref, c) or (ref.year and c.year == ref.year)):
+        if not (author_ok or (ref.year and c.year == ref.year)):
             continue
         scored.append((bool(ref.year and c.year == ref.year), sim, c))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
