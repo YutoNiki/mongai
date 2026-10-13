@@ -1,0 +1,489 @@
+[
+ {
+  "finding_id": "F-0001",
+  "doc_id": "482ab783d0288bb0",
+  "category": "citation",
+  "subcategory": "citation_unsupported",
+  "severity": "major",
+  "section_id": "SEC-03",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 156.0,
+    "y0": 537.0590209960938,
+    "x1": 516.7274780273438,
+    "y1": 550.782470703125
+   },
+   {
+    "page": 1,
+    "x0": 72.0,
+    "y0": 554.0590209960938,
+    "x1": 271.5,
+    "y1": 567.782470703125
+   }
+  ],
+  "sentence_ids": [
+   "S-00016"
+  ],
+  "quote": "Hochreiterら[2]は、LSTMが公共交通の需要予測においてランダムフォレストより高い精度を示すことを報告している。",
+  "issue": "引用している文の主張が、引用先の文献（Hochreiter et al., 1997）のアブストラクトと対応していません。",
+  "rationale": "アブストラクトにはLSTMの提案と人工データを用いた他の再帰型ネットワークとの比較が記載されているが、公共交通の需要予測やランダムフォレストとの比較に関する記述はない。",
+  "evidence": [
+   {
+    "type": "external",
+    "ref": "10.1162/neco.1997.9.8.1735",
+    "excerpt": "Our experiments with artificial data involve local, distributed, real-valued, and noisy pattern representations. In comparisons with real-time recurrent learning, back propagation through time, recurrent cascade correlation, Elman nets, and neural sequence chunking, LSTM leads to many more successfu"
+   }
+  ],
+  "suggestions": [
+   "Hochreiterら[2]は、LSTMを提案し、人工データを用いた他の再帰型ネットワークとの比較で、その有効性を示している。",
+   "Hochreiterら[2]は、LSTMを提案しており、公共交通の需要予測においてLSTMがランダムフォレストより高精度であることは、〔要追記：公共交通の需要予測でLSTMとランダムフォレストを比較した根拠〕により報告されている。"
+  ],
+  "confidence": "low",
+  "votes": 1,
+  "samples": 1,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0002",
+  "doc_id": "482ab783d0288bb0",
+  "category": "citation",
+  "subcategory": "citation_unsupported",
+  "severity": "major",
+  "section_id": "SEC-03",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 271.5,
+    "y0": 554.0590209960938,
+    "x1": 368.3414611816406,
+    "y1": 567.782470703125
+   }
+  ],
+  "sentence_ids": [
+   "S-00017"
+  ],
+  "quote": "近年は、Transformer[4]を時系列の予測に応用する研究も増えている。",
+  "issue": "引用している文の主張が、引用先の文献（Vaswani et al., 2017）のアブストラクトと対応していません。",
+  "rationale": "引用文献はTransformerの原論文であり、アブストラクトには機械翻訳や構文解析への適用が述べられているが、時系列予測への応用に関する記述はないため、引用文の主張を支持していない。",
+  "evidence": [
+   {
+    "type": "external",
+    "ref": "10.65215/2q58a426",
+    "excerpt": "Experiments on two machine translation tasks show these models to be superior... We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing"
+   }
+  ],
+  "suggestions": [],
+  "confidence": "low",
+  "votes": 1,
+  "samples": 1,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0003",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "overclaim",
+  "severity": "critical",
+  "section_id": "SEC-01",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 353.7989501953125,
+    "y0": 254.0590057373047,
+    "x1": 521.7989501953125,
+    "y1": 267.7825012207031
+   },
+   {
+    "page": 1,
+    "x0": 72.0,
+    "y0": 271.0589904785156,
+    "x1": 345.0,
+    "y1": 284.7825012207031
+   }
+  ],
+  "sentence_ids": [
+   "S-00005"
+  ],
+  "quote": "提案手法は地方の公共交通が抱える課題をすべて解決できることが示された。",
+  "issue": "架空の単一のデータセットでの待ち時間の短縮という結果から、「課題をすべて解決できる」と主張しており、根拠に比べて主張が過大である。",
+  "rationale": "根拠となる評価結果は平均待ち時間の短縮のみであり、地方の公共交通が抱える多様な課題を「すべて」解決できることを示すものではないため、査読者には主張の妥当性が問われる。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00004",
+    "excerpt": "架空の町Aの6か月分の予約データで評価したところ、平均待ち時間は14.2分から11.9分に短縮された。"
+   }
+  ],
+  "suggestions": [
+   "提案手法は、地方の公共交通における平均待ち時間の短縮に有効であることが示された。",
+   "提案手法は、地方の公共交通における平均待ち時間の短縮に一定の効果があることが示された。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0004",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "overclaim",
+  "severity": "critical",
+  "section_id": "SEC-02",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 93.0,
+    "y0": 421.0589904785156,
+    "x1": 460.5,
+    "y1": 434.7825012207031
+   }
+  ],
+  "sentence_ids": [
+   "S-00012"
+  ],
+  "quote": "したがって、需要を正確に予測できれば、地方の交通問題はすべて解消する。",
+  "issue": "需要予測の効果から「地方の交通問題はすべて解消する」と断定しており、根拠に比べて主張が過大である。",
+  "rationale": "直前の文はオンデマンド交通の利点と待ち時間の問題を示しているだけで、需要予測が地方の交通問題全体を解消する根拠にはなっていない。「すべて解消する」という表現は、待ち時間短縮などの一部改善を過度に一般化しており、査読でほぼ確実に指摘される。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00009",
+    "excerpt": "こうした地域では、利用者の予約に応じて車両を運行するオンデマンド交通が注目されている。"
+   },
+   {
+    "type": "manuscript",
+    "ref": "S-00010",
+    "excerpt": "オンデマンド交通は、決まった路線や時刻表を持たないため、少ない車両で広い地域を運行できる。"
+   },
+   {
+    "type": "manuscript",
+    "ref": "S-00011",
+    "excerpt": "一方で、通院の多い朝の時間帯などに予約が集中すると、待ち時間が長くなりやすい。"
+   }
+  ],
+  "suggestions": [
+   "したがって、需要を正確に予測できれば、オンデマンド交通における待ち時間の短縮や配車効率の向上が期待できる。",
+   "したがって、需要を正確に予測できれば、オンデマンド交通の待ち時間問題を緩和する可能性がある。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0005",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "premise_evidence_mismatch",
+  "severity": "major",
+  "section_id": "SEC-05",
+  "page": 2,
+  "bboxes": [
+   {
+    "page": 2,
+    "x0": 271.5,
+    "y0": 219.0590057373047,
+    "x1": 418.5,
+    "y1": 232.78250122070312
+   }
+  ],
+  "sentence_ids": [
+   "S-00034"
+  ],
+  "quote": "このことから、提案手法によって利用者の満足度が向上したといえる。",
+  "issue": "「利用者の満足度が向上した」という主張に対して、利用者自身の満足度を示す根拠が示されていない。",
+  "rationale": "直前の根拠は予測精度（S-00031）、待ち時間短縮（S-00032）、運転手へのアンケート（S-00033）であり、いずれも利用者の満足度を直接測っていない。特にS-00033は運転手へのアンケートであり、利用者ではないため、満足度向上の結論には至らない。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00031",
+    "excerpt": "予測の平均絶対誤差は、30分あたり1.8件であった。"
+   },
+   {
+    "type": "manuscript",
+    "ref": "S-00032",
+    "excerpt": "利用者の平均待ち時間は、従来の方式の14.2分に対し、提案手法では11.9分であった。"
+   },
+   {
+    "type": "manuscript",
+    "ref": "S-00033",
+    "excerpt": "また、運転手へのアンケートでは、提案手法の配車画面が見やすいという回答が多かった。"
+   }
+  ],
+  "suggestions": [
+   "このことから、提案手法によって利用者の待ち時間が短縮され、利用者の満足度が向上した可能性がある。",
+   "このことから、提案手法によって利用者の待ち時間が短縮された。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0006",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "leap",
+  "severity": "suggestion",
+  "section_id": "SEC-03",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 460.5,
+    "y0": 639.0590209960938,
+    "x1": 513.0,
+    "y1": 652.782470703125
+   },
+   {
+    "page": 1,
+    "x0": 72.0,
+    "y0": 656.0590209960938,
+    "x1": 439.5,
+    "y1": 669.782470703125
+   }
+  ],
+  "sentence_ids": [
+   "S-00022"
+  ],
+  "quote": "この方式では予約が集中したときに対応できる車両が足りなくなることがある。",
+  "issue": "「予約を受けてから車両を選ぶ方式」から、予約集中時に車両が不足するとするまでに、車両が事前に確保されていない、または需要が供給を上回る場合があるなどの前提が示されていない。",
+  "rationale": "読者は、選択のタイミングだけで車両不足が生じる根拠を十分に追えず、提案手法の必要性が弱くなる。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00021",
+    "excerpt": "配車計画については、予約を受けてから最適な車両を選ぶ方式が一般的である。"
+   }
+  ],
+  "suggestions": [
+   "この方式では、予約が集中して利用可能な車両の数を上回る場合、対応できる車両が足りなくなることがある。",
+   "この方式では、事前に確保された車両が限られている場合、予約が集中して需要が供給を上回ると対応できる車両が足りなくなることがある。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0007",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "overclaim",
+  "severity": "critical",
+  "section_id": "SEC-06",
+  "page": 2,
+  "bboxes": [
+   {
+    "page": 2,
+    "x0": 198.0,
+    "y0": 318.0589904785156,
+    "x1": 439.5,
+    "y1": 331.7825012207031
+   }
+  ],
+  "sentence_ids": [
+   "S-00037"
+  ],
+  "quote": "提案手法はすべての自治体でそのまま利用できる。",
+  "issue": "実験が1つの町の6か月分のデータに限られていることを認めつつ、「すべての自治体でそのまま利用できる」と断定しており、根拠に比べて主張が過大である。",
+  "rationale": "1つの町のデータからすべての自治体への一般化を主張するため、査読者は他の地域での検証や条件の違いを考慮した議論を求めると考えられる。",
+  "evidence": [],
+  "suggestions": [
+   "提案手法は、本実験と同様の条件が整う自治体ではそのまま適用できる可能性がある。",
+   "提案手法は、同様の条件を満たす自治体でもそのまま適用できる可能性がある。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0008",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "leap",
+  "severity": "major",
+  "section_id": "SEC-04",
+  "page": 2,
+  "bboxes": [
+   {
+    "page": 2,
+    "x0": 324.0,
+    "y0": 69.05899810791016,
+    "x1": 513.0,
+    "y1": 82.78250122070312
+   },
+   {
+    "page": 2,
+    "x0": 72.0,
+    "y0": 86.05899810791016,
+    "x1": 229.5,
+    "y1": 99.78250122070312
+   }
+  ],
+  "sentence_ids": [
+   "S-00027"
+  ],
+  "quote": "本手法の特徴は、予約が入る前に車両を利用者の近くへ移動させておく。",
+  "issue": "地区ごとの予約件数予測と車両の現在地から待機地区を決めるという説明から、予約が入る前に車両を個別の利用者の近くへ移動させられるという主張には飛躍がある。",
+  "rationale": "地区単位の需要予測だけでは、利用者の位置や「近く」の基準が保証されないため、査読者は前提と特徴の主張の間に必要な説明が不足していると判断する。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00025",
+    "excerpt": "次に、予測した予約件数と各車両の現在地をもとに、車両を待機させる地区を決める。"
+   },
+   {
+    "type": "manuscript",
+    "ref": "S-00026",
+    "excerpt": "その際、それが大きい地区ほど多くの車両を割り当てる。"
+   }
+  ],
+  "suggestions": [
+   "本手法の特徴は、予約が入る前に、予測した地区ごとの需要に基づいて車両を待機地区へ移動させておくことである。",
+   "本手法の特徴は、予約が入る前に、地区ごとの予約件数予測と車両の現在地をもとに車両の待機地区を事前に決定しておくことである。"
+  ],
+  "confidence": "low",
+  "votes": 2,
+  "samples": 3,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0009",
+  "doc_id": "482ab783d0288bb0",
+  "category": "logic",
+  "subcategory": "disconnection",
+  "severity": "major",
+  "section_id": "SEC-03",
+  "page": 1,
+  "bboxes": [
+   {
+    "page": 1,
+    "x0": 82.5,
+    "y0": 588.0590209960938,
+    "x1": 498.3945007324219,
+    "y1": 601.782470703125
+   }
+  ],
+  "sentence_ids": [
+   "S-00018"
+  ],
+  "quote": "町Aの中心部には、江戸時代から続く商店街があり、毎年秋には大きな祭りが開かれる。",
+  "issue": "交通需要予測の関連研究（決定木、LSTM、Transformer）を述べていた直後に、特定の町の商店街の祭りの売上に関する記述に飛んでおり、論理的なつながりがない。",
+  "rationale": "関連研究セクションでは、研究の背景や既存手法を体系的に述べるべきだが、P-0011の機械学習手法の紹介からP-0012の具体的な町の事例への飛躍は説明がなく、読者が論旨を追えなくなる。",
+  "evidence": [
+   {
+    "type": "manuscript",
+    "ref": "S-00017",
+    "excerpt": "近年は、Transformer[4]を時系列の予測に応用する研究も増えている。"
+   }
+  ],
+  "suggestions": [
+   "本研究の対象である町Aの中心部には、江戸時代から続く商店街があり、毎年秋には大きな祭りが開かれる。",
+   "こうした研究の背景のもと、本研究では町Aの中心部にある江戸時代から続く商店街と、毎年秋に開かれる大きな祭りを対象とする。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ },
+ {
+  "finding_id": "F-0010",
+  "doc_id": "482ab783d0288bb0",
+  "category": "readability",
+  "subcategory": "section_role_violation",
+  "severity": "suggestion",
+  "section_id": "SEC-05",
+  "page": 2,
+  "bboxes": [
+   {
+    "page": 2,
+    "x0": 82.5,
+    "y0": 185.0590057373047,
+    "x1": 328.9244689941406,
+    "y1": 198.78250122070312
+   }
+  ],
+  "sentence_ids": [
+   "S-00031"
+  ],
+  "quote": "予測の平均絶対誤差は、30分あたり1.8件であった。",
+  "issue": "実験セクションにおいて、実験結果に基づく主観的な結論（利用者の満足度が向上した）を述べている。",
+  "rationale": "実験セクションでは客観的な結果の提示が主であり、結果の評価や結論は考察セクションで行うのが一般的であるため、セクションの役割に合っていない。",
+  "evidence": [],
+  "suggestions": [
+   "評価結果として、予測の平均絶対誤差は、30分あたり1.8件であった。"
+  ],
+  "confidence": "high",
+  "votes": 2,
+  "samples": 2,
+  "models": {
+   "primary": "qwen3.8-27b-it",
+   "secondary": null,
+   "agreed": null
+  },
+  "status": "open",
+  "dismiss_reason": null
+ }
+]

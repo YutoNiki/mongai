@@ -1,0 +1,166 @@
+{
+ "analysis": {
+  "analysis_id": "A-74a4f390776c",
+  "doc_id": "482ab783d0288bb0",
+  "kind": "logic",
+  "status": "completed",
+  "settings": {
+   "output_lang": "paper",
+   "max_paragraphs": null,
+   "min_paragraph_chars": 40,
+   "with_flow_check": true,
+   "with_citation_check": true,
+   "max_support_checks": 60,
+   "with_suggestions": true
+  },
+  "progress": {
+   "stage": "locate",
+   "done": 0,
+   "total": 10
+  },
+  "warnings": [],
+  "error": null,
+  "created_at": "2026-10-13T05:42:41+00:00",
+  "finished_at": "2026-10-13T05:52:49+00:00"
+ },
+ "paper": {
+  "doc_id": "482ab783d0288bb0",
+  "filename": "demo_paper_ja.pdf",
+  "size": 58477,
+  "uploaded_at": "2026-10-13T05:42:41+00:00"
+ },
+ "document": {
+  "title": "需要予測に基づく小規模自治体のオンデマンド交通の配車計画",
+  "lang": "ja",
+  "page_count": 2
+ },
+ "counts": {
+  "total": 10,
+  "by_severity": {
+   "critical": 3,
+   "major": 5,
+   "suggestion": 2
+  },
+  "by_category": {
+   "logic": 7,
+   "readability": 1,
+   "rule": 0,
+   "citation": 2,
+   "lab": 0
+  },
+  "by_section": [
+   {
+    "key": "SEC-01",
+    "label": "概要",
+    "count": 1
+   },
+   {
+    "key": "1",
+    "label": "1 はじめに",
+    "count": 1
+   },
+   {
+    "key": "2",
+    "label": "2 関連研究",
+    "count": 4
+   },
+   {
+    "key": "3",
+    "label": "3 提案手法",
+    "count": 1
+   },
+   {
+    "key": "4",
+    "label": "4 実験",
+    "count": 2
+   },
+   {
+    "key": "5",
+    "label": "5 考察",
+    "count": 1
+   },
+   {
+    "key": "6",
+    "label": "6 おわりに",
+    "count": 0
+   }
+  ],
+  "section_of": {
+   "SEC-00": "SEC-00",
+   "SEC-01": "SEC-01",
+   "SEC-02": "1",
+   "SEC-03": "2",
+   "SEC-04": "3",
+   "SEC-05": "4",
+   "SEC-06": "5",
+   "SEC-07": "6",
+   "SEC-08": "SEC-08"
+  },
+  "by_status": {
+   "open": 10
+  },
+  "by_confidence": {
+   "low": 3,
+   "high": 7
+  }
+ },
+ "previous": null,
+ "models": {
+  "structure_extraction": "qwen3.6-35b-a3b-it",
+  "logic_check": "qwen3.8-27b-it",
+  "citation_support": "qwen3.8-27b-it",
+  "suggestion": "qwen3.8-27b-it"
+ },
+ "api_usage": [
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.6-35b-a3b-it",
+   "role": "structure_extraction",
+   "calls": 14,
+   "requests": 14,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 9697,
+   "completion_tokens": 3705,
+   "latency_s": 42.772
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "citation_support",
+   "calls": 2,
+   "requests": 2,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 1812,
+   "completion_tokens": 1348,
+   "latency_s": 48.4
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "logic_check",
+   "calls": 31,
+   "requests": 33,
+   "retries": 2,
+   "failures": 0,
+   "prompt_tokens": 53275,
+   "completion_tokens": 83303,
+   "latency_s": 2985.864
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "suggestion",
+   "calls": 10,
+   "requests": 10,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 6347,
+   "completion_tokens": 16199,
+   "latency_s": 625.087
+  }
+ ],
+ "api_requests": 59,
+ "external_requests": 6
+}

@@ -30,3 +30,6 @@ eval/results/index.html
 
 # Claude Code の個人設定
 .claude/settings.local.json
+
+# E2E テストの PDF（ビルド時に demo/demo_paper_ja.pdf からコピーする）
+frontend/e2e/fixtures/paper.pdf

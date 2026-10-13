@@ -1,0 +1,17 @@
+[
+ {
+  "analysis_id": "A-74a4f390776c",
+  "doc_id": "482ab783d0288bb0",
+  "title": "需要予測に基づく小規模自治体のオンデマンド交通の配車計画",
+  "filename": "demo_paper_ja.pdf",
+  "status": "completed",
+  "created_at": "2026-10-13T05:42:41+00:00",
+  "finished_at": "2026-10-13T05:52:49+00:00",
+  "total": 10,
+  "progress": {
+   "stage": "locate",
+   "done": 0,
+   "total": 10
+  }
+ }
+]
