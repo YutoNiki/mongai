@@ -26,6 +26,7 @@ TASK_NAMES = {
     "paragraph": "段落内チェック",
     "flow": "段落間チェック",
     "citation_support": "引用内容の支持判定",
+    "second_opinion": "二重チェック（第2のモデル）",
 }
 LABEL_NAMES = {
     "premise_evidence_mismatch": "前提と根拠の不一致",
@@ -33,6 +34,7 @@ LABEL_NAMES = {
     "overclaim": "主張の過大",
     "disconnection": "接続の断絶",
     "does_not_support": "引用の不一致",
+    "valid_issue": "妥当な指摘を認める",
     "micro": "全体（micro平均）",
     "control_fp": "対照群の誤検出",
 }

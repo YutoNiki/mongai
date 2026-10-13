@@ -11,6 +11,8 @@ eval/results/index.html を作り直す。
 対応する役割：
 - logic_check：段落内チェック（paragraph.jsonl）と段落間チェック（flow.jsonl）
 - citation_support：引用内容の支持判定（citation_support.jsonl）
+- second_opinion：二重チェック（paragraph.jsonl。仕込んだ問題を候補として渡したら「妥当」、
+  対照群の段落に偽の候補を渡したら「妥当でない」と判定できるか）
 
 使うのは合成データだけ。おいとまAPI 以外には送らない。
 """
@@ -29,8 +31,12 @@ from zoneinfo import ZoneInfo
 from core.analyze.citation import ROLE_SUPPORT, SupportJudgement, support_messages
 from core.analyze.context import output_language
 from core.analyze.flow_check import check_flow
+from core.analyze.models import CATEGORY_OF, Finding, ModelInfo
 from core.analyze.paragraph_check import check_paragraph
+from core.analyze.second_opinion import ROLE as SECOND_ROLE
+from core.analyze.second_opinion import second_opinion
 from core.analyze.structure import extract_structure
+from core.ingest.models import Document
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.config import ModelsConfig, get_models_config
 from core.logging_config import configure_logging
@@ -54,6 +60,7 @@ JST = ZoneInfo("Asia/Tokyo")
 PARAGRAPH_LABELS = ("premise_evidence_mismatch", "leap", "overclaim")
 FLOW_LABELS = ("disconnection",)
 CITATION_LABELS = ("does_not_support",)
+SECOND_OPINION_LABELS = ("valid_issue",)
 
 Task = Callable[[OitomaClient, str, int | None], Awaitable[list[Outcome]]]
 
@@ -184,6 +191,69 @@ async def run_citation(client: OitomaClient, lang: str, limit: int | None) -> li
     return list(await asyncio.gather(*(judge(i) for i in items)))
 
 
+# ---------------------------------------------------------------- 二重チェック
+
+
+async def run_second_opinion(client: OitomaClient, lang: str, limit: int | None) -> list[Outcome]:
+    items = _select(load_jsonl(DATASET_DIR / "paragraph.jsonl", ParagraphItem), lang, limit)
+    decoys = PARAGRAPH_LABELS
+
+    async def judge(index: int, item: ParagraphItem) -> Outcome:
+        (target,) = build_targets(
+            item.id, item.lang, item.section_title, item.section_role, [item.sentences]
+        )
+        doc = Document(
+            doc_id=item.id,
+            lang=item.lang,
+            page_count=1,
+            sections=[target.section] if target.section else [],
+            paragraphs=[target.paragraph],
+            sentences=target.sentences,
+        )
+        if item.label == "none":
+            # 対照群：問題の無い段落の最後の文に、偽の候補（種類は順に変える）を付ける
+            kind, numbers = decoys[index % len(decoys)], [len(item.sentences)]
+        else:
+            kind, numbers = item.label, item.target
+        ids = [sentence_id(item.id, 1, n) for n in numbers]
+        candidate = Finding(
+            finding_id="F-0001",
+            doc_id=item.id,
+            category=CATEGORY_OF[kind],
+            subcategory=kind,
+            severity="major",
+            section_id=target.paragraph.section_id,
+            page=1,
+            bboxes=[],
+            sentence_ids=ids,
+            quote="".join(item.sentences[n - 1] for n in numbers)
+            if item.lang == "ja"
+            else " ".join(item.sentences[n - 1] for n in numbers),
+            issue="-",
+            rationale="-",
+            confidence="low",
+            votes=1,
+            samples=1,
+            models=ModelInfo(primary="-"),
+        )
+        opinion, latency, error = await _timed(
+            second_opinion(
+                client,
+                doc,
+                candidate,
+                prompt_lang=item.lang,
+                output_language=output_language(item.lang, item.lang, "paper"),
+            )
+        )
+        found: set[str] = set()
+        if opinion is not None and opinion.valid:
+            found = {"valid_issue", "hit:valid_issue"}
+        gold = NONE_LABEL if item.label == "none" else "valid_issue"
+        return _outcome(item.id, gold, found, latency, error)
+
+    return list(await asyncio.gather(*(judge(i, item) for i, item in enumerate(items))))
+
+
 # ---------------------------------------------------------------- 共通
 
 
@@ -208,6 +278,7 @@ TASKS: dict[str, list[tuple[str, Task, tuple[str, ...]]]] = {
         ("flow", run_flow, FLOW_LABELS),
     ],
     ROLE_SUPPORT: [("citation_support", run_citation, CITATION_LABELS)],
+    SECOND_ROLE: [("second_opinion", run_second_opinion, SECOND_OPINION_LABELS)],
 }
 
 
