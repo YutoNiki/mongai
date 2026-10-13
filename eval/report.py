@@ -27,6 +27,7 @@ TASK_NAMES = {
     "flow": "段落間チェック",
     "citation_support": "引用内容の支持判定",
     "second_opinion": "二重チェック（第2のモデル）",
+    "rule": "ルールの判定",
 }
 LABEL_NAMES = {
     "premise_evidence_mismatch": "前提と根拠の不一致",
@@ -35,6 +36,7 @@ LABEL_NAMES = {
     "disconnection": "接続の断絶",
     "does_not_support": "引用の不一致",
     "valid_issue": "妥当な指摘を認める",
+    "rule_violation": "ルール違反",
     "micro": "全体（micro平均）",
     "control_fp": "対照群の誤検出",
 }

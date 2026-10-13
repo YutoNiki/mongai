@@ -158,8 +158,10 @@ make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B,qwen3.6-35
 | `paragraph.jsonl` | 前提と根拠の不一致・論理の飛躍・主張の過大（各10件）と、問題のない対照群（10件） | `logic_check` |
 | `flow.jsonl` | 段落間の接続の断絶（10件）と対照群（6件） | `logic_check` |
 | `citation_support.jsonl` | 引用内容の不一致（10件、うち2件はアブストラクトにプロンプトインジェクションを含む）と、支持している対照群（6件） | `citation_support` |
+| `rule.jsonl` | ルール違反（10件）と、違反の無い対照群（6件） | `rule_check` |
+| （`paragraph.jsonl` を流用） | 二重チェック：仕込んだ問題を「妥当」、偽の候補を「妥当でない」と判定できるか | `second_opinion` |
 
-結果は `eval/results/` に CSV（指標）と JSONL（1件ごとの予測）で保存され、比較ページ `eval/results/index.html` が作り直されます。一部だけ試すときは `EVAL_ARGS="--lang ja --limit 5"` のように指定します。ルール違反の評価データは、ルールの判定（M6）を実装してから加えます。
+結果は `eval/results/` に CSV（指標）と JSONL（1件ごとの予測）で保存され、比較ページ `eval/results/index.html` が作り直されます。一部だけ試すときは `EVAL_ARGS="--lang ja --limit 5"` のように指定します。
 
 ## デモ
 

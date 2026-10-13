@@ -11,6 +11,7 @@ eval/results/index.html を作り直す。
 対応する役割：
 - logic_check：段落内チェック（paragraph.jsonl）と段落間チェック（flow.jsonl）
 - citation_support：引用内容の支持判定（citation_support.jsonl）
+- rule_check：ルールの LLM 判定（rule.jsonl）
 - second_opinion：二重チェック（paragraph.jsonl。仕込んだ問題を候補として渡したら「妥当」、
   対照群の段落に偽の候補を渡したら「妥当でない」と判定できるか）
 
@@ -40,11 +41,15 @@ from core.ingest.models import Document
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.config import ModelsConfig, get_models_config
 from core.logging_config import configure_logging
+from core.rules.check import ROLE as RULE_ROLE
+from core.rules.check import check_rules
+from core.rules.models import Rule, RuleSource
 from eval.dataset import (
     DATASET_DIR,
     CitationItem,
     FlowItem,
     ParagraphItem,
+    RuleItem,
     build_targets,
     load_jsonl,
     paragraph_id,
@@ -61,6 +66,7 @@ PARAGRAPH_LABELS = ("premise_evidence_mismatch", "leap", "overclaim")
 FLOW_LABELS = ("disconnection",)
 CITATION_LABELS = ("does_not_support",)
 SECOND_OPINION_LABELS = ("valid_issue",)
+RULE_LABELS = ("rule_violation",)
 
 Task = Callable[[OitomaClient, str, int | None], Awaitable[list[Outcome]]]
 
@@ -254,10 +260,53 @@ async def run_second_opinion(client: OitomaClient, lang: str, limit: int | None)
     return list(await asyncio.gather(*(judge(i, item) for i, item in enumerate(items))))
 
 
+# ---------------------------------------------------------------- ルールの判定
+
+
+async def run_rule(client: OitomaClient, lang: str, limit: int | None) -> list[Outcome]:
+    items = _select(load_jsonl(DATASET_DIR / "rule.jsonl", RuleItem), lang, limit)
+
+    async def judge(item: RuleItem) -> Outcome:
+        group = build_targets(
+            item.id, item.lang, item.section_title, item.section_role, [item.sentences]
+        )
+        rules = [
+            Rule(
+                rule_id=r.rule_id,
+                target_section=r.target_section,
+                rule=r.rule,
+                check_type="llm",
+                source=RuleSource(doc="eval"),
+                status="approved",
+            )
+            for r in item.rules
+        ]
+        found, latency, error = await _timed(
+            check_rules(
+                client,
+                group,
+                rules,
+                prompt_lang=item.lang,
+                output_language=output_language(item.lang, item.lang, "paper"),
+            )
+        )
+        labels: set[str] = set()
+        if found:
+            labels.add("rule_violation")
+            wanted = {sentence_id(item.id, 1, n) for n in item.target}
+            if any(
+                v.rule.rule_id == item.target_rule and wanted & set(v.sentence_ids) for v in found
+            ):
+                labels.add("hit:rule_violation")
+        return _outcome(item.id, item.label, labels, latency, error)
+
+    return list(await asyncio.gather(*(judge(i) for i in items)))
+
+
 # ---------------------------------------------------------------- 共通
 
 
-def _select[T: ParagraphItem | FlowItem | CitationItem](
+def _select[T: ParagraphItem | FlowItem | CitationItem | RuleItem](
     items: list[T], lang: str, limit: int | None
 ) -> list[T]:
     chosen = [i for i in items if lang in ("all", i.lang)]
@@ -279,6 +328,7 @@ TASKS: dict[str, list[tuple[str, Task, tuple[str, ...]]]] = {
     ],
     ROLE_SUPPORT: [("citation_support", run_citation, CITATION_LABELS)],
     SECOND_ROLE: [("second_opinion", run_second_opinion, SECOND_OPINION_LABELS)],
+    RULE_ROLE: [("rule", run_rule, RULE_LABELS)],
 }
 
 

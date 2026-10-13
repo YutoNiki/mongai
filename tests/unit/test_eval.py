@@ -12,6 +12,7 @@ from eval.dataset import (
     CitationItem,
     FlowItem,
     ParagraphItem,
+    RuleItem,
     build_targets,
     load_jsonl,
 )
@@ -60,10 +61,11 @@ def test_score_without_predictions_has_no_precision() -> None:
         ),
         ("flow.jsonl", FlowItem, {"disconnection", "none"}),
         ("citation_support.jsonl", CitationItem, {"does_not_support", "supports"}),
+        ("rule.jsonl", RuleItem, {"rule_violation", "none"}),
     ],
 )
 def test_datasets_are_valid_and_balanced(
-    name: str, model: type[ParagraphItem | FlowItem | CitationItem], labels: set[str]
+    name: str, model: type[ParagraphItem | FlowItem | CitationItem | RuleItem], labels: set[str]
 ) -> None:
     items = load_jsonl(DATASET_DIR / name, model)
     assert {i.label for i in items} == labels
@@ -170,3 +172,13 @@ def test_report_shows_latest_run_per_model(tmp_path: Path) -> None:
     assert "0.33" not in page
     assert "2 / 10 件で指摘あり" in page
     assert "http" not in page  # 外部の資源を読み込まない
+
+
+def test_rule_items_point_to_their_rules() -> None:
+    for item in load_jsonl(DATASET_DIR / "rule.jsonl", RuleItem):
+        ids = {r.rule_id for r in item.rules}
+        if item.label == "none":
+            assert item.target_rule is None and item.target == []
+        else:
+            assert item.target_rule in ids, item.id
+            assert all(1 <= n <= len(item.sentences) for n in item.target), item.id

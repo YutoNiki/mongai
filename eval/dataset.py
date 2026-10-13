@@ -5,8 +5,7 @@
 - paragraph.jsonl：段落内チェック（前提と根拠の不一致・飛躍・過大な主張・問題なしの対照群）
 - flow.jsonl：段落間チェック（接続の断絶・問題なしの対照群）
 - citation_support.jsonl：引用内容の支持判定（引用の不一致・支持している対照群）
-
-ルール違反（SPEC 5.4）は M6 のルールの判定を実装してから加える。
+- rule.jsonl：ルールの LLM 判定（ルール違反・違反の無い対照群）
 """
 
 from pathlib import Path
@@ -16,12 +15,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.analyze.context import Target
 from core.ingest.models import Lang, Paragraph, Section, SectionRole, Sentence
+from core.rules.models import TargetSection
 
 DATASET_DIR = Path(__file__).resolve().parent / "datasets"
 
 ParagraphLabel = Literal["premise_evidence_mismatch", "leap", "overclaim", "none"]
 FlowLabel = Literal["disconnection", "none"]
 CitationLabel = Literal["does_not_support", "supports"]
+RuleLabel = Literal["rule_violation", "none"]
 
 
 class _Item(BaseModel):
@@ -57,6 +58,24 @@ class CitationItem(_Item):
     context: str
     reference: str
     abstract: str
+
+
+class RuleSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rule_id: str
+    target_section: TargetSection = "全体"
+    rule: str
+
+
+class RuleItem(_Item):
+    label: RuleLabel
+    section_title: str
+    section_role: SectionRole
+    rules: list[RuleSpec] = Field(min_length=1)
+    sentences: list[str] = Field(min_length=1)
+    target_rule: str | None = None  # 違反しているルールの ID（対照群は None）
+    target: list[int] = Field(default_factory=list)  # 違反している文の番号（1始まり）
 
 
 def load_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
