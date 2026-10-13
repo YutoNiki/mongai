@@ -56,6 +56,11 @@ test("ダッシュボード：総指摘数・グラフの表形式・絞り込�
   await page.getByRole("button", { name: "絞り込みを解除" }).click();
   await expect(rows).toHaveCount(summary.counts.total);
 
+  // 確度と回数は多数決をした指摘にだけ出る（引用の指摘は1回だけの判定なので空欄）
+  const confidence = (id: string) => rows.filter({ hasText: id }).locator('td[data-label="確度"]');
+  await expect(confidence("F-0005")).toHaveText("高（2回中2回）");
+  await expect(confidence("F-0001")).toHaveText("");
+
   // 指摘の番号 → 詳細画面（PDF ビューア）
   const firstLink = rows.first().getByRole("link");
   const findingId = (await firstLink.textContent()) ?? "";

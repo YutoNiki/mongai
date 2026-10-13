@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart } from "../components/BarChart";
 import { FindingsTable } from "../components/FindingsTable";
 import { ProgressPanel } from "../components/ProgressPanel";
-import { api, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding } from "../lib/api";
+import { api, isVoted, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding } from "../lib/api";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -39,7 +39,7 @@ function applyFilters(findings: Finding[], f: Filters, sectionOf: Record<string,
       (!f.category || x.category === f.category) &&
       (!f.severity || x.severity === f.severity) &&
       (!f.section || sectionOf[x.section_id ?? ""] === f.section) &&
-      (!f.confidence || x.confidence === f.confidence) &&
+      (!f.confidence || (isVoted(x) && x.confidence === f.confidence)) &&
       (f.status ? x.status === f.status : x.status !== "dismissed"),
   );
 }

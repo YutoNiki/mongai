@@ -176,6 +176,36 @@ def test_findings_filters_status_and_csv(ctx: tuple[TestClient, Store, FakeQueue
     assert "F-0001,論理,主張の過大,重大" in text and "却下,意図した表現" in text
 
 
+def test_single_judgement_has_no_confidence(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    """多数決をしていない（1回だけの判定の）指摘は、確度で絞り込まれず、CSV でも確度を空欄にする。"""
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    doc = make_doc([("1 はじめに", "introduction", [["文．"]])])
+    store.save_document(doc.model_copy(update={"doc_id": doc_id}))
+    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings())
+    box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
+    store.save_findings(
+        aid,
+        [
+            finding("F-0001", "logic", box, "q", doc_id=doc_id, confidence="low", votes=2),
+            finding(
+                "F-0002", "citation", box, "q", doc_id=doc_id, confidence="low", votes=1, samples=1
+            ),
+        ],
+    )
+    store.finish_analysis(aid, status="completed")
+    base = f"/api/analyses/{aid}/findings"
+    low = client.get(base, params={"confidence": "low"}).json()
+    assert [f["finding_id"] for f in low] == ["F-0001"]
+    counts = client.get(f"/api/analyses/{aid}").json()["counts"]
+    assert counts["by_confidence"] == {"low": 1}
+    rows = client.get(f"{base}.csv").content.decode("utf-8").splitlines()
+    assert rows[1].startswith("F-0001,論理,主張の過大,要修正,低,")
+    assert rows[2].split(",")[4] == ""
+
+
 def test_audit_log_when_gateway_unavailable(
     ctx: tuple[TestClient, Store, FakeQueue, bytes],
 ) -> None:

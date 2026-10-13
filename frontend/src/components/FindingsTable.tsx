@@ -1,4 +1,4 @@
-import type { Finding } from "../lib/api";
+import { isVoted, type Finding } from "../lib/api";
 import { SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link } from "../lib/router";
 import { CategoryBadge, SeverityBadge, StatusBadge } from "./Badges";
@@ -59,10 +59,14 @@ export function FindingsTable({
               </td>
               <td data-label="指摘">{f.issue}</td>
               <td data-label="確度">
-                {f.confidence === "high" ? "高" : "低"}
-                <span className="sub">
-                  （{f.samples}回中{f.votes}回）
-                </span>
+                {isVoted(f) && (
+                  <>
+                    {f.confidence === "high" ? "高" : "低"}
+                    <span className="sub">
+                      （{f.samples}回中{f.votes}回）
+                    </span>
+                  </>
+                )}
               </td>
               <td data-label="ステータス">
                 <StatusBadge status={f.status} />

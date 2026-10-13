@@ -67,9 +67,12 @@ def popup_text(finding: Finding) -> str:
     if finding.suggestions:
         lines.append("改善案：")
         lines += [f"{i}. {s}" for i, s in enumerate(finding.suggestions, start=1)]
-    lines.append(
-        f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
-    )
+    if finding.voted:
+        lines.append(
+            f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
+        )
+    else:
+        lines.append(f"（MongAI {finding.finding_id}）")
     return "\n".join(lines)
 
 

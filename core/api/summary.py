@@ -44,5 +44,5 @@ def count_findings(findings: list[Finding], doc: Document | None) -> Counts:
         by_section=sections,
         section_of=key_of,
         by_status=dict(Counter(f.status for f in findings)),
-        by_confidence=dict(Counter(f.confidence for f in active)),
+        by_confidence=dict(Counter(f.confidence for f in active if f.voted)),
     )

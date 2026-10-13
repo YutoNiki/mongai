@@ -287,7 +287,7 @@ def _filtered(
     status: Status | None,
 ) -> list[Finding]:
     _analysis_or_404(store, analysis_id)
-    return store.get_findings(
+    findings = store.get_findings(
         analysis_id,
         category=category,
         severity=severity,
@@ -295,6 +295,8 @@ def _filtered(
         confidence=confidence,
         status=status,
     )
+    # 確度で絞るときは、確度を示さない（多数決をしていない）指摘を除く
+    return [f for f in findings if f.voted] if confidence else findings
 
 
 @app.get("/api/analyses/{analysis_id}/findings")
@@ -361,7 +363,7 @@ def findings_csv(
                 category_label(f.category),
                 subcategory_label(f.subcategory),
                 severity_label(f.severity),
-                "高" if f.confidence == "high" else "低",
+                ("高" if f.confidence == "high" else "低") if f.voted else "",
                 f.page,
                 f.quote,
                 f.issue,

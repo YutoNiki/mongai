@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CategoryBadge, SeverityBadge, StatusBadge } from "../components/Badges";
 import { sortFindings } from "../components/FindingsTable";
 import { PdfViewer } from "../components/PdfViewer";
-import { api, type AnalysisSummary, type Finding } from "../lib/api";
+import { api, isVoted, type AnalysisSummary, type Finding } from "../lib/api";
 import { CATEGORY_LABELS, SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link, navigate } from "../lib/router";
 import { annotationColors } from "../theme/palette";
@@ -130,13 +130,17 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
                 "（なし）"
               )}
             </dd>
-            <dt>確度</dt>
-            <dd>
-              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
-              {finding.models.secondary &&
-                `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
-              ）
-            </dd>
+            {isVoted(finding) && (
+              <>
+                <dt>確度</dt>
+                <dd>
+                  {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
+                  {finding.models.secondary &&
+                    `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
+                  ）
+                </dd>
+              </>
+            )}
           </dl>
 
           <fieldset className="status-form">

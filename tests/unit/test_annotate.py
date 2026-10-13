@@ -143,6 +143,14 @@ def test_popup_contents(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:
     assert read_annots(annotate_pdf(data, [f]))[0]["content"] == text
 
 
+def test_popup_without_votes_for_single_judgement(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:
+    _, boxes = pdf_and_boxes
+    voted = popup_text(finding("F-0001", "logic", boxes[0], LINES[0]))
+    single = popup_text(finding("F-0002", "citation", boxes[0], LINES[0], votes=1, samples=1))
+    assert "3 回中" in voted
+    assert single.endswith("（MongAI F-0002）") and "回中" not in single
+
+
 def test_annotation_narrowed_to_quote(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:
     data, boxes = pdf_and_boxes
     out = annotate_pdf(data, [finding("F-0001", "logic", boxes[0], "clearly outperforms")])

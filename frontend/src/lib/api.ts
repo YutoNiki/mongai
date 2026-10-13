@@ -31,6 +31,11 @@ export interface Finding {
   dismiss_reason: string | null;
 }
 
+/** 多数決（複数回の判定）を取った指摘か。1回だけの判定の指摘には、確度と回数を示さない。 */
+export function isVoted(finding: Pick<Finding, "samples">): boolean {
+  return finding.samples >= 2;
+}
+
 export interface Progress {
   stage: string | null;
   done: number;
