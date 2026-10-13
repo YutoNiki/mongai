@@ -112,3 +112,38 @@ test("外部通信ログの画面が開ける", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test("ルール：確認して承認・編集・一括承認できる", async ({ page }) => {
+  const api = await mockApi(page);
+  const external = watchExternal(page);
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "ルール" }).click();
+  await expect(page).toHaveURL("/rules");
+  await expect(page.getByRole("heading", { level: 1, name: "ルール" })).toBeVisible();
+  const kpi = page.getByRole("region", { name: /解析に使うルール/ });
+  await expect(kpi.locator(".kpi-value")).toHaveText("1件");
+
+  const table = page.getByRole("table", { name: "ルールの一覧" });
+  // 組み込みのルールは編集できない
+  const builtin = table.getByRole("row").filter({ hasText: "同じ単位は" });
+  await expect(builtin.getByRole("button", { name: "編集" })).toHaveCount(0);
+
+  // 1件を編集して承認する
+  const first = table.getByRole("row").filter({ hasText: "要旨には目的" });
+  await first.getByRole("button", { name: "編集" }).click();
+  // 編集中は行の文面がフォームに替わるので、フォームを直接操作する
+  const editor = table.locator("form.rule-editor");
+  await editor.getByLabel("ルール").fill("要旨には研究の目的・方法・結果・結論を含める");
+  await editor.getByRole("button", { name: "保存" }).click();
+  await expect(table).toContainText("要旨には研究の目的・方法・結果・結論を含める");
+  await table.getByRole("row").filter({ hasText: "要旨には研究の目的" }).getByRole("button", { name: "承認" }).click();
+  await expect(kpi.locator(".kpi-value")).toHaveText("2件");
+
+  // 残りの未確認を一括で承認する
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "表示中の未確認をすべて承認" }).click();
+  await expect(kpi.locator(".kpi-value")).toHaveText("3件");
+  expect(api.rules.every((r) => r.status === "approved")).toBe(true);
+  expect(external).toEqual([]);
+});
+

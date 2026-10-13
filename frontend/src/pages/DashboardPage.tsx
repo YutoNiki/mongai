@@ -57,6 +57,14 @@ function countOf(findings: Finding[], base: Counts): Counts {
   };
 }
 
+/** 解析の開始時に使ったルール（承認済みの件数と最終更新日時） */
+function rulesetText(settings: AnalysisSummary["analysis"]["settings"]): string {
+  const ruleset = (settings as { ruleset?: { approved: number; updated_at: string | null } }).ruleset;
+  if (!ruleset) return "記録なし";
+  const when = ruleset.updated_at ? `、${new Date(ruleset.updated_at).toLocaleString("ja-JP")} 更新` : "";
+  return `承認済み ${ruleset.approved}件${when}`;
+}
+
 export function DashboardPage({ analysisId }: { analysisId: string }) {
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
@@ -307,7 +315,9 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           </div>
           <div>
             <dt>ルールセット</dt>
-            <dd>なし（M6 で対応）</dd>
+            <dd>
+              {rulesetText(summary.analysis.settings)}（<Link href="/rules">ルールの一覧</Link>）
+            </dd>
           </div>
           <div>
             <dt>おいとまAPIへのリクエスト</dt>

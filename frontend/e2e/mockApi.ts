@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
-import type { AnalysisListItem, AnalysisSummary, Finding } from "../src/lib/api";
+import type { AnalysisListItem, AnalysisSummary, Finding, Rule } from "../src/lib/api";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
@@ -22,7 +22,53 @@ const initialFindings = fixture<Finding[]>("findings.json");
 const list = fixture<AnalysisListItem[]>("analyses.json");
 const paper = readFileSync(resolve(FIXTURES, "paper.pdf"));
 
+/** ルールの画面用の合成のルール（組み込み1件・抽出した未確認2件） */
+function sampleRules(): Rule[] {
+  const base = {
+    checker: null,
+    lang: "both" as const,
+    merged_sources: [],
+    field_tags: [],
+    builtin: false,
+    document_id: "RD-000000000001",
+    updated_at: "2026-10-13T00:00:00+00:00",
+  };
+  return [
+    {
+      ...base,
+      rule_id: "B-UNIT",
+      target_section: "全体",
+      rule: "同じ単位は論文全体で同じ表記にする",
+      check_type: "mechanical",
+      checker: "unit_consistency",
+      source: { doc: "組み込み", page: null },
+      status: "approved",
+      builtin: true,
+      document_id: null,
+    },
+    {
+      ...base,
+      rule_id: "R-0001",
+      target_section: "Abstract",
+      rule: "要旨には目的・方法・結果・結論を含める",
+      check_type: "llm",
+      source: { doc: "投稿規定.md", page: null },
+      status: "pending",
+    },
+    {
+      ...base,
+      rule_id: "R-0002",
+      target_section: "Discussion",
+      rule: "結論では本文に無い新しい主張をしない",
+      check_type: "llm",
+      source: { doc: "投稿規定.md", page: null },
+      status: "pending",
+    },
+  ];
+}
+
 export interface MockApi {
+  rules: Rule[];
   findings: Finding[];
   /** PATCH で送られた本文 */
   updates: { findingId: string; body: { status: string; reason: string | null } }[];
@@ -41,7 +87,12 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
 }
 
 export async function mockApi(page: Page): Promise<MockApi> {
-  const state: MockApi = { findings: structuredClone(initialFindings), updates: [], requests: [] };
+  const state: MockApi = {
+    rules: sampleRules(),
+    findings: structuredClone(initialFindings),
+    updates: [],
+    requests: [],
+  };
   const json = (body: unknown, status = 200) => ({
     status,
     contentType: "application/json",
@@ -77,6 +128,34 @@ export async function mockApi(page: Page): Promise<MockApi> {
     if (path === `/api/documents/${summary.analysis.doc_id}/paper.pdf` || path === `${base}/annotated.pdf`)
       return route.fulfill({ status: 200, contentType: "application/pdf", body: paper });
     if (path === `${base}/diff`) return route.fulfill(json({ previous: null, resolved: [], new: [], persisting: [] }));
+    if (path === "/api/rules" && request.method() === "GET") return route.fulfill(json(state.rules));
+    if (path === "/api/rule-documents" && request.method() === "GET")
+      return route.fulfill(
+        json([
+          {
+            document_id: "RD-000000000001",
+            filename: "投稿規定.md",
+            kind: "markdown",
+            status: "completed",
+            rule_count: 2,
+            error: null,
+            created_at: "2026-10-13T00:00:00+00:00",
+            finished_at: "2026-10-13T00:01:00+00:00",
+          },
+        ]),
+      );
+    const rulePatch = path.match(/^\/api\/rules\/([^/]+)$/);
+    if (rulePatch && request.method() === "PATCH") {
+      const ruleId = decodeURIComponent(rulePatch[1] ?? "");
+      const update = request.postDataJSON() as Partial<Rule>;
+      state.rules = state.rules.map((r) => (r.rule_id === ruleId ? { ...r, ...update } : r));
+      return route.fulfill(json(state.rules.find((r) => r.rule_id === ruleId)));
+    }
+    if (path === "/api/rules/bulk-status") {
+      const body = request.postDataJSON() as { rule_ids: string[]; status: Rule["status"] };
+      state.rules = state.rules.map((r) => (body.rule_ids.includes(r.rule_id) ? { ...r, status: body.status } : r));
+      return route.fulfill(json(state.rules.filter((r) => body.rule_ids.includes(r.rule_id))));
+    }
     if (path === "/api/audit-log") return route.fulfill(json({ available: true, mode: "standard", entries: [] }));
     if (path === "/api/gateway/queue") return route.fulfill(json([]));
     return route.fulfill(json({ detail: `E2E のモックに無い API：${path}` }, 404));

@@ -663,3 +663,23 @@ button.icon-button {
   margin: 8px 0 0;
   padding-left: 1.5em;
 }
+
+/* ルールの画面 */
+.rules-table td[data-label="ルール"] {
+  min-width: 280px;
+  white-space: normal;
+}
+.rule-approved {
+  color: var(--color-success);
+  font-weight: 700;
+}
+.rule-disabled {
+  color: var(--color-label);
+}
+.rule-editor {
+  display: grid;
+  gap: 8px;
+}
+.rule-editor textarea {
+  width: 100%;
+}

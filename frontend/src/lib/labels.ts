@@ -98,3 +98,30 @@ export const CATEGORIES = ["logic", "readability", "rule", "citation", "lab"] as
 export function label(map: Record<string, string>, key: string): string {
   return map[key] ?? key;
 }
+
+/** ルールのステータス・判定方法・対象（ルールの画面） */
+export const RULE_STATUS_LABELS: Record<string, string> = {
+  pending: "未確認",
+  approved: "承認済み",
+  disabled: "無効",
+};
+
+export const CHECK_TYPE_LABELS: Record<string, string> = {
+  mechanical: "機械判定",
+  llm: "LLM で判定",
+  advisory: "参考（判定しない）",
+};
+
+export const TARGET_SECTIONS = ["全体", "Abstract", "Introduction", "Methods", "Results", "Discussion", "図表", "引用"] as const;
+
+export const TARGET_SECTION_LABELS: Record<string, string> = {
+  全体: "全体",
+  Abstract: "要旨",
+  Introduction: "はじめに・関連研究",
+  Methods: "手法",
+  Results: "結果・実験",
+  Discussion: "考察・結論",
+  図表: "図表",
+  引用: "引用",
+};
+

@@ -157,6 +157,37 @@ export interface DailyUsage {
   completion_tokens: number;
 }
 
+/** ルール（SPEC 3.2）。型は core/rules/models.py に対応する。 */
+export type RuleStatus = "pending" | "approved" | "disabled";
+export interface Rule {
+  rule_id: string;
+  target_section: string;
+  rule: string;
+  check_type: "mechanical" | "llm" | "advisory";
+  checker: string | null;
+  lang: "ja" | "en" | "both";
+  source: { doc: string; page: number | null };
+  merged_sources: { doc: string; page: number | null }[];
+  field_tags: string[];
+  status: RuleStatus;
+  builtin: boolean;
+  document_id: string | null;
+  updated_at: string;
+}
+
+export interface RuleDocument {
+  document_id: string;
+  filename: string;
+  kind: "pdf" | "markdown" | "text";
+  status: "queued" | "running" | "completed" | "failed";
+  rule_count: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section" | "check_type">>;
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -226,6 +257,27 @@ export const api = {
       `/gateway/queue/${encodeURIComponent(requestId)}/${action}`,
       { method: "POST" },
     ),
+  rules: () => request<Rule[]>("/rules"),
+  updateRule: (ruleId: string, update: RuleUpdate) =>
+    request<Rule>(`/rules/${encodeURIComponent(ruleId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    }),
+  bulkRuleStatus: (ruleIds: string[], status: RuleStatus) =>
+    request<Rule[]>("/rules/bulk-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rule_ids: ruleIds, status }),
+    }),
+  ruleDocuments: () => request<RuleDocument[]>("/rule-documents"),
+  uploadRuleDocument(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    return request<RuleDocument>("/rule-documents", { method: "POST", body });
+  },
+  deleteRuleDocument: (documentId: string) =>
+    request<undefined>(`/rule-documents/${encodeURIComponent(documentId)}`, { method: "DELETE" }),
   csvUrl: (id: string, filters: FindingFilters = {}) =>
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
   jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,
