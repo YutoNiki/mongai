@@ -191,6 +191,28 @@ async def test_chat_json_retries_until_valid(client: OitomaClient) -> None:
 
 
 @respx.mock
+async def test_chat_json_resends_from_scratch_when_content_is_empty(
+    client: OitomaClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # 思考の途中で生成が止まり、本文が空のまま finish=stop で返る（おいとまで観測した失敗）
+    route = respx.post(CHAT_URL).mock(
+        side_effect=[
+            chat_response("", reasoning="考え中…途中で"),
+            chat_response('{"label": "leap", "score": 1}'),
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        verdict = await client.chat_json("fast", [{"role": "user", "content": "x"}], Verdict)
+    assert verdict == Verdict(label="leap", score=1)
+    assert route.call_count == 2
+    first = json.loads(route.calls[0].request.content)["messages"]
+    second = json.loads(route.calls[1].request.content)["messages"]
+    assert second == first  # 空の応答とエラーの説明を会話に足さず、同じ依頼を送り直す
+    assert "本文が空" in caplog.text
+    assert "考え中" not in caplog.text  # 思考の内容はログに出さない
+
+
+@respx.mock
 async def test_chat_json_gives_up(client: OitomaClient) -> None:
     respx.post(CHAT_URL).mock(return_value=chat_response("not json"))
     with pytest.raises(JSONOutputError):

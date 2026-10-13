@@ -39,6 +39,8 @@ ROLE_SUPPORT = "citation_support"
 MATCH_THRESHOLD = 0.85
 # タイトルの不一致として指摘する類似度（これ未満。同じ文献だが表記がずれている）
 TITLE_MISMATCH = 0.95
+# 同じ文献とみなした記録の DOI の種類の上限（これを超えると転載が多く、原本を特定できないとみなす）
+MAX_DISTINCT_DOIS = 2
 _KEEP = re.compile(r"[0-9a-z぀-ヿ㐀-䶿一-鿿]")
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 _LABEL = re.compile(r"^\s*\[?\d{1,3}[\].]\s*")
@@ -116,6 +118,17 @@ def _author_matches(ref: Reference, record: BibResult) -> bool:
     return bool(record_surname) and record_surname in head
 
 
+_TITLE_BREAK = re.compile(r"[.:：]\s*")
+
+
+def _split_head(title: str) -> tuple[str, bool]:
+    """タイトルの最初の区切り（「. 」「: 」）より前の部分と、区切りがあったかを返す。"""
+    parts = _TITLE_BREAK.split(title.strip(), maxsplit=1)
+    if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+        return title, False
+    return parts[0].strip(), True
+
+
 def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibResult]:
     """候補のうち、参考文献と同じ文献とみなせるもの（DOI が一致するか、タイトルが十分に似ていて著者か年が合う）。
 
@@ -128,14 +141,21 @@ def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibRes
     title = lookup_title(ref)
     if not title:
         return []
+    # GROBID がタイトルに掲載誌を続けて読むことがある（"Random Forests. Machine Learning"）。また、
+    # データベースが副題を除いたタイトルだけを持つことがある（"XGBoost: A Scalable ..." → "XGBoost"）。
+    # その場合は最初の「. 」「: 」までも比べる。ただし短いタイトルで別の文献を拾わないよう、第一著者の一致を必須にする
+    head, sep = _split_head(title)
     scored: list[tuple[bool, float, BibResult]] = []
     for c in candidates:
         if not c.title:
             continue
         sim = title_similarity(title, c.title)
+        author_ok = _author_matches(ref, c)
+        if sim < MATCH_THRESHOLD and sep and author_ok and ref.surnames:
+            sim = title_similarity(head, c.title)
         if sim < MATCH_THRESHOLD:
             continue
-        if not (_author_matches(ref, c) or (ref.year and c.year == ref.year)):
+        if not (author_ok or (ref.year and c.year == ref.year)):
             continue
         scored.append((bool(ref.year and c.year == ref.year), sim, c))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
@@ -171,6 +191,10 @@ def compare(
         return []
     if not by_doi and len({r.source for r in records}) < 2:
         return []
+    # 同じタイトル・著者の記録が別々の DOI で3つ以上ある（転載・再登録が多い有名な論文）場合は、
+    # どれが原本か分からないので指摘しない（会議版とプレプリントの2つまでは通常の範囲とする）
+    if not by_doi and len({r.doi.lower() for r in records if r.doi}) > MAX_DISTINCT_DOIS:
+        return []
     best = records[0]
     diffs: list[tuple[str, str, str, Severity]] = []
     years = [r.year for r in records if r.year]
@@ -180,8 +204,12 @@ def compare(
         diffs.append(("first_author", ref.surnames[0], best.authors[0], "major"))
     if ref.title:
         comparable = [r for r in records if r.title and is_cjk(ref.title) == is_cjk(r.title)]
+        head, has_head = _split_head(ref.title)
         if comparable and all(
-            title_similarity(ref.title, r.title or "") < TITLE_MISMATCH for r in comparable
+            title_similarity(ref.title, r.title or "") < TITLE_MISMATCH
+            # データベースが副題を除いたタイトルだけを持つ場合は不一致としない
+            and not (has_head and title_similarity(head, r.title or "") >= TITLE_MISMATCH)
+            for r in comparable
         ):
             diffs.append(("title", ref.title, comparable[0].title or "", "suggestion"))
     if by_doi:
@@ -307,6 +335,41 @@ async def _submit(
     return None
 
 
+def support_messages(
+    *,
+    sentence: str,
+    context: str,
+    reference: str,
+    abstract: str,
+    source: str,
+    prompt_lang: Lang,
+    output_language: str,
+) -> list[dict[str, str]]:
+    """引用内容の支持判定のプロンプト。アブストラクト（外部データ）は <external_data> で囲む。"""
+    return [
+        {
+            "role": "system",
+            "content": load_prompt(
+                "citation_support",
+                prompt_lang,
+                external_data_notice=external_data_notice(prompt_lang),
+                output_language=output_language,
+            ),
+        },
+        {
+            "role": "user",
+            "content": load_prompt(
+                "citation_support_input",
+                prompt_lang,
+                sentence=sentence,
+                context=context,
+                reference=reference,
+                abstract=wrap_external(abstract, source=source),
+            ),
+        },
+    ]
+
+
 def _ref_location(
     ref: Reference, citing: dict[str, list[Sentence]]
 ) -> tuple[list[str], list[BBox]] | None:
@@ -413,28 +476,15 @@ async def check_citations(
             context = " ".join(
                 sentences[order[j]].text for j in range(max(0, i - 1), min(len(order), i + 2))
             )
-            messages = [
-                {
-                    "role": "system",
-                    "content": load_prompt(
-                        "citation_support",
-                        prompt_lang,
-                        external_data_notice=external_data_notice(prompt_lang),
-                        output_language=output_language,
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": load_prompt(
-                        "citation_support_input",
-                        prompt_lang,
-                        sentence=sentence.text,
-                        context=context,
-                        reference=short_label(refs[ref_id]),
-                        abstract=wrap_external(abstract, source=doi),
-                    ),
-                },
-            ]
+            messages = support_messages(
+                sentence=sentence.text,
+                context=context,
+                reference=short_label(refs[ref_id]),
+                abstract=abstract,
+                source=doi,
+                prompt_lang=prompt_lang,
+                output_language=output_language,
+            )
             try:
                 judgements[(citation_id, ref_id)] = await client.chat_json(
                     ROLE_SUPPORT, messages, SupportJudgement, lang=prompt_lang

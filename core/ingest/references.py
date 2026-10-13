@@ -88,7 +88,8 @@ _ENTRY_LABEL = re.compile(r"^\s*\[?(\d{1,3})[\].]\s*")
 # "John Smith. 2018." の形（姓が後）
 _ENTRY_SURNAME_FIRST = re.compile(r"^([A-Z][A-Za-z'’\-]+),?\s+[A-Z]\.?(?:[\s,.]|$)")
 _ENTRY_FORENAME_FIRST = re.compile(
-    r"^((?:[A-Z][A-Za-z'’\-]*\.?\s+){1,3}"  # 名（イニシャルを含む）
+    # 名（イニシャルを含む）。最短で取る（"L. Breiman. Random Forests." の姓を Forests と読まない）
+    r"^((?:[A-Z][A-Za-z'’\-]*\.?\s+){1,3}?"
     r"(?:(?:van|von|de|der|da|di|le)\s+)?[A-Z][A-Za-z'’\-]+)"  # 姓（2文字以上）
     r"(?:,|\.\s|\s+and\s)"
 )

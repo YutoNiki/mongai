@@ -8,7 +8,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev logs test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -41,6 +41,10 @@ test: ## 単体テスト（Python・フロントエンド。ネットワーク�
 test-integration: ## GROBID を使う結合テスト（internal_net 内で実行）
 	$(COMPOSE_TEST) run --rm integration
 
+test-e2e: ## 画面の E2E テスト（Playwright、ネットワークなしのコンテナ。API は保存した応答で差し替える）
+	$(COMPOSE_TEST) build -q e2e
+	$(COMPOSE_TEST) run --rm --no-deps e2e
+
 test-security: ## 検索ゲートウェイの検査（ネットワークなし）と、ネットワーク分離・プロキシ・マウントのテスト（実際の構成で検証）
 	$(RUN_TEST) pytest tests/security
 	$(COMPOSE) up -d --build --wait
@@ -54,9 +58,12 @@ lint: ## ruff / mypy / eslint / tsc
 format: ## ruff format で整形（ソースは読み取り専用マウントなので差分の表示のみ）
 	$(RUN_TEST) ruff format --diff .
 
-eval: ## モデル評価（例：make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B）
+eval: ## モデル評価（例：make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B EVAL_ARGS="--lang ja --limit 5"）。結果は eval/results/
 	@test -n "$(MODELS)" || (echo "MODELS を指定してください" >&2; exit 1)
-	$(COMPOSE) run --rm -v ./eval:/app/eval worker python -m eval.run --role $(ROLE) --models $(MODELS)
+	$(COMPOSE) run --rm -u "$$(id -u):$$(id -g)" -v ./eval:/app/eval worker python -m eval.run --role $(ROLE) --models $(MODELS) $(EVAL_ARGS)
+
+demo-paper: ## デモ用の合成論文（問題を仕込んだもの）を demo/demo_paper_ja.pdf に作り直す（仕込んだ問題は docs/demo.md）
+	$(COMPOSE_TEST) run --rm --no-deps -u "$$(id -u):$$(id -g)" -v ./scripts:/app/scripts:ro -v ./demo:/app/demo test python scripts/make_demo_paper.py
 
 check-highlights: ## 指摘の位置の診断（例：make check-highlights ANALYSIS=A-xxxx。FIX=1 で位置を保存）。本文は表示しない
 	@test -n "$(ANALYSIS)" || (echo "ANALYSIS を指定してください" >&2; exit 1)

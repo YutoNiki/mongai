@@ -90,6 +90,14 @@ export interface AnalysisSummary {
   external_requests: number;
 }
 
+/** 前回の解析との差分（GET /analyses/{id}/diff） */
+export interface AnalysisDiff {
+  previous: AnalysisSummary["previous"];
+  resolved: Finding[];
+  new: string[];
+  persisting: { finding_id: string; previous_finding_id: string }[];
+}
+
 export interface AnalysisListItem {
   analysis_id: string;
   doc_id: string;
@@ -149,6 +157,62 @@ export interface DailyUsage {
   completion_tokens: number;
 }
 
+/** ルール（SPEC 3.2）。型は core/rules/models.py に対応する。 */
+export type RuleStatus = "pending" | "approved" | "disabled";
+export interface Rule {
+  rule_id: string;
+  target_section: string;
+  rule: string;
+  check_type: "mechanical" | "llm" | "advisory";
+  checker: string | null;
+  lang: "ja" | "en" | "both";
+  source: { doc: string; page: number | null };
+  merged_sources: { doc: string; page: number | null }[];
+  field_tags: string[];
+  status: RuleStatus;
+  builtin: boolean;
+  document_id: string | null;
+  updated_at: string;
+}
+
+export interface RuleDocument {
+  document_id: string;
+  filename: string;
+  kind: "pdf" | "markdown" | "text";
+  status: "queued" | "running" | "completed" | "failed";
+  rule_count: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section" | "check_type">>;
+
+/** 研究室知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
+export interface LabDocument {
+  document_id: string;
+  lab_id: string;
+  filename: string;
+  kind: "pdf" | "docx" | "markdown" | "text";
+  status: "queued" | "running" | "completed" | "failed";
+  comment_count: number;
+  rule_count: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface LabComment {
+  comment_id: string;
+  lab_id: string;
+  document_id: string;
+  comment: string;
+  example: string | null;
+  category: "logic" | "readability" | "rule" | "citation" | "other";
+  source: { doc: string; page: number | null };
+  created_at: string;
+}
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -195,6 +259,7 @@ export const api = {
   usageToday: () => request<DailyUsage>("/usage/today"),
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
+  diff: (id: string) => request<AnalysisDiff>(`/analyses/${encodeURIComponent(id)}/diff`),
   findings: (id: string, filters: FindingFilters = {}) =>
     request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`),
   updateStatus(id: string, findingId: string, status: Finding["status"], reason?: string) {
@@ -217,8 +282,42 @@ export const api = {
       `/gateway/queue/${encodeURIComponent(requestId)}/${action}`,
       { method: "POST" },
     ),
+  rules: () => request<Rule[]>("/rules"),
+  updateRule: (ruleId: string, update: RuleUpdate) =>
+    request<Rule>(`/rules/${encodeURIComponent(ruleId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    }),
+  bulkRuleStatus: (ruleIds: string[], status: RuleStatus) =>
+    request<Rule[]>("/rules/bulk-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rule_ids: ruleIds, status }),
+    }),
+  ruleDocuments: () => request<RuleDocument[]>("/rule-documents"),
+  uploadRuleDocument(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    return request<RuleDocument>("/rule-documents", { method: "POST", body });
+  },
+  deleteRuleDocument: (documentId: string) =>
+    request<undefined>(`/rule-documents/${encodeURIComponent(documentId)}`, { method: "DELETE" }),
+  labDocuments: () => request<LabDocument[]>("/lab/documents"),
+  uploadLabDocument(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    return request<LabDocument>("/lab/documents", { method: "POST", body });
+  },
+  deleteLabDocument: (documentId: string) =>
+    request<undefined>(`/lab/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" }),
+  labComments: () => request<LabComment[]>("/lab/comments"),
+  deleteLabComment: (commentId: string) =>
+    request<undefined>(`/lab/comments/${encodeURIComponent(commentId)}`, { method: "DELETE" }),
   csvUrl: (id: string, filters: FindingFilters = {}) =>
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
+  jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,
+  reportUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/report.txt`,
   annotatedUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/annotated.pdf`,
   paperUrl: (docId: string) => `/api/documents/${encodeURIComponent(docId)}/paper.pdf`,
 };

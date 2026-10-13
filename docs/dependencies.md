@@ -38,6 +38,7 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | vite / @vitejs/plugin-react | 8.3.1 / 6.1.1 | ビルド | なし。plugin-react 6 の任意の peer 依存の解決で npm が失敗するため `legacy-peer-deps` を使う |
 | eslint / @eslint/js / typescript-eslint / eslint-plugin-react-hooks / globals | 10.11.0 / 10.0.1 / 8.71.0 / 7.1.1 / 17.12.0 | lint | なし |
 | vitest | 5.0.2 | テスト | なし |
+| @playwright/test | 1.63.0 | E2E テスト（`make test-e2e`） | なし（テレメトリなし）。通常はインストール時にブラウザを Microsoft の CDN から取得するが、`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` と `--ignore-scripts` で取得させず、下のイメージに入っているブラウザを使う。テストは `network_mode: none` のコンテナで実行 |
 | @types/node / @types/react / @types/react-dom | 22.20.4 / 19.3.0 / 19.3.0 | 型定義 | なし |
 
 ### 採用しなかったもの
@@ -56,4 +57,5 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | `redis:8.10.2-alpine` | redis | なし。永続化なし |
 | `grobid/grobid:0.9.1-crf` | grobid | なし（`core/ingest/grobid.py` で `consolidateHeader`・`consolidateCitations`・`consolidateFunders` を常に `0` にしている）。ただし **書誌の consolidation（`consolidateHeader` / `consolidateCitations`）を有効にすると Crossref 等に問い合わせる**ため、core からは常に `0` を指定する（internal_net なので外には届かないが、タイムアウト待ちになる） |
 | `node:22.23.3-bookworm-slim` | web のビルド段階のみ（実行イメージには含めない） | なし。npm の更新通知・監査を無効化 |
+| `mcr.microsoft.com/playwright:v1.63.0-noble` | E2E テストのみ（`compose.test.yaml` の `e2e`。ネットワークなし） | なし。Chromium などのブラウザ入り。実行時はネットワークに繋がないので、ブラウザの更新確認なども外に届かない |
 | `ubuntu/squid:6.6-24.04_edge` | oitoma_proxy / egress_proxy | なし。キャッシュ無効、ログは標準出力 |

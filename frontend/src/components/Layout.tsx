@@ -24,6 +24,12 @@ export function Layout({ children }: { children: ReactNode }) {
               <Link href="/">解析の一覧</Link>
             </li>
             <li>
+              <Link href="/rules">ルール</Link>
+            </li>
+            <li>
+              <Link href="/lab">研究室知識</Link>
+            </li>
+            <li>
               <Link href="/audit">外部通信ログ</Link>
             </li>
             <li>

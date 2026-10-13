@@ -3,8 +3,10 @@
 認証は無い（web は 127.0.0.1 にだけ公開し、SSH のポートフォワード等で利用する前提）。
 """
 
+import contextlib
 import csv
 import io
+import json
 import os
 from typing import Annotated, Any, Literal, Protocol
 
@@ -18,33 +20,63 @@ from core.analyze.pipeline import AnalysisSettings
 from core.annotate.labels import category_label, severity_label, subcategory_label
 from core.annotate.pdf import annotate_pdf
 from core.api.schemas import (
+    AnalysisDiff,
     AnalysisListItem,
     AnalysisSummary,
     AuditLog,
+    BulkRuleStatus,
     CreateAnalysisRequest,
     DocumentInfo,
+    PersistingPair,
     PreviousAnalysis,
     StatusUpdate,
     UploadResponse,
 )
 from core.api.summary import count_findings
 from core.gateway_client import GatewayClient, GatewayError
+from core.ingest.textdoc import SUFFIXES, looks_valid
+from core.lab.extract import delete_lab_file
+from core.lab.extract import save_document_file as save_lab_file
+from core.lab.models import LabComment, LabDocument, current_lab_id
+from core.lab.store import LabStore
 from core.llm.config import get_models_config
 from core.logging_config import configure_logging
-from core.store import DailyUsage, FindingNotFoundError, PaperBusyError, Store, today_jst
+from core.report.diff import FindingsDiff, diff_findings
+from core.report.text import text_report
+from core.rules.extract import delete_rule_file, save_document_file
+from core.rules.models import Rule, RuleDocument, RuleStatus, RuleUpdate
+from core.rules.store import RuleNotFoundError, RuleStore
+from core.store import (
+    AnalysisRecord,
+    DailyUsage,
+    FindingNotFoundError,
+    PaperBusyError,
+    Store,
+    today_jst,
+)
 from core.store.files import delete_paper_file, load_paper, save_paper
 
 configure_logging()
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 # ダッシュボードのメタ情報に表示する役割
-DISPLAYED_ROLES = ("structure_extraction", "logic_check", "citation_support", "suggestion")
+DISPLAYED_ROLES = (
+    "structure_extraction",
+    "logic_check",
+    "second_opinion",
+    "citation_support",
+    "suggestion",
+)
 
 app = FastAPI(title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 class JobQueue(Protocol):
     async def enqueue(self, analysis_id: str) -> None: ...
+
+    async def enqueue_rules(self, document_id: str) -> None: ...
+
+    async def enqueue_lab(self, document_id: str) -> None: ...
 
 
 class ArqQueue:
@@ -53,11 +85,23 @@ class ArqQueue:
     def __init__(self) -> None:
         self._pool: ArqRedis | None = None
 
-    async def enqueue(self, analysis_id: str) -> None:
+    async def _redis(self) -> ArqRedis:
         if self._pool is None:
             dsn = os.environ.get("REDIS_URL", "redis://redis:6379/0")
             self._pool = await create_pool(RedisSettings.from_dsn(dsn))
-        await self._pool.enqueue_job("run_analysis", analysis_id, _job_id=analysis_id)
+        return self._pool
+
+    async def enqueue(self, analysis_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_analysis", analysis_id, _job_id=analysis_id)
+
+    async def enqueue_rules(self, document_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_rule_extraction", document_id, _job_id=document_id)
+
+    async def enqueue_lab(self, document_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_lab_extraction", document_id, _job_id=document_id)
 
 
 _queue = ArqQueue()
@@ -65,6 +109,14 @@ _queue = ArqQueue()
 
 def get_store() -> Store:
     return Store()
+
+
+def get_rule_store() -> RuleStore:
+    return RuleStore()
+
+
+def get_lab_store() -> LabStore:
+    return LabStore()
 
 
 def get_queue() -> JobQueue:
@@ -78,11 +130,15 @@ def get_gateway() -> GatewayClient:
 StoreDep = Annotated[Store, Depends(get_store)]
 QueueDep = Annotated[JobQueue, Depends(get_queue)]
 GatewayDep = Annotated[GatewayClient, Depends(get_gateway)]
+RuleStoreDep = Annotated[RuleStore, Depends(get_rule_store)]
+LabStoreDep = Annotated[LabStore, Depends(get_lab_store)]
 
 
-def _analysis_or_404(store: Store, analysis_id: str) -> None:
-    if store.get_analysis(analysis_id) is None:
+def _analysis_or_404(store: Store, analysis_id: str) -> AnalysisRecord:
+    record = store.get_analysis(analysis_id)
+    if record is None:
         raise HTTPException(status_code=404, detail="解析が見つかりません")
+    return record
 
 
 @app.get("/api/healthz")
@@ -188,16 +244,7 @@ async def summarize(store: Store, analysis_id: str, gateway: GatewayClient) -> A
         raise HTTPException(status_code=404, detail="解析が見つかりません")
     doc = store.get_document(record.doc_id)
     counts = count_findings(store.get_findings(analysis_id), doc)
-    previous = None
-    prev_record = store.find_previous(analysis_id)
-    if prev_record is not None:
-        prev_counts = count_findings(store.get_findings(prev_record.analysis_id), None)
-        previous = PreviousAnalysis(
-            analysis_id=prev_record.analysis_id,
-            created_at=prev_record.created_at,
-            total=prev_counts.total,
-            by_severity=prev_counts.by_severity,
-        )
+    previous, _ = _diff(store, analysis_id)
     config = get_models_config()
     usage = store.get_api_usage(analysis_id)
     try:
@@ -332,6 +379,88 @@ def findings_csv(
     )
 
 
+def _diff(store: Store, analysis_id: str) -> tuple[PreviousAnalysis | None, FindingsDiff | None]:
+    """同じ論文の前回の完了した解析と、その差分（前回が無ければ None）。"""
+    prev_record = store.find_previous(analysis_id)
+    if prev_record is None:
+        return None, None
+    previous_findings = store.get_findings(prev_record.analysis_id)
+    prev_counts = count_findings(previous_findings, None)
+    previous = PreviousAnalysis(
+        analysis_id=prev_record.analysis_id,
+        created_at=prev_record.created_at,
+        total=prev_counts.total,
+        by_severity=prev_counts.by_severity,
+    )
+    return previous, diff_findings(store.get_findings(analysis_id), previous_findings)
+
+
+@app.get("/api/analyses/{analysis_id}/diff")
+def analysis_diff(analysis_id: str, store: StoreDep) -> AnalysisDiff:
+    """前回の解析との差分（解消された指摘・新しい指摘・続いている指摘）。"""
+    _analysis_or_404(store, analysis_id)
+    previous, diff = _diff(store, analysis_id)
+    if previous is None or diff is None:
+        return AnalysisDiff(previous=None, resolved=[], new=[], persisting=[])
+    return AnalysisDiff(
+        previous=previous,
+        resolved=diff.resolved,
+        new=[f.finding_id for f in diff.new],
+        persisting=[
+            PersistingPair(finding_id=c.finding_id, previous_finding_id=p.finding_id)
+            for c, p in diff.persisting
+        ],
+    )
+
+
+@app.get("/api/analyses/{analysis_id}/findings.json")
+def findings_json(analysis_id: str, store: StoreDep) -> Response:
+    """指摘の一覧の JSON（SPEC 3.4 の形式。却下したものも含め、ステータスと却下の理由を付ける）。"""
+    record = _analysis_or_404(store, analysis_id)
+    doc = store.get_document(record.doc_id)
+    paper = store.get_paper(record.doc_id)
+    body = {
+        "analysis_id": analysis_id,
+        "created_at": record.created_at,
+        "paper": {
+            "doc_id": record.doc_id,
+            "title": doc.title if doc else None,
+            "filename": paper.filename if paper else None,
+        },
+        "findings": [f.model_dump(mode="json") for f in store.get_findings(analysis_id)],
+    }
+    return Response(
+        content=json.dumps(body, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_findings.json"'},
+    )
+
+
+@app.get("/api/analyses/{analysis_id}/report.txt")
+def report_text(analysis_id: str, store: StoreDep) -> Response:
+    """主要な問題と件数をまとめたテキストの要約（SPEC 3.5・6.6）。"""
+    record = _analysis_or_404(store, analysis_id)
+    doc = store.get_document(record.doc_id)
+    paper = store.get_paper(record.doc_id)
+    findings = store.get_findings(analysis_id)
+    previous, diff = _diff(store, analysis_id)
+    text = text_report(
+        title=doc.title if doc else None,
+        filename=paper.filename if paper else None,
+        analysis_id=analysis_id,
+        created_at=record.created_at,
+        counts=count_findings(findings, doc),
+        findings=findings,
+        previous_total=previous.total if previous else None,
+        diff=diff,
+    )
+    return Response(
+        content=text,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_report.txt"'},
+    )
+
+
 @app.get("/api/analyses/{analysis_id}/annotated.pdf")
 def annotated_pdf(
     analysis_id: str,
@@ -394,3 +523,133 @@ async def gateway_decide(
         "decision": response.decision,
         "reason": response.reason,
     }
+
+
+# ---------------------------------------------------------------- ルール（SPEC 3.2）
+
+MAX_RULE_DOCUMENT_BYTES = 30 * 1024 * 1024
+
+
+@app.get("/api/rules")
+def list_rules(rules: RuleStoreDep, status: RuleStatus | None = None) -> list[Rule]:
+    return rules.list_rules(status=status)
+
+
+@app.patch("/api/rules/{rule_id}")
+def update_rule(rule_id: str, update: RuleUpdate, rules: RuleStoreDep) -> Rule:
+    """ルールの確認・編集・承認・無効化。組み込みのルールは有効・無効だけを変えられる。"""
+    try:
+        return rules.update_rule(rule_id, update)
+    except RuleNotFoundError:
+        raise HTTPException(status_code=404, detail="ルールが見つかりません") from None
+
+
+@app.post("/api/rules/bulk-status")
+def bulk_rule_status(request: BulkRuleStatus, rules: RuleStoreDep) -> list[Rule]:
+    """複数のルールをまとめて承認・無効・保留にする（見つからない ID は無視する）。"""
+    updated: list[Rule] = []
+    for rule_id in request.rule_ids:
+        try:
+            updated.append(rules.update_rule(rule_id, RuleUpdate(status=request.status)))
+        except RuleNotFoundError:
+            continue
+    return updated
+
+
+@app.get("/api/rule-documents")
+def list_rule_documents(rules: RuleStoreDep) -> list[RuleDocument]:
+    return rules.list_documents()
+
+
+@app.post("/api/rule-documents", status_code=201)
+async def upload_rule_document(
+    file: UploadFile, rules: RuleStoreDep, queue: QueueDep
+) -> RuleDocument:
+    """ルール資料（PDF・DOCX・Markdown・テキスト）を登録し、ルールの抽出を始める。資料は data_private に保存する。"""
+    filename = os.path.basename(file.filename or "rules.txt")[:255]
+    kind = SUFFIXES.get(os.path.splitext(filename)[1].lower())
+    if kind is None:
+        raise HTTPException(
+            status_code=415,
+            detail="PDF・Markdown（.md）・テキスト（.txt）のファイルを選んでください",
+        )
+    data = await file.read(MAX_RULE_DOCUMENT_BYTES + 1)
+    if len(data) > MAX_RULE_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 30MB）")
+    if not looks_valid(kind, data):
+        raise HTTPException(status_code=415, detail="ファイルの形式が拡張子と合いません")
+    doc = rules.create_document(filename, kind)
+    save_document_file(doc.document_id, kind, data)
+    await queue.enqueue_rules(doc.document_id)
+    return doc
+
+
+@app.delete("/api/rule-documents/{document_id}", status_code=204)
+def delete_rule_document(document_id: str, rules: RuleStoreDep) -> Response:
+    """資料と、そこから抽出したルールを削除する（ほかの資料のルールに統合された出典の記録は残る）。"""
+    doc = rules.get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="ルール資料が見つかりません")
+    if doc.status in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="ルールの抽出中は削除できません")
+    rules.delete_document(document_id)
+    with contextlib.suppress(ValueError):
+        delete_rule_file(document_id, doc.kind)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------- 研究室知識（SPEC 3.1〜3.3）
+# すべて、この MongAI が扱う研究室（current_lab_id）のデータだけを読み書きする
+
+
+@app.get("/api/lab/documents")
+def list_lab_documents(lab: LabStoreDep) -> list[LabDocument]:
+    return lab.list_documents(current_lab_id())
+
+
+@app.post("/api/lab/documents", status_code=201)
+async def upload_lab_document(file: UploadFile, lab: LabStoreDep, queue: QueueDep) -> LabDocument:
+    """過去の査読コメント・回答書・添削メモ（PDF・DOCX・Markdown・テキスト）を登録し、取り込みを始める。"""
+    filename = os.path.basename(file.filename or "notes.txt")[:255]
+    kind = SUFFIXES.get(os.path.splitext(filename)[1].lower())
+    if kind is None:
+        raise HTTPException(
+            status_code=415,
+            detail="PDF・Word（.docx）・Markdown（.md）・テキスト（.txt）のファイルを選んでください",
+        )
+    data = await file.read(MAX_RULE_DOCUMENT_BYTES + 1)
+    if len(data) > MAX_RULE_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 30MB）")
+    if not looks_valid(kind, data):
+        raise HTTPException(status_code=415, detail="ファイルの形式が拡張子と合いません")
+    doc = lab.create_document(current_lab_id(), filename, kind)
+    save_lab_file(doc.document_id, kind, data)
+    await queue.enqueue_lab(doc.document_id)
+    return doc
+
+
+@app.delete("/api/lab/documents/{document_id}", status_code=204)
+def delete_lab_document(document_id: str, lab: LabStoreDep, rules: RuleStoreDep) -> Response:
+    """資料と、そこから取り出した過去の指摘・研究室のルールを削除する。"""
+    doc = lab.get_document(current_lab_id(), document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="研究室知識の資料が見つかりません")
+    if doc.status in ("queued", "running"):
+        raise HTTPException(status_code=409, detail="取り込み中は削除できません")
+    lab.delete_document(current_lab_id(), document_id)
+    rules.delete_document(document_id)  # この資料から取り出したルール
+    with contextlib.suppress(ValueError):
+        delete_lab_file(document_id, doc.kind)
+    return Response(status_code=204)
+
+
+@app.get("/api/lab/comments")
+def list_lab_comments(lab: LabStoreDep) -> list[LabComment]:
+    return lab.list_comments(current_lab_id())
+
+
+@app.delete("/api/lab/comments/{comment_id}", status_code=204)
+def delete_lab_comment(comment_id: str, lab: LabStoreDep) -> Response:
+    if not lab.delete_comment(current_lab_id(), comment_id):
+        raise HTTPException(status_code=404, detail="過去の指摘が見つかりません")
+    return Response(status_code=204)

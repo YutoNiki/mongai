@@ -20,6 +20,8 @@ frontend/dist/
 
 # 評価結果（再生成できるもの）
 eval/results/*.csv
+eval/results/*.jsonl
+eval/results/index.html
 
 # エディタ・OS
 .DS_Store
@@ -28,3 +30,6 @@ eval/results/*.csv
 
 # Claude Code の個人設定
 .claude/settings.local.json
+
+# E2E テストの PDF（ビルド時に demo/demo_paper_ja.pdf からコピーする）
+frontend/e2e/fixtures/paper.pdf

@@ -28,7 +28,7 @@ max-line-length = 120
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["core", "gateway", "searcher", "shared", "tests"]
+files = ["core", "gateway", "searcher", "shared", "eval", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["arq.*", "pysbd.*"]
@@ -41,6 +41,7 @@ module = [
     "core.annotate.pdf",
     "core.annotate.locate",
     "core.annotate.check",
+    "core.ingest.textdoc",
     "tests.unit.pdf_factory",
     "tests.unit.test_annotate",
     "tests.unit.test_api_annotated",

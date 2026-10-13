@@ -31,6 +31,7 @@ def config() -> ModelsConfig:
                 "suggestion": {"model": "think"},
                 "reference_extraction": {"model": "fast"},
                 "citation_support": {"model": "think"},
+                "second_opinion": {"model": "second"},
             },
             "embeddings": {},
         }
@@ -126,6 +127,14 @@ class FakeLLM:
                     }
                 ]
             }
+        elif "別の担当者が論文の中に見つけた" in system:
+            stage = "second_opinion"
+            # 第1のモデルの説明・理由は渡さず、種類と箇所だけを渡す
+            assert (
+                "根拠に比べて主張が強い" not in user and "評価は二つのデータセットだけ" not in user
+            )
+            assert "問題の候補の種類：overclaim" in user
+            payload = {"valid": True, "reason": "根拠が二つのデータセットだけ"}
         elif "文章を改善" in system:
             stage = "suggestion"
             payload = {
@@ -138,6 +147,11 @@ class FakeLLM:
             raise AssertionError(system[:50])
         self.calls[stage] = self.calls.get(stage, 0) + 1
         return reply(payload)
+
+
+def flow_secondary_is_unset(findings: list[Finding]) -> bool:
+    """提案（suggestion）の指摘は二重チェックの対象外。"""
+    return all(f.models.secondary is None for f in findings if f.severity == "suggestion")
 
 
 async def test_analyze_logic_end_to_end() -> None:
@@ -169,21 +183,31 @@ async def test_analyze_logic_end_to_end() -> None:
     first = fake.check_inputs[0] if fake.check_inputs else ""
     assert any("直後の段落" in t and S3 in t.split("直後の段落")[1] for t in fake.check_inputs)
     assert first
-    # 2段落 × 構造抽出1回、段落内チェック 2段落 × 3回、段落間チェック 3回、改善案は指摘の数だけ
-    assert fake.calls == {"structure": 2, "paragraph_check": 6, "flow_check": 3, "suggestion": 2}
+    # 2段落 × 構造抽出1回、段落内チェック 2段落 × 3回、段落間チェック 3回、
+    # 二重チェックは重大・要修正の指摘だけ（overclaim の1件）、改善案は指摘の数だけ
+    assert fake.calls == {
+        "structure": 2,
+        "paragraph_check": 6,
+        "flow_check": 3,
+        "second_opinion": 1,
+        "suggestion": 2,
+    }
 
     by_type = {f.subcategory: f for f in result.findings}
     assert set(by_type) == {"overclaim", "section_role_violation"}  # leap は 1/3 なので落ちる
 
     over = by_type["overclaim"]
     assert over.category == "logic"
-    assert (over.votes, over.samples, over.confidence) == (2, 3, "low")
+    # 多数決は 2/3 だが、第2のモデルも問題と認めたので確度は高
+    assert (over.votes, over.samples, over.confidence) == (2, 3, "high")
+    assert (over.models.secondary, over.models.agreed) == ("second", True)
     assert over.severity == "critical"  # 同数のときは先に出たもの
     assert over.sentence_ids == ["S-00003"]
     assert over.quote == "全てのタスクで既存手法を上回り"
     assert [e.ref for e in over.evidence] == ["S-00004"]
     assert over.bboxes and over.page == 1
     assert over.models.primary == "think"
+    assert flow_secondary_is_unset(result.findings)
     # 原文と同じ案は除かれる
     assert over.suggestions == ["提案手法は評価した二つのデータセットで既存手法を上回った．"]
 
@@ -198,13 +222,18 @@ async def test_analyze_logic_end_to_end() -> None:
     # 段落の判定が終わるたびに、改善案を付ける前の指摘が通知される
     assert {f.subcategory for f in streamed} == {"overclaim", "section_role_violation"}
     # 同時に進む工程も、表示は工程の順に進む（戻らない）
-    order = ["structure", "paragraph_check", "flow_check", "citation", "suggestion"]
+    order = ["structure", "paragraph_check", "flow_check", "citation", "double_check", "suggestion"]
     shown = [order.index(stage) for stage, _, _ in progress]
     assert shown == sorted(shown)
     assert ("paragraph_check", 1, 2) in progress and ("suggestion", 2, 2) in progress
     assert {s.paragraph_id for s in result.structures} == {"P-0001", "P-0002"}
     usage = {r.role: r.requests for r in result.api_usage}
-    assert usage == {"structure_extraction": 2, "logic_check": 9, "suggestion": 2}
+    assert usage == {
+        "structure_extraction": 2,
+        "logic_check": 9,
+        "second_opinion": 1,
+        "suggestion": 2,
+    }
 
 
 async def test_failures_become_warnings() -> None:
@@ -216,3 +245,13 @@ async def test_failures_become_warnings() -> None:
     assert result.findings == []
     assert any("論証構造" in w for w in result.warnings)
     assert any("チェックに失敗" in w for w in result.warnings)
+
+
+async def test_document_without_targets() -> None:
+    # 解析の対象になる段落が1つも無い論文でも、失敗せずに空の結果を返す
+    doc = make_doc([("1 はじめに", "introduction", [["短い。"]])])
+    async with OitomaClient(config(), api_key="k") as client:
+        result = await analyze_logic(
+            doc, client, AnalysisSettings(with_flow_check=False, with_citation_check=False)
+        )
+    assert result.findings == []

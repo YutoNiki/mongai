@@ -33,13 +33,15 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
 
   const index = findings.findIndex((f) => f.finding_id === findingId);
   const finding = index >= 0 ? findings[index] : undefined;
-  useEffect(() => {
-    if (finding) {
-      setPage(finding.page);
-      setReason(finding.dismiss_reason ?? "");
-      setMessage(null);
-    }
-  }, [finding]);
+  // 表示する指摘が変わったときだけ、ページ・理由・メッセージを初期化する。
+  // （ステータスの更新で指摘のデータが新しくなっただけでは初期化しない。更新の結果のメッセージが消えるため）
+  const [shownId, setShownId] = useState<string | null>(null);
+  if (finding && finding.finding_id !== shownId) {
+    setShownId(finding.finding_id);
+    setPage(finding.page);
+    setReason(finding.dismiss_reason ?? "");
+    setMessage(null);
+  }
 
   const neighbors = useMemo(
     () => ({ prev: findings[index - 1]?.finding_id, next: findings[index + 1]?.finding_id }),
@@ -130,7 +132,10 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
             </dd>
             <dt>確度</dt>
             <dd>
-              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘）
+              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
+              {finding.models.secondary &&
+                `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
+              ）
             </dd>
           </dl>
 

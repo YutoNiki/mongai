@@ -83,7 +83,7 @@ def select_targets(
             break
     return [
         Target(t.paragraph, t.sentences, t.section, t.previous, nxt.paragraph if nxt else None)
-        for t, nxt in zip(targets, [*targets[1:], None], strict=True)
+        for t, nxt in zip(targets, [*targets[1:], None], strict=False)
     ]
 
 

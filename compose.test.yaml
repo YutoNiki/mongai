@@ -65,6 +65,31 @@ services:
       # Vite が設定ファイルを一時的に書き出す場所
       - /app/node_modules/.vite-temp:mode=1777
 
+  # 画面の E2E テスト（Playwright。ネットワークなし。/api はテストの中で差し替える）
+  e2e:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: frontend-e2e
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: mongai/frontend-e2e:dev
+    profiles: [test]
+    network_mode: none
+    environment:
+      VITE_CACHE_DIR: /tmp/vite
+      HOME: /tmp
+      XDG_DATA_HOME: /tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    shm_size: 256m
+    tmpfs:
+      - /tmp:mode=1777
+      - /app/node_modules/.vite-temp:mode=1777
+
   # GROBID を使う結合テスト（make test-integration）。internal_net の中だけで通信する
   integration:
     image: mongai/dev:dev
