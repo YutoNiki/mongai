@@ -41,7 +41,7 @@ module = [
     "core.annotate.pdf",
     "core.annotate.locate",
     "core.annotate.check",
-    "core.rules.extract",
+    "core.ingest.textdoc",
     "tests.unit.pdf_factory",
     "tests.unit.test_annotate",
     "tests.unit.test_api_annotated",

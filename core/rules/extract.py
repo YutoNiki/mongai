@@ -1,6 +1,6 @@
 """ルール資料からのルールの抽出と、重複・言い換えの統合（SPEC 3.2 の 1・2）。
 
-1. 資料（PDF / Markdown / テキスト）の本文をページの印（[p.N]）付きで取り出し、チャンクに分ける
+1. 資料（PDF / DOCX / Markdown / テキスト）の本文をページの印（[p.N]）付きで取り出し、チャンクに分ける
 2. 高速モデル（役割 rule_extraction）でチャンクごとに SPEC 3.2 の形式のルールを取り出す
 3. ルールの文を埋め込み（役割 retrieval）で比べ、既存のルールや同じ資料の中の言い換えを1つにまとめる
    （まとめた側の出典は merged_sources に残す）
@@ -16,18 +16,20 @@ import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
 
-import pymupdf
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.ingest.models import Lang
-from core.llm.budget import estimate_tokens, split_text
+from core.ingest import textdoc
+from core.ingest.textdoc import (
+    DocumentKind,
+    chunk_pages,
+    guess_lang,
+    read_pages,
+)
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.prompts import load_prompt
 from core.rules.models import Checker, CheckType, Rule, RuleLang, RuleSource, TargetSection
 from core.rules.store import RuleStore
-from core.store.files import data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +37,7 @@ ROLE = "rule_extraction"
 EMBEDDING_ROLE = "retrieval"
 # 埋め込みのコサイン類似度がこれ以上なら、同じルール（言い換え・重複）とみなして統合する
 MERGE_THRESHOLD = 0.92
-_CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 _SPACES = re.compile(r"\s+")
-
-DocumentKind = Literal["pdf", "markdown", "text"]
-SUFFIXES: dict[str, DocumentKind] = {
-    ".pdf": "pdf",
-    ".md": "markdown",
-    ".markdown": "markdown",
-    ".txt": "text",
-}
 
 
 class ExtractedRule(BaseModel):
@@ -65,70 +58,19 @@ class ExtractedRules(BaseModel):
     rules: list[ExtractedRule] = Field(default_factory=list)
 
 
-# ---------------------------------------------------------------- 資料の保存と読み込み
+# ---------------------------------------------------------------- 資料の保存
 
 
 def document_path(document_id: str, kind: DocumentKind) -> Path:
-    if not re.fullmatch(r"RD-[0-9a-f]{12}", document_id):
-        raise ValueError("document_id の形式が不正です")
-    suffix = {"pdf": ".pdf", "markdown": ".md", "text": ".txt"}[kind]
-    return data_dir() / "rules" / f"{document_id}{suffix}"
+    return textdoc.document_path("rules", document_id, kind)
 
 
 def save_document_file(document_id: str, kind: DocumentKind, data: bytes) -> Path:
-    path = document_path(document_id, kind)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
-    return path
+    return textdoc.save_file(document_path(document_id, kind), data)
 
 
 def delete_rule_file(document_id: str, kind: DocumentKind) -> None:
     document_path(document_id, kind).unlink(missing_ok=True)
-
-
-def read_pages(path: Path, kind: DocumentKind) -> list[tuple[int | None, str]]:
-    """(ページ番号, 本文) のリスト。Markdown・テキストはページを持たないので None。"""
-    if kind == "pdf":
-        with pymupdf.open(path) as pdf:
-            return [(i + 1, page.get_text()) for i, page in enumerate(pdf)]
-    raw = path.read_bytes()
-    for encoding in ("utf-8-sig", "cp932"):
-        try:
-            return [(None, raw.decode(encoding))]
-        except UnicodeDecodeError:
-            continue
-    return [(None, raw.decode("utf-8", errors="replace"))]
-
-
-def guess_lang(text: str) -> Lang:
-    return "ja" if len(_CJK.findall(text[:5000])) >= 20 else "en"
-
-
-def chunk_pages(pages: list[tuple[int | None, str]], max_tokens: int) -> list[str]:
-    """ページの印を付けて連結し、max_tokens 以下のチャンクに分ける（ページの途中でも分ける）。"""
-    pieces: list[str] = []
-    for page, text in pages:
-        body = text.strip()
-        if not body:
-            continue
-        marker = f"[p.{page}]\n" if page is not None else ""
-        for part in split_text(body, max_tokens):
-            pieces.append(marker + part)
-    chunks: list[str] = []
-    current: list[str] = []
-    used = 0
-    for piece in pieces:
-        cost = estimate_tokens(piece) + 1
-        if current and used + cost > max_tokens:
-            chunks.append("\n".join(current))
-            current, used = [], 0
-        current.append(piece)
-        used += cost
-    if current:
-        chunks.append("\n".join(current))
-    return chunks
 
 
 # ---------------------------------------------------------------- 抽出と統合

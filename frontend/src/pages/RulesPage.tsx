@@ -187,7 +187,7 @@ export function RulesPage() {
             ルール資料を登録する
           </h2>
           <p className="note">
-            投稿規定・ライティングガイド・報告ガイドラインなど（PDF・Markdown・テキスト）。資料から書き方のルールを取り出し、
+            投稿規定・ライティングガイド・報告ガイドラインなど（PDF・Word・Markdown・テキスト）。資料から書き方のルールを取り出し、
             「未確認」として一覧に加えます。内容を確認して承認したルールだけが、解析で使われます。資料は学外に送信されません。
           </p>
           <form onSubmit={upload} className="upload-form">
@@ -195,7 +195,7 @@ export function RulesPage() {
               ルール資料
               <input
                 type="file"
-                accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain"
+                accept=".pdf,.docx,.md,.markdown,.txt"
                 required
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />

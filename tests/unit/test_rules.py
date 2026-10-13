@@ -10,13 +10,13 @@ import respx
 
 from core.analyze.context import select_targets
 from core.analyze.pipeline import AnalysisSettings, analyze_logic
+from core.ingest.textdoc import chunk_pages, read_pages
 from core.jobs import run_rule_extraction
 from core.llm.client import DEFAULT_BASE_URL, OitomaClient
 from core.llm.config import ModelsConfig
 from core.rules.check import applicable_rules, check_rules, group_targets
 from core.rules.extract import (
     ExtractedRule,
-    chunk_pages,
     extract_rules,
     merge_rules,
     save_document_file,
@@ -450,3 +450,20 @@ def test_mechanical_rules_merge_into_builtin() -> None:
     kept, updated = merge_rules([extracted], [None], {builtin.rule_id: builtin}, {})
     assert kept == []
     assert updated[builtin.rule_id].merged_sources == [RuleSource(doc="手引き.md")]
+
+
+def test_read_docx_without_external_library(tmp_path: Path) -> None:
+    import zipfile
+
+    body = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+        "<w:p><w:r><w:t>査読コメント1：</w:t></w:r><w:r><w:t>主張が強すぎる。</w:t></w:r></w:p>"
+        "<w:p><w:r><w:t>回答：表現を弱めました。</w:t></w:r></w:p>"
+        "</w:body></w:document>"
+    )
+    path = tmp_path / "memo.docx"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("word/document.xml", body)
+    assert read_pages(path, "docx") == [
+        (None, "査読コメント1：主張が強すぎる。\n回答：表現を弱めました。")
+    ]

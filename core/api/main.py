@@ -34,11 +34,12 @@ from core.api.schemas import (
 )
 from core.api.summary import count_findings
 from core.gateway_client import GatewayClient, GatewayError
+from core.ingest.textdoc import SUFFIXES, looks_valid
 from core.llm.config import get_models_config
 from core.logging_config import configure_logging
 from core.report.diff import FindingsDiff, diff_findings
 from core.report.text import text_report
-from core.rules.extract import SUFFIXES, delete_rule_file, save_document_file
+from core.rules.extract import delete_rule_file, save_document_file
 from core.rules.models import Rule, RuleDocument, RuleStatus, RuleUpdate
 from core.rules.store import RuleNotFoundError, RuleStore
 from core.store import (
@@ -549,7 +550,7 @@ def list_rule_documents(rules: RuleStoreDep) -> list[RuleDocument]:
 async def upload_rule_document(
     file: UploadFile, rules: RuleStoreDep, queue: QueueDep
 ) -> RuleDocument:
-    """ルール資料（PDF・Markdown・テキスト）を登録し、ルールの抽出を始める。資料は data_private に保存する。"""
+    """ルール資料（PDF・DOCX・Markdown・テキスト）を登録し、ルールの抽出を始める。資料は data_private に保存する。"""
     filename = os.path.basename(file.filename or "rules.txt")[:255]
     kind = SUFFIXES.get(os.path.splitext(filename)[1].lower())
     if kind is None:
@@ -560,8 +561,8 @@ async def upload_rule_document(
     data = await file.read(MAX_RULE_DOCUMENT_BYTES + 1)
     if len(data) > MAX_RULE_DOCUMENT_BYTES:
         raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 30MB）")
-    if kind == "pdf" and not data.startswith(b"%PDF-"):
-        raise HTTPException(status_code=415, detail="PDF ファイルとして読めません")
+    if not looks_valid(kind, data):
+        raise HTTPException(status_code=415, detail="ファイルの形式が拡張子と合いません")
     doc = rules.create_document(filename, kind)
     save_document_file(doc.document_id, kind, data)
     await queue.enqueue_rules(doc.document_id)

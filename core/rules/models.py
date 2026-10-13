@@ -56,7 +56,7 @@ class RuleDocument(BaseModel):
 
     document_id: str
     filename: str
-    kind: Literal["pdf", "markdown", "text"]
+    kind: Literal["pdf", "docx", "markdown", "text"]
     status: Literal["queued", "running", "completed", "failed"]
     rule_count: int = 0
     error: str | None = None
