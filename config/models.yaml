@@ -15,7 +15,9 @@ api:
   # 思考モードの切り替え方法：chat_template_kwargs（vLLM 形式の enable_thinking）| none（切り替えない）
   # 2026-10-12 確認：qwen3.8-27b-it は既定で思考オフ。enable_thinking: true で思考し、内容は message.reasoning に入る
   thinking_param: chat_template_kwargs
-  timeout_seconds: 300
+  # 1本の生成は毎秒約28トークン（2026-10-13 の make bench-concurrency）。思考を含めて
+  # max_tokens（16384）まで出し切れるよう長めにする。300秒では打ち切りと送り直しが続いた
+  timeout_seconds: 900
   max_retries: 4
   # 同時リクエスト数の上限（おいとまは負荷制限なし。クライアント側の資源保護のため）
   max_concurrency: 32
