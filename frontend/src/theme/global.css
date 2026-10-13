@@ -646,3 +646,9 @@ button.icon-button {
 .page-findings p {
   margin: 4px 0;
 }
+.elapsed {
+  display: block;
+  font-size: 13px;
+  color: var(--color-label);
+  margin-top: 2px;
+}

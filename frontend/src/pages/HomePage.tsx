@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { ProgressBar } from "../components/ProgressBar";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
+import { elapsedText } from "../lib/progress";
 import { Link, navigate } from "../lib/router";
 
 const ANALYSIS_STATUS: Record<string, string> = {
@@ -32,6 +33,18 @@ function TrashIcon() {
   );
 }
 
+/** 経過時間（開始は解析の受け付け時刻なので、順番待ちの時間も含む） */
+function ElapsedTime({ item, now }: { item: AnalysisListItem; now: number }) {
+  const text = elapsedText(item.created_at, item.finished_at, now);
+  if (text === null) return null;
+  const prefix = item.status === "queued" ? "待ち時間" : ACTIVE.has(item.status) ? "経過" : "所要時間";
+  return (
+    <span className="elapsed">
+      {prefix} {text}
+    </span>
+  );
+}
+
 const number = (value: number) => value.toLocaleString("ja-JP");
 
 export function HomePage() {
@@ -49,6 +62,13 @@ export function HomePage() {
   }, []);
   useEffect(load, [load]);
   const active = items?.some((i) => ACTIVE.has(i.status)) ?? false;
+  // 経過時間の表示を進めるための時計（解析中だけ動かす）
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
   useEffect(() => {
     const timer = window.setInterval(load, active ? REFRESH_ACTIVE_MS : REFRESH_MS);
     return () => window.clearInterval(timer);
@@ -186,6 +206,7 @@ export function HomePage() {
                       ) : (
                         (ANALYSIS_STATUS[item.status] ?? item.status)
                       )}
+                      <ElapsedTime item={item} now={now} />
                     </td>
                     <td className="num" data-label="指摘数">
                       {item.total}件

@@ -27,3 +27,21 @@ export function overallPercent(status: string, progress: Progress): number {
   // 完了の通知の前に 100% と表示しないよう、実行中は 99 で止める
   return Math.min(Math.floor(value), 99);
 }
+
+/** 経過時間を「1時間5分」のように表す（1分未満は「1分未満」）。 */
+export function formatDuration(ms: number): string {
+  const minutes = Math.floor(Math.max(ms, 0) / 60_000);
+  if (minutes < 1) return "1分未満";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}分`;
+  return rest === 0 ? `${hours}時間` : `${hours}時間${rest}分`;
+}
+
+/** 解析の経過時間（解析中・順番待ちは今まで、終わったものは終了まで）。日時が読めないときは null。 */
+export function elapsedText(createdAt: string, finishedAt: string | null, now: number): string | null {
+  const start = Date.parse(createdAt);
+  const end = finishedAt ? Date.parse(finishedAt) : now;
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return formatDuration(end - start);
+}
