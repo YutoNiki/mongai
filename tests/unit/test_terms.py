@@ -61,10 +61,16 @@ async def test_lookup_terms_queues_for_approval() -> None:
     with respx.mock:
         respx.post(CHAT_URL).mock(return_value=chat({"terms": ["アイソクローン", "DRT-Opt"]}))
         async with OitomaClient(config(), api_key="k") as client:
-            result = await lookup_terms(
-                client, gateway, targets, analysis_id="A-1", doc_id=doc.doc_id, lang="ja"
-            )
+            result = await lookup_terms(client, gateway, doc, targets, analysis_id="A-1", lang="ja")
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert "アイソクローン" in sent  # 段落を渡している
     assert result.pending == ["アイソクローン"] and result.blocked == 1
     assert gateway.requests[0] == {"kind": "term_lookup", "term": "アイソクローン", "lang": "ja"}
+
+
+def test_pick_terms_skips_own_title_and_cited_names() -> None:
+    title = "需要予測に基づく小規模自治体のオンデマンド交通の配車計画"
+    cited = ["予測のモデルには XGBoost [3] を用いる。"]
+    candidates = ["オンデマンド交通", "配車計画", "xgboost", "アイソクローン"]
+    picked = pick_terms(candidates, "ja", title=title, cited_sentences=cited)
+    assert picked == ["アイソクローン"]

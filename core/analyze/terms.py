@@ -1,7 +1,8 @@
 """未知の用語の照会（SPEC 3.3-3 の「未知の用語」、M7）。
 
 1. 高速モデル（役割 term_extraction）が、節ごとに「定義なしで使われていて、隣接分野の読者が調べたくなる
-   一般的な専門用語」を選ぶ（著者の造語・手法名・固有名詞は選ばない）
+   一般的な専門用語」を選ぶ（著者の造語・既存の手法名・固有名詞・論文の主題の語は選ばない。
+   タイトルに含まれる語は、コードでも除く）
 2. 論文全体で最大 MAX_TERMS 語を、gateway に term_lookup（1語だけのスキーマ）として送る
 3. standard モードでは term_lookup は承認制なので、承認キューに積まれる。利用者が承認するまで学外には出ない。
    gateway は、原稿で定義された造語や、新規性に関わる主張に近い語を拒否する
@@ -18,7 +19,7 @@ from pydantic import Field, ValidationError
 from core.analyze.context import Target, numbered_paragraph
 from core.analyze.models import _LLMOutput
 from core.gateway_client import GatewayClient, GatewayError
-from core.ingest.models import Lang
+from core.ingest.models import Document, Lang
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.prompts import load_prompt
 from core.rules.check import group_targets
@@ -41,14 +42,29 @@ class TermLookupResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def pick_terms(candidates: list[str], lang: Lang, limit: int = MAX_TERMS) -> list[str]:
-    """重複を除き、term_lookup のスキーマに合うものだけを最大 limit 語選ぶ（順序は保つ）。"""
+def pick_terms(
+    candidates: list[str],
+    lang: Lang,
+    *,
+    title: str | None = None,
+    cited_sentences: list[str] | None = None,
+    limit: int = MAX_TERMS,
+) -> list[str]:
+    """重複を除き、term_lookup のスキーマに合うものだけを最大 limit 語選ぶ（順序は保つ）。
+
+    - 論文のタイトルに含まれる語は選ばない（未発表の論文の主題を、用語の照会で学外に出さないため）
+    - 引用の付いた文に出てくる語は選ばない（既存の手法・モデルの名前で、引用文献が説明している）
+    """
     chosen: list[str] = []
     seen: set[str] = set()
+    own_title = (title or "").casefold()
+    cited = [s.casefold() for s in cited_sentences or []]
     for raw in candidates:
         term = raw.strip()
         key = term.casefold()
-        if not term or key in seen:
+        if not term or key in seen or (own_title and key in own_title):
+            continue
+        if any(key in s for s in cited):
             continue
         try:
             TermLookup(kind="term_lookup", term=term, lang=lang)
@@ -84,10 +100,10 @@ async def extract_terms(
 async def lookup_terms(
     client: OitomaClient,
     gateway: GatewayClient,
+    doc: Document,
     targets: list[Target],
     *,
     analysis_id: str,
-    doc_id: str,
     lang: Lang,
 ) -> TermLookupResult:
     """用語を選んで gateway に照会する。gateway への原稿の登録（引用の検証）の後に呼ぶ。"""
@@ -104,10 +120,12 @@ async def lookup_terms(
             raise output
         else:
             candidates.extend(output)
-    for term in pick_terms(candidates, lang):
+    citing = {c.sentence_id for c in doc.citations}
+    cited_sentences = [s.text for s in doc.sentences if s.sentence_id in citing]
+    for term in pick_terms(candidates, lang, title=doc.title, cited_sentences=cited_sentences):
         try:
             response = await gateway.submit(
-                analysis_id, doc_id, TermLookup(kind="term_lookup", term=term, lang=lang)
+                analysis_id, doc.doc_id, TermLookup(kind="term_lookup", term=term, lang=lang)
             )
         except GatewayError as exc:
             result.warnings.append(f"用語の照会を行えませんでした（{exc}）")

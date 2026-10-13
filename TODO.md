@@ -159,7 +159,8 @@
 - [x] 書誌の存在と一致の判定（著者・年・タイトル・巻・ページ）。版の違い・GROBID の姓の取り違えを誤検出しないよう調整
 - [x] 引用内容の支持判定（アブストラクト。OA 本文は取得しない。アップロード済みの先行研究 PDF は M6/M8 で検討）
 - [-] 引用漏れ候補（addi(c)tion・LOCAL RAG）：学内サービスの API の仕様が不明のため保留
-- [-] 未知の用語：学内（direction・addi(c)tion・LOCAL RAG）の検索は同上で保留。学外の用語照会（承認制）は gateway・searcher で対応済みだが、解析にはまだ組み込んでいない
+- [x] 未知の用語：定義なしで使われている一般的な専門用語を高速モデルで選び（論文あたり最大5語）、gateway の承認制の用語照会（term_lookup）に積む。承認するまで学外には出ない。照会の結果はまだ指摘には使わない
+- [-] 未知の用語の学内（direction・addi(c)tion・LOCAL RAG）での検索は、API の仕様が不明のため保留
 - [x] セキュリティテスト（`tests/security/test_gateway_policy.py`、`tests/unit/test_citation.py`）
   - [x] 原稿の文を含む `term_lookup` を拒否
   - [x] 複数語の `term_lookup` を拒否

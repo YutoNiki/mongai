@@ -11,7 +11,9 @@ Do not choose:
 
 - names of methods, systems, or metrics named by the authors ("the proposed method", "our ..."), or terms defined in the paper
 - proper nouns such as names of people, places, organizations, or datasets
-- common words that everyone knows ("data", "model", "accuracy", etc.)
+- names of existing methods, models, or software ("LSTM", "Transformer", etc.; they are explained by the cited works)
+- words that name the subject of the paper itself (the research object or field named in the title or abstract)
+- common or everyday words that everyone knows ("data", "model", "accuracy", etc.)
 - bare abbreviations (abbreviation definitions are checked separately)
 
 Rules:

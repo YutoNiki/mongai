@@ -454,12 +454,7 @@ async def analyze_logic(
         if settings.with_term_lookup and targets:
             # 原稿は check_citations で gateway に登録済み。用語の照会は承認キューに積まれる
             terms = await lookup_terms(
-                client,
-                gateway,
-                targets,
-                analysis_id=analysis_id,
-                doc_id=doc.doc_id,
-                lang=prompt_lang,
+                client, gateway, doc, targets, analysis_id=analysis_id, lang=prompt_lang
             )
             warnings.extend(terms.warnings)
             if terms.pending:
