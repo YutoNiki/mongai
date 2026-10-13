@@ -481,9 +481,9 @@ def test_sample_analysis_is_listed_and_cannot_be_deleted(
     items = {i["doc_id"]: i for i in client.get("/api/analyses").json()}
     sample = items[SAMPLE_DOC_ID]
     assert sample["analysis_id"] == SAMPLE_ANALYSIS_ID and sample["sample"] is True
-    assert sample["total"] == 11 and sample["title"]
+    assert sample["total"] == 13 and sample["title"]
     summary = client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}").json()
-    assert summary["sample"] is True and summary["counts"]["total"] == 11
+    assert summary["sample"] is True and summary["counts"]["total"] == 13
     assert client.get(f"/api/documents/{SAMPLE_DOC_ID}/paper.pdf").status_code == 200
     assert client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}/annotated.pdf").status_code == 200
 
