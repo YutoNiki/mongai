@@ -1,11 +1,10 @@
 """段落内の論理・読みやすさのチェック（SPEC 3.3-3）。思考モデルで複数回判定し、多数決を取る。"""
 
-import asyncio
 import re
 
 from core.analyze.context import Target, normalize, numbered_paragraph, structure_text
 from core.analyze.models import ParagraphCheckOutput, ParagraphIssue, ParagraphStructure
-from core.analyze.voting import Voted, majority
+from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
 from core.llm.client import JSONOutputError, OitomaClient
 from core.llm.prompts import load_prompt
@@ -16,6 +15,10 @@ ROLE = "logic_check"
 def samples_for(client: OitomaClient, role: str) -> int:
     cfg = client.config.role(role)
     return cfg.samples if cfg.vote == "majority" else 1
+
+
+def early_stop_for(client: OitomaClient, role: str) -> bool:
+    return client.config.role(role).early_stop
 
 
 def same_issue(a: ParagraphIssue, b: ParagraphIssue) -> bool:
@@ -73,7 +76,7 @@ async def check_paragraph(
     context_text: str,
     next_text: str = "",
 ) -> tuple[list[Voted[ParagraphIssue]], int]:
-    """段落を n 回判定し、過半数に現れた指摘と n を返す。"""
+    """段落を最大 n 回判定し、過半数に現れた指摘と、実際に判定した回数を返す。"""
     messages = [
         {
             "role": "system",
@@ -92,22 +95,16 @@ async def check_paragraph(
             ),
         },
     ]
-    n = samples_for(client, ROLE)
-    outcomes = await asyncio.gather(
-        *(
-            client.chat_json(ROLE, messages, ParagraphCheckOutput, lang=prompt_lang)
-            for _ in range(n)
-        ),
-        return_exceptions=True,
+
+    async def judge() -> list[ParagraphIssue]:
+        output = await client.chat_json(ROLE, messages, ParagraphCheckOutput, lang=prompt_lang)
+        return clean_issues(output.issues, target, known_sentences)
+
+    ballot = await vote(
+        judge, same=same_issue, n=samples_for(client, ROLE), early_stop=early_stop_for(client, ROLE)
     )
-    samples = [
-        clean_issues(o.issues, target, known_sentences)
-        for o in outcomes
-        if isinstance(o, ParagraphCheckOutput)
-    ]
-    if not samples:
-        error = next(o for o in outcomes if isinstance(o, BaseException))
+    if ballot.all_failed:
         raise JSONOutputError(
             f"段落 {target.paragraph.paragraph_id} の判定に失敗しました"
-        ) from error
-    return majority(samples, same=same_issue, n=n), n
+        ) from ballot.errors[0]
+    return ballot.voted, ballot.attempts

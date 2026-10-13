@@ -1,4 +1,4 @@
-"""論理・読みやすさの解析：論証構造の抽出 → 段落内チェック → 段落間チェック → 改善案。"""
+"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証を同時に）→ 改善案。"""
 
 import asyncio
 import inspect
@@ -71,6 +71,39 @@ async def _notify(callback: Callable[..., Awaitable[None] | None] | None, *args:
         await result
 
 
+class _StageProgress:
+    """同時に進む工程の進捗を、1つの表示にまとめる。
+
+    工程の順（stages）で最初の未完了の工程を表示する。段落内チェックの途中で段落間チェックや
+    引用の検証が先に進んでも、表示は段落内チェックのまま進み、終わったら次の工程に移る。
+    """
+
+    def __init__(self, callback: ProgressCallback | None, stages: list[str]) -> None:
+        self._callback = callback
+        self._stages = stages
+        self._state: dict[str, tuple[int, int]] = {}
+        self._shown: tuple[str, int, int] | None = None
+
+    async def __call__(self, stage: str, done: int, total: int) -> None:
+        self._state[stage] = (done, total)
+        current = next(
+            (
+                (st, *self._state.get(st, (0, 0)))
+                for st in self._stages
+                if st not in self._state or self._state[st][0] < self._state[st][1]
+            ),
+            (stage, done, total),
+        )
+        if current != self._shown:
+            self._shown = current
+            await _notify(self._callback, *current)
+
+    def finish(self, stage: str) -> None:
+        """工程を完了扱いにする（行わなかった工程など）。"""
+        done, total = self._state.get(stage, (1, 1))
+        self._state[stage] = (max(done, total, 1), max(total, 1))
+
+
 def _sort_key(f: Finding) -> tuple[int, int, float, float]:
     box = f.bboxes[0] if f.bboxes else None
     return (SEVERITY_RANK[f.severity], f.page, box.y0 if box else 0.0, box.x0 if box else 0.0)
@@ -105,9 +138,7 @@ class _Builder:
             if sid in self.sentences
         ]
 
-    def from_paragraph(
-        self, voted: Voted[ParagraphIssue], n: int, section_id: str | None
-    ) -> Finding:
+    def from_paragraph(self, voted: Voted[ParagraphIssue], section_id: str | None) -> Finding:
         issue = voted.item
         boxes = self._boxes(issue.sentence_ids)
         return Finding(
@@ -126,9 +157,9 @@ class _Builder:
             evidence=self._evidence(
                 [sid for sid in issue.related_sentence_ids if sid not in issue.sentence_ids]
             ),
-            confidence=_confidence(voted.votes, n),
+            confidence=_confidence(voted.votes, voted.samples),
             votes=voted.votes,
-            samples=n,
+            samples=voted.samples,
             models=ModelInfo(primary=self.model),
         )
 
@@ -161,7 +192,7 @@ class _Builder:
             models=ModelInfo(primary=draft.model),
         )
 
-    def from_flow(self, voted: Voted[FlowIssue], n: int) -> Finding | None:
+    def from_flow(self, voted: Voted[FlowIssue]) -> Finding | None:
         issue = voted.item
         para = self.paragraphs.get(issue.paragraph_id)
         if para is None or not para.sentence_ids:
@@ -186,9 +217,9 @@ class _Builder:
             issue=issue.issue,
             rationale=issue.rationale,
             evidence=self._evidence(related),
-            confidence=_confidence(voted.votes, n),
+            confidence=_confidence(voted.votes, voted.samples),
             votes=voted.votes,
-            samples=n,
+            samples=voted.samples,
             models=ModelInfo(primary=self.model),
         )
 
@@ -239,9 +270,12 @@ async def analyze_logic(
     structures = await asyncio.gather(*(structure_of(t) for t in targets))
     by_paragraph = {s.paragraph_id: s for s in structures}
 
-    # 2. 段落内チェック（終わった段落から順に指摘を確定する）
+    # 2〜4. 段落内チェック・段落間チェック・引用の検証は互いに依存しないので、同時に進める
+    # （1つの工程の終わり際に、遅い数本の応答を待つ間もほかの工程の要求を送れる）
+    stages = ["paragraph_check", "flow_check", "citation"]
+    progress = _StageProgress(on_progress, stages)
     done = 0
-    await _notify(on_progress, "paragraph_check", done, len(targets))
+    await progress("paragraph_check", done, len(targets))
 
     async def check(t: Target) -> None:
         nonlocal done
@@ -258,7 +292,7 @@ async def analyze_logic(
             else ""
         )
         try:
-            voted, n = await check_paragraph(
+            voted, _ = await check_paragraph(
                 client,
                 t,
                 by_paragraph.get(t.paragraph.paragraph_id),
@@ -271,53 +305,67 @@ async def analyze_logic(
         except OitomaError as exc:
             warnings.append(f"段落 {t.paragraph.paragraph_id} のチェックに失敗しました：{exc}")
         else:
-            new = [builder.from_paragraph(v, n, t.paragraph.section_id) for v in voted]
+            new = [builder.from_paragraph(v, t.paragraph.section_id) for v in voted]
             findings.extend(new)
             if new:
                 await _notify(on_findings, new)
         done += 1
-        await _notify(on_progress, "paragraph_check", done, len(targets))
+        await progress("paragraph_check", done, len(targets))
 
-    await asyncio.gather(*(check(t) for t in targets))
+    async def paragraph_checks() -> None:
+        await asyncio.gather(*(check(t) for t in targets))
 
-    # 3. 段落間チェック
-    if settings.with_flow_check:
-        await _notify(on_progress, "flow_check", 0, 1)
+    async def flow_checks() -> None:
+        if not settings.with_flow_check:
+            progress.finish("flow_check")
+            return
+        await progress("flow_check", 0, 1)
         try:
-            flow, n, flow_warnings = await check_flow(
+            flow, _, flow_warnings = await check_flow(
                 client, targets, by_paragraph, prompt_lang=prompt_lang, output_language=out_lang
             )
             warnings.extend(flow_warnings)
-            new = [f for f in (builder.from_flow(v, n) for v in flow) if f is not None]
+            new = [f for f in (builder.from_flow(v) for v in flow) if f is not None]
             findings.extend(new)
             if new:
                 await _notify(on_findings, new)
         except OitomaError as exc:
             warnings.append(f"段落間のチェックに失敗しました：{exc}")
-        await _notify(on_progress, "flow_check", 1, 1)
+        await progress("flow_check", 1, 1)
 
-    # 4. 引用の検証（gateway 経由。学外に出るのは引用文献の書誌情報だけ）
-    if settings.with_citation_check:
+    # 引用の検証（gateway 経由。学外に出るのは引用文献の書誌情報だけ）
+    async def citation_checks() -> None:
+        if not settings.with_citation_check:
+            progress.finish("citation")
+            return
         if gateway is None or analysis_id is None:
             warnings.append("引用の検証は行いませんでした（検索ゲートウェイが設定されていません）")
-        else:
-            citation = await check_citations(
-                doc,
-                list(structures),
-                client,
-                gateway,
-                analysis_id,
-                prompt_lang=prompt_lang,
-                output_lang=out_lang_code,
-                output_language=out_lang,
-                max_support_checks=settings.max_support_checks,
-                on_progress=on_progress,
-            )
-            warnings.extend(citation.warnings)
-            new = [f for f in (builder.from_draft(d) for d in citation.drafts) if f is not None]
-            findings.extend(new)
-            if new:
-                await _notify(on_findings, new)
+            progress.finish("citation")
+            return
+        citation = await check_citations(
+            doc,
+            list(structures),
+            client,
+            gateway,
+            analysis_id,
+            prompt_lang=prompt_lang,
+            output_lang=out_lang_code,
+            output_language=out_lang,
+            max_support_checks=settings.max_support_checks,
+            on_progress=progress,
+        )
+        warnings.extend(citation.warnings)
+        new = [f for f in (builder.from_draft(d) for d in citation.drafts) if f is not None]
+        findings.extend(new)
+        if new:
+            await _notify(on_findings, new)
+        progress.finish("citation")
+
+    # 1つが例外で止まったら、ほかも取り消す（解析の失敗として扱う）
+    async with asyncio.TaskGroup() as group:
+        group.create_task(paragraph_checks())
+        group.create_task(flow_checks())
+        group.create_task(citation_checks())
 
     # 5. 改善案（書誌の不一致のように、正しい書誌を案として既に持つ指摘は除く）
     if settings.with_suggestions:

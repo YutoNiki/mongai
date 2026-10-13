@@ -7,8 +7,8 @@ import asyncio
 
 from core.analyze.context import Target
 from core.analyze.models import FlowCheckOutput, FlowIssue, ParagraphStructure
-from core.analyze.paragraph_check import samples_for
-from core.analyze.voting import Voted, majority
+from core.analyze.paragraph_check import early_stop_for, samples_for
+from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
 from core.llm.budget import estimate_tokens
 from core.llm.client import JSONOutputError, OitomaClient
@@ -78,7 +78,7 @@ async def check_flow(
     prompt_lang: Lang,
     output_language: str,
 ) -> tuple[list[Voted[FlowIssue]], int, list[str]]:
-    """段落間の問題（多数決後）、判定回数 n、警告を返す。"""
+    """段落間の問題（多数決後）、判定回数の上限 n、警告を返す。実際の回数は Voted.samples。"""
     if len(targets) < 2:
         return [], samples_for(client, ROLE), []
     system = load_prompt("flow_check", prompt_lang, output_language=output_language)
@@ -95,22 +95,17 @@ async def check_flow(
             "flow_check_input", prompt_lang, paragraphs="\n".join(lines[i] for i in indexes)
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-        outcomes = await asyncio.gather(
-            *(
-                client.chat_json(ROLE, messages, FlowCheckOutput, lang=prompt_lang)
-                for _ in range(n)
-            ),
-            return_exceptions=True,
+
+        async def once() -> list[FlowIssue]:
+            output = await client.chat_json(ROLE, messages, FlowCheckOutput, lang=prompt_lang)
+            return clean_flow_issues(output.issues, targets, indexes)
+
+        ballot = await vote(
+            once, same=same_flow_issue, n=n, early_stop=early_stop_for(client, ROLE)
         )
-        samples = [
-            clean_flow_issues(o.issues, targets, indexes)
-            for o in outcomes
-            if isinstance(o, FlowCheckOutput)
-        ]
-        if not samples:
-            error = next(o for o in outcomes if isinstance(o, BaseException))
-            raise JSONOutputError("段落間の判定に失敗しました") from error
-        return majority(samples, same=same_flow_issue, n=n)
+        if ballot.all_failed:
+            raise JSONOutputError("段落間の判定に失敗しました") from ballot.errors[0]
+        return ballot.voted
 
     results = await asyncio.gather(*(judge(c) for c in chunks), return_exceptions=True)
     voted: list[Voted[FlowIssue]] = []
