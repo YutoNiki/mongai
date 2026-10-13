@@ -642,9 +642,37 @@ td.row-actions {
   font-size: 13px;
   color: var(--color-label);
 }
+.progress-bar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-bg-control);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .progress-bar-fill {
     transition: none;
+  }
+  /* 動きを減らす設定では回さず、ゆっくり明滅させる */
+  .spinner {
+    animation: pulse 2s ease-in-out infinite;
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
   }
 }
 button.icon-button {
