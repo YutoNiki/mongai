@@ -1,6 +1,7 @@
 """過去の指摘に類似する箇所の検出（SPEC 3.3-3 の「研究室知識」）。
 
-1. 段落と過去の指摘を埋め込み（役割 retrieval）で比べ、近い指摘を段落ごとに最大 MAX_CANDIDATES 件選ぶ
+1. 段落（検索の指示を付けて）と過去の指摘を埋め込み（役割 retrieval）で比べ、近い指摘を段落ごとに
+   最大 MAX_CANDIDATES 件選ぶ
 2. 高速モデル（役割 lab_check）に、同じ種類の問題が段落に実際にあるかを判定させる
    （話題が似ているだけのものを除くため。埋め込みの近さだけでは指摘にしない）
 3. あれば「以前、…と指摘されています」という指摘（カテゴリ「研究室知識」）にする
@@ -20,9 +21,16 @@ from core.llm.prompts import load_prompt
 
 ROLE = "lab_check"
 EMBEDDING_ROLE = "retrieval"
-# 1段落の判定に使う過去の指摘の上限と、候補にする埋め込みの類似度の下限
-MAX_CANDIDATES = 4
-MIN_SIMILARITY = 0.35
+# 1段落の判定に使う過去の指摘の上限と、候補にする埋め込みの類似度の下限。
+# 段落と一般化した指摘の類似度は低めに出て、関係の有無をよく区別できない（2026-10-13 の試行で 0.2〜0.6）。
+# そのため下限は低くし、上位の候補を高速モデルに渡して、同じ問題があるかを判定させる
+MAX_CANDIDATES = 3
+MIN_SIMILARITY = 0.25
+# 段落を検索の問い合わせとして埋め込むときの指示（qwen3-embedding は指示付きの問い合わせを想定している）
+QUERY_INSTRUCTION = (
+    "Instruct: Given a paragraph of a research paper, retrieve past review comments that point out "
+    "the same kind of problem in it\nQuery: "
+)
 
 
 class LabMatchItem(_LLMOutput):
@@ -73,7 +81,9 @@ def candidates_for(
 
 
 async def embed_targets(client: OitomaClient, targets: list[Target]) -> list[list[float]]:
-    return await client.embed([t.paragraph.text for t in targets], role=EMBEDDING_ROLE)
+    return await client.embed(
+        [QUERY_INSTRUCTION + t.paragraph.text for t in targets], role=EMBEDDING_ROLE
+    )
 
 
 async def check_lab(

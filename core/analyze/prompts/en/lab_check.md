@@ -7,6 +7,7 @@ Read the paragraph and report a match only if the paragraph actually has the sam
 Rules:
 
 - Do not report a match if the topic is merely similar but the same problem is absent
+- Passages that state future work or limitations, and passages that merely report facts, data, or responses without using them as grounds for a conclusion, are not problems
 - Put the ID of the matching past comment in comment_id and the IDs of the problematic sentences in sentence_ids
 - For quote, copy the problematic part verbatim from the original (do not paraphrase)
 - In issue, state in one or two sentences, in $output_language, what in this paragraph is the same problem as the past comment

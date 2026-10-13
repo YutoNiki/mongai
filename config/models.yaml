@@ -32,7 +32,8 @@ roles:
   logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, early_stop: true, thinking: true, max_tokens: 16384}
   rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   lab_extraction:       {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false, max_tokens: 8192}  # 研究室知識の取り込み
-  lab_check:            {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # 過去の指摘に類似する箇所の判定
+  # 過去の指摘に類似する箇所の判定。高速モデルでは「今後の課題」などを誤って一致とした（2026-10-13）ため思考モデルにする
+  lab_check:            {model: qwen3.8-27b-it, temperature: 0.0, thinking: true, max_tokens: 8192}
   citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true, max_tokens: 8192}
   suggestion:           {model: qwen3.8-27b-it, temperature: 0.4, thinking: true, max_tokens: 12288}
   second_opinion:       {model: Ternary-Bonsai-2-27B, temperature: 0.0}
