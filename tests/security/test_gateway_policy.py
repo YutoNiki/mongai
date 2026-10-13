@@ -17,7 +17,7 @@ import gateway.main as gw
 from gateway.audit import AuditStore
 from gateway.config import GatewayConfig, Limits, get_config
 from gateway.manuscripts import ManuscriptRegistry
-from shared.schemas import SearchResponse
+from shared.schemas import SearchResponse, TermResult
 
 DOC = "6b5fa18bce71e989"
 AID = "A-0123456789ab"
@@ -233,3 +233,23 @@ def test_audit_log_is_append_only(env: Env) -> None:
     with pytest.raises(sqlite3.DatabaseError, match="append-only"):
         conn.execute("DELETE FROM audit")
     conn.close()
+
+
+def test_term_not_found_is_not_cached(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """見つからなかった用語は、承認して送っても結果をキャッシュしない（次の照会で改めて承認を求める）。"""
+    term = {"kind": "term_lookup", "term": "Isochrone", "lang": "en"}
+    assert env.submit(term).json()["decision"] == "pending"
+    (item,) = env.client.get("/queue").json()
+    assert env.client.post(f"/queue/{item['request_id']}/approve").json()["decision"] == "sent"
+    assert env.store.cached(term) is None
+    assert env.submit(term).json()["decision"] == "pending"
+
+    # 見つかった用語はキャッシュし、次からは送り直さない
+    async def found(request: dict[str, Any]) -> SearchResponse:
+        env.sent.append(request)
+        return SearchResponse(term=TermResult(term="Isochrone map", source="openalex"))
+
+    monkeypatch.setattr(gw, "send_to_searcher", found)
+    (item,) = env.client.get("/queue").json()
+    env.client.post(f"/queue/{item['request_id']}/approve")
+    assert env.submit(term).json()["decision"] == "cached"

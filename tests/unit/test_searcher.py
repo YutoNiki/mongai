@@ -141,3 +141,45 @@ def test_dedupe_keeps_same_paper_from_different_sources() -> None:
     a = BibResult(found=True, doi="10.1/x", title="T", source="crossref")
     b = BibResult(found=True, doi="10.1/X", title="T", source="openalex")
     assert [r.source for r in dedupe([a, a, b])] == ["crossref", "openalex"]
+
+
+@respx.mock
+def test_term_lookup_uses_concepts_then_topics() -> None:
+    concepts = respx.get("https://api.openalex.org/concepts").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "display_name": "Isochrone map",
+                        "description": "map showing <b>isochrones</b>",
+                    }
+                ]
+            },
+        )
+    )
+    body = (
+        TestClient(app)
+        .post("/search", json={"kind": "term_lookup", "term": "Isochrone", "lang": "en"})
+        .json()
+    )
+    assert body["term"] == {
+        "term": "Isochrone map",
+        "description": "map showing isochrones",
+        "source": "openalex",
+    }
+    assert concepts.calls.last.request.url.params["search"] == "Isochrone"
+
+    # 用語の辞書に無ければ、研究分野（topics）で探す
+    concepts.mock(return_value=httpx.Response(200, json={"results": []}))
+    respx.get("https://api.openalex.org/topics").mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"display_name": "Urban Transport", "description": "d"}]}
+        )
+    )
+    body = (
+        TestClient(app)
+        .post("/search", json={"kind": "term_lookup", "term": "Isochrone", "lang": "en"})
+        .json()
+    )
+    assert body["term"]["term"] == "Urban Transport"

@@ -141,6 +141,23 @@ async def openalex_search(http: httpx.AsyncClient, title: str) -> list[BibResult
     return [parse_openalex(i) for i in r.json().get("results", [])]
 
 
+async def openalex_concept(http: httpx.AsyncClient, term: str) -> TermResult | None:
+    """用語単位の辞書（OpenAlex の concepts。Wikidata に対応づいた約6.5万語と、その説明）。"""
+    r = await http.get(
+        "https://api.openalex.org/concepts", params={"search": term, "per-page": "1"}
+    )
+    r.raise_for_status()
+    results = r.json().get("results", [])
+    if not results:
+        return None
+    top = results[0]
+    return TermResult(
+        term=clean(top.get("display_name"), 200) or term,
+        description=clean(top.get("description"), 1000),
+        source="openalex",
+    )
+
+
 async def openalex_topic(http: httpx.AsyncClient, term: str) -> TermResult | None:
     r = await http.get("https://api.openalex.org/topics", params={"search": term, "per-page": "1"})
     r.raise_for_status()

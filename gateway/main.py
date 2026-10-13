@@ -106,7 +106,9 @@ async def _send(
         return GatewayResponse(
             request_id=request_id, decision="failed", reason="検索に失敗しました"
         )
-    store.store_cache(request, response.model_dump_json())
+    # 用語が見つからなかった結果はキャッシュしない（辞書が増えたら、次の照会で見つかるようにする）
+    if not (request["kind"] == "term_lookup" and response.term is None):
+        store.store_cache(request, response.model_dump_json())
     store.record(
         request_id=request_id,
         analysis_id=envelope.analysis_id,

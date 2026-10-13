@@ -106,10 +106,17 @@ async def oa_fetch(http: httpx.AsyncClient, req: OATextFetch) -> SearchResponse:
 
 
 async def term_lookup(http: httpx.AsyncClient, req: TermLookup) -> SearchResponse:
-    try:
-        return SearchResponse(term=await apis.openalex_topic(http, req.term))
-    except httpx.HTTPError as exc:
-        return SearchResponse(errors=[f"openalex: {type(exc).__name__}"])
+    """用語の辞書（concepts）で探し、無ければ研究分野（topics）で探す。どちらも api.openalex.org。"""
+    errors: list[str] = []
+    for name, lookup in (("concepts", apis.openalex_concept), ("topics", apis.openalex_topic)):
+        try:
+            found = await lookup(http, req.term)
+        except httpx.HTTPError as exc:
+            errors.append(f"openalex {name}: {type(exc).__name__}")
+            continue
+        if found is not None:
+            return SearchResponse(term=found, errors=errors)
+    return SearchResponse(errors=errors)
 
 
 @app.post("/search")
