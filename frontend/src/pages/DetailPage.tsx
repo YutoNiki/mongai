@@ -70,7 +70,10 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
   return (
     <div className="page detail">
       <nav aria-label="パンくず" className="breadcrumb">
-        <Link href={`/analyses/${analysisId}`}>ダッシュボードに戻る</Link>
+        <Link href={`/analyses/${analysisId}`} className="button-secondary back-button">
+          <span aria-hidden="true">←</span>
+          ダッシュボードに戻る
+        </Link>
       </nav>
       <a className="button-secondary mobile-only" href="#pdf-viewer">
         PDF の該当箇所を見る

@@ -1,9 +1,25 @@
 import type { ReactNode } from "react";
 
-import { Link } from "../lib/router";
+import { Link, usePath } from "../lib/router";
 import logoUrl from "../assets/header-logo.png";
 
+const MENU: [string, string][] = [
+  ["/", "解析の一覧"],
+  ["/rules", "ルール"],
+  ["/lab", "研究室知識"],
+  ["/audit", "外部通信ログ"],
+  ["/queue", "承認キュー"],
+  ["/definitions", "データの定義"],
+];
+
+/** 今いる画面のメニューか（解析のダッシュボード・詳細は「解析の一覧」の配下とみなす） */
+function isCurrent(href: string, path: string): boolean {
+  if (href === "/") return path === "/" || path.startsWith("/analyses/");
+  return path === href || path.startsWith(`${href}/`);
+}
+
 export function Layout({ children }: { children: ReactNode }) {
+  const path = usePath();
   return (
     <>
       <a className="skip-link" href="#main">
@@ -20,24 +36,13 @@ export function Layout({ children }: { children: ReactNode }) {
         </Link>
         <nav aria-label="メニュー" className="site-nav-wrap">
           <ul className="site-nav">
-            <li>
-              <Link href="/">解析の一覧</Link>
-            </li>
-            <li>
-              <Link href="/rules">ルール</Link>
-            </li>
-            <li>
-              <Link href="/lab">研究室知識</Link>
-            </li>
-            <li>
-              <Link href="/audit">外部通信ログ</Link>
-            </li>
-            <li>
-              <Link href="/queue">承認キュー</Link>
-            </li>
-            <li>
-              <Link href="/definitions">データの定義</Link>
-            </li>
+            {MENU.map(([href, text]) => (
+              <li key={href}>
+                <Link href={href} aria-current={isCurrent(href, path) ? "page" : undefined}>
+                  {text}
+                </Link>
+              </li>
+            ))}
           </ul>
         </nav>
       </header>

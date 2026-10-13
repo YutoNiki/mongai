@@ -66,7 +66,7 @@ a {
 }
 .site-nav {
   display: flex;
-  gap: 20px;
+  gap: 8px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -429,9 +429,35 @@ blockquote {
   height: 40px;
   width: auto;
 }
+/* メニューはボタンの形にし、今いる画面は塗りつぶして示す（色だけでなく形・太さでも区別する） */
 .site-nav a {
-  display: inline-block;
-  padding: 6px 2px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 15px;
+  text-decoration: none;
+}
+.site-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg-control);
+}
+.site-nav a[aria-current="page"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-on-dark);
+  font-weight: 700;
+}
+.button-secondary:hover {
+  background: var(--color-bg-control);
+}
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .mobile-only {
   display: none;
@@ -464,8 +490,11 @@ blockquote {
     gap: 4px;
     white-space: nowrap;
   }
+  .site-nav {
+    padding-bottom: 8px;
+  }
   .site-nav a {
-    padding: 12px 10px;
+    padding: 10px 14px;
     min-height: 44px;
   }
   .page {
@@ -682,4 +711,8 @@ button.icon-button {
 }
 .rule-editor textarea {
   width: 100%;
+}
+
+.breadcrumb {
+  margin-bottom: 8px;
 }

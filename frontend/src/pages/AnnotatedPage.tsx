@@ -31,7 +31,10 @@ export function AnnotatedPage({ analysisId }: { analysisId: string }) {
   return (
     <div className="page annotated">
       <nav aria-label="パンくず" className="breadcrumb">
-        <Link href={`/analyses/${analysisId}`}>ダッシュボードに戻る</Link>
+        <Link href={`/analyses/${analysisId}`} className="button-secondary back-button">
+          <span aria-hidden="true">←</span>
+          ダッシュボードに戻る
+        </Link>
       </nav>
       <div className="dashboard-head">
         <h1>注釈付きPDF</h1>
