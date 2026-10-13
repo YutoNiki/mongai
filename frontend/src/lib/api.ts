@@ -149,6 +149,17 @@ export interface AuditEntry {
   reason: string | null;
 }
 
+/** 解析で照会した未知の用語と、その結果（GET /analyses/{id}/terms）。description は学外の辞書の説明 */
+export interface TermLookup {
+  term: string;
+  request_id: string | null;
+  status: "pending" | "approved" | "rejected" | "found" | "blocked" | "failed";
+  description: string | null;
+  source: string | null;
+  reason: string | null;
+  updated_at: string;
+}
+
 export interface QueueItem {
   request_id: string;
   analysis_id: string;
@@ -286,6 +297,7 @@ export const api = {
       `/audit-log${analysisId ? `?analysis_id=${encodeURIComponent(analysisId)}` : ""}`,
     ),
   queue: () => request<QueueItem[]>("/gateway/queue"),
+  terms: (analysisId: string) => request<TermLookup[]>(`/analyses/${encodeURIComponent(analysisId)}/terms`),
   decide: (requestId: string, action: "approve" | "reject") =>
     request<{ request_id: string; decision: string; reason: string | null }>(
       `/gateway/queue/${encodeURIComponent(requestId)}/${action}`,

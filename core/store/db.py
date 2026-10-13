@@ -90,6 +90,18 @@ CREATE TABLE IF NOT EXISTS api_usage (
     latency_s REAL NOT NULL,
     PRIMARY KEY (analysis_id, endpoint, model, role)
 );
+CREATE TABLE IF NOT EXISTS term_lookups (
+    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
+    term TEXT NOT NULL,
+    request_id TEXT,
+    status TEXT NOT NULL,
+    description TEXT,
+    source TEXT,
+    reason TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (analysis_id, term)
+);
+CREATE INDEX IF NOT EXISTS term_lookups_by_request ON term_lookups(request_id);
 CREATE TABLE IF NOT EXISTS api_usage_daily (
     day TEXT NOT NULL,
     endpoint TEXT NOT NULL,
@@ -129,6 +141,25 @@ class Progress(BaseModel):
     stage: str | None = None
     done: int = 0
     total: int = 0
+
+
+TermStatus = Literal["pending", "approved", "rejected", "found", "blocked", "failed"]
+
+
+class TermLookupRecord(BaseModel):
+    """解析で照会した未知の用語（gateway の承認制の term_lookup）と、その結果。
+
+    status：pending 承認待ち / approved 承認して送信した / rejected 却下した / found 照会済み（キャッシュ）/
+    blocked gateway が拒否した / failed 検索に失敗した。description は学外の辞書の説明（外部データ）。
+    """
+
+    term: str
+    request_id: str | None = None
+    status: TermStatus
+    description: str | None = None
+    source: str | None = None
+    reason: str | None = None
+    updated_at: str = ""
 
 
 class PaperRecord(BaseModel):
@@ -317,9 +348,9 @@ class Store:
             if any(r["status"] in ("queued", "running") for r in rows):
                 raise PaperBusyError(doc_id)
             ids = [r["analysis_id"] for r in rows]
-            for table in ("findings", "paragraph_structures", "api_usage"):
+            for table in ("findings", "paragraph_structures", "api_usage", "term_lookups"):
                 conn.executemany(
-                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の3つだけ
+                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の4つだけ
                     [(i,) for i in ids],
                 )
             conn.execute("DELETE FROM analyses WHERE doc_id = ?", (doc_id,))
@@ -423,6 +454,54 @@ class Store:
                 (analysis_id,),
             ).fetchall()
         return [ParagraphStructure.model_validate_json(r["data"]) for r in rows]
+
+    # ------------------------------------------------------------ 未知の用語の照会
+
+    def save_term_lookups(self, analysis_id: str, records: list[TermLookupRecord]) -> None:
+        now = _now()
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO term_lookups (analysis_id, term, request_id, status, "
+                "description, source, reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        analysis_id,
+                        r.term,
+                        r.request_id,
+                        r.status,
+                        r.description,
+                        r.source,
+                        r.reason,
+                        now,
+                    )
+                    for r in records
+                ],
+            )
+
+    def get_term_lookups(self, analysis_id: str) -> list[TermLookupRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT term, request_id, status, description, source, reason, updated_at "
+                "FROM term_lookups WHERE analysis_id = ? ORDER BY rowid",
+                (analysis_id,),
+            ).fetchall()
+        return [TermLookupRecord(**dict(r)) for r in rows]
+
+    def decide_term_lookup(
+        self,
+        request_id: str,
+        status: TermStatus,
+        *,
+        description: str | None = None,
+        source: str | None = None,
+    ) -> int:
+        """承認キューで承認・却下した結果を、その要求を積んだすべての解析に反映し、更新した数を返す。"""
+        with self._connect() as conn:
+            return conn.execute(
+                "UPDATE term_lookups SET status = ?, description = ?, source = ?, updated_at = ? "
+                "WHERE request_id = ?",
+                (status, description, source, _now(), request_id),
+            ).rowcount
 
     # ------------------------------------------------------------ 指摘
 

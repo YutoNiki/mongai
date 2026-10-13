@@ -66,6 +66,11 @@ async def test_lookup_terms_queues_for_approval() -> None:
     assert "アイソクローン" in sent  # 段落を渡している
     assert result.pending == ["アイソクローン"] and result.blocked == 1
     assert gateway.requests[0] == {"kind": "term_lookup", "term": "アイソクローン", "lang": "ja"}
+    assert [(r.term, r.status, r.request_id) for r in result.records] == [
+        ("アイソクローン", "pending", "R-1"),
+        ("DRT-Opt", "blocked", "R-0"),
+    ]
+    assert result.records[1].reason == "造語"
 
 
 def test_pick_terms_skips_own_title_and_cited_names() -> None:

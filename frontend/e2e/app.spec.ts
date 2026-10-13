@@ -172,3 +172,47 @@ test("専門知識：過去の指摘を確認して削除できる", async ({ pa
   expect(external).toEqual([]);
 });
 
+
+test("承認待ちの外部通信をポップアップで知らせ、承認した用語の説明をダッシュボードに出す", async ({ page }) => {
+  const api = await mockApi(page);
+  api.queue = [
+    {
+      request_id: "R-000000000001",
+      analysis_id: analysisId,
+      doc_id: summary.analysis.doc_id,
+      kind: "term_lookup",
+      request: { kind: "term_lookup", term: "アイソクローン", lang: "ja" },
+      status: "pending",
+      created_at: "2026-10-13T12:00:00+00:00",
+    },
+  ];
+  api.terms = [
+    { term: "アイソクローン", request_id: "R-000000000001", status: "pending", description: null, source: null, reason: null, updated_at: "" },
+    {
+      term: "平均絶対誤差",
+      request_id: "R-000000000002",
+      status: "approved",
+      description: "予測値と実測値の差の絶対値の平均",
+      source: "openalex",
+      reason: null,
+      updated_at: "",
+    },
+  ];
+  const external = watchExternal(page);
+  await page.goto("/");
+  const notice = page.getByRole("status").filter({ hasText: "承認待ちの外部通信が1件あります" });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("用語「アイソクローン」");
+  // 「あとで」で閉じると、同じ要求はもう知らせない
+  await notice.getByRole("button", { name: "あとで" }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("承認待ちの外部通信が")).toHaveCount(0);
+
+  await page.goto(`/analyses/${analysisId}`);
+  const panel = page.getByRole("region", { name: /未知の用語の照会/ });
+  await expect(panel).toContainText("承認待ちが1語あります");
+  await expect(panel.getByRole("row", { name: /平均絶対誤差/ })).toContainText("予測値と実測値の差の絶対値の平均");
+  await expect(panel.getByRole("row", { name: /アイソクローン/ })).toContainText("承認すると表示されます");
+  expect(external).toEqual([]);
+});

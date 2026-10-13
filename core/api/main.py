@@ -53,6 +53,7 @@ from core.store import (
     FindingNotFoundError,
     PaperBusyError,
     Store,
+    TermLookupRecord,
     today_jst,
 )
 from core.store.files import delete_paper_file, load_paper, save_paper
@@ -402,6 +403,13 @@ def _diff(store: Store, analysis_id: str) -> tuple[PreviousAnalysis | None, Find
     return previous, diff_findings(store.get_findings(analysis_id), previous_findings)
 
 
+@app.get("/api/analyses/{analysis_id}/terms")
+def analysis_terms(analysis_id: str, store: StoreDep) -> list[TermLookupRecord]:
+    """この解析で照会した未知の用語と、その結果（承認後は学外の辞書の説明）。"""
+    _analysis_or_404(store, analysis_id)
+    return store.get_term_lookups(analysis_id)
+
+
 @app.get("/api/analyses/{analysis_id}/diff")
 def analysis_diff(analysis_id: str, store: StoreDep) -> AnalysisDiff:
     """前回の解析との差分（解消された指摘・新しい指摘・続いている指摘）。"""
@@ -517,7 +525,7 @@ async def gateway_queue(gateway: GatewayDep) -> list[dict[str, Any]]:
 
 @app.post("/api/gateway/queue/{request_id}/{action}")
 async def gateway_decide(
-    request_id: str, action: Literal["approve", "reject"], gateway: GatewayDep
+    request_id: str, action: Literal["approve", "reject"], gateway: GatewayDep, store: StoreDep
 ) -> dict[str, Any]:
     try:
         response = await (
@@ -525,6 +533,19 @@ async def gateway_decide(
         )
     except GatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
+    # 用語の照会なら、その要求を積んだ解析の記録に結果を反映する（ダッシュボードに表示する）
+    found = response.response.term if response.response else None
+    if action == "reject":
+        store.decide_term_lookup(request_id, "rejected")
+    elif response.decision == "sent":
+        store.decide_term_lookup(
+            request_id,
+            "approved",
+            description=found.description if found else None,
+            source=found.source if found else None,
+        )
+    elif response.decision == "failed":
+        store.decide_term_lookup(request_id, "failed")
     return {
         "request_id": response.request_id,
         "decision": response.decision,

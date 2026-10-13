@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Link, usePath } from "../lib/router";
+import { ApprovalNotice } from "./ApprovalNotice";
 import logoUrl from "../assets/header-logo.png";
 
 const MENU: [string, string][] = [
@@ -49,6 +50,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <main id="main" tabIndex={-1}>
         {children}
       </main>
+      <ApprovalNotice />
     </>
   );
 }

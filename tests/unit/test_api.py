@@ -16,8 +16,8 @@ from core.lab.store import LabStore
 from core.llm.usage import UsageRow
 from core.rules.store import RuleStore
 from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DOC_ID, install_sample
-from core.store import Store, today_jst
-from shared.schemas import GatewayResponse
+from core.store import Store, TermLookupRecord, today_jst
+from shared.schemas import GatewayResponse, SearchResponse, TermResult
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
 from tests.unit.test_annotate import finding
@@ -491,3 +491,42 @@ def test_sample_analysis_is_listed_and_cannot_be_deleted(
     assert r.status_code == 403
     assert store.get_analysis(SAMPLE_ANALYSIS_ID) is not None
     assert client.delete(f"/api/documents/{other}").status_code == 204  # ほかの論文は削除できる
+
+
+class TermGateway(RecordingGateway):
+    """承認すると、用語の説明（学外の辞書の結果）を返す gateway。"""
+
+    async def approve(self, request_id: str) -> GatewayResponse:
+        self.decided.append((request_id, "approve"))
+        term = TermResult(term="Isochrone", description="等時間で到達できる範囲", source="openalex")
+        return GatewayResponse(
+            request_id=request_id, decision="sent", response=SearchResponse(term=term)
+        )
+
+
+def test_term_lookups_follow_queue_decisions(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    app.dependency_overrides[get_gateway] = lambda: TermGateway()
+    aid = seed(store, upload(client, pdf))
+    store.save_term_lookups(
+        aid,
+        [
+            TermLookupRecord(term="アイソクローン", request_id="R-1", status="pending"),
+            TermLookupRecord(term="通院", request_id="R-2", status="pending"),
+            TermLookupRecord(term="DRT-Opt", request_id="R-3", status="blocked", reason="造語"),
+        ],
+    )
+    assert client.post("/api/gateway/queue/R-1/approve").status_code == 200
+    assert client.post("/api/gateway/queue/R-2/reject").status_code == 200
+    terms = {t["term"]: t for t in client.get(f"/api/analyses/{aid}/terms").json()}
+    assert terms["アイソクローン"]["status"] == "approved"
+    assert terms["アイソクローン"]["description"] == "等時間で到達できる範囲"
+    assert terms["アイソクローン"]["source"] == "openalex"
+    assert terms["通院"]["status"] == "rejected" and terms["通院"]["description"] is None
+    assert terms["DRT-Opt"]["status"] == "blocked" and terms["DRT-Opt"]["reason"] == "造語"
+    assert client.get("/api/analyses/A-none/terms").status_code == 404
+    # 論文を削除すると、照会の記録も消える
+    assert client.delete(f"/api/documents/{store.get_analysis(aid).doc_id}").status_code == 204  # type: ignore[union-attr]
+    assert store.get_term_lookups(aid) == []

@@ -93,6 +93,7 @@ async def run_analysis(
             lab_vectors=lab_store.comment_vectors(current_lab_id()),
         )
         store.save_structures(analysis_id, result.structures)
+        store.save_term_lookups(analysis_id, result.terms)
         # 指摘の位置を PDF 上の引用箇所に合わせる（文の座標がずれる PDF への対策）
         store.set_progress(analysis_id, "locate", 0, len(result.findings))
         findings, counts = relocate_findings(

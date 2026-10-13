@@ -8,7 +8,7 @@
    gateway は、原稿で定義された造語や、新規性に関わる主張に近い語を拒否する
 
 学内の検索（direction・addi(c)tion・LOCAL RAG）は API の仕様が不明のため、まだ使っていない（TODO M7）。
-照会の結果は、まだ指摘には使わない（承認キュー・外部通信ログで確認する）。
+照会の記録と結果（学外の辞書の説明）は解析ごとに保存し、ダッシュボードに表示する。指摘にはまだ使わない。
 """
 
 import asyncio
@@ -23,6 +23,8 @@ from core.ingest.models import Document, Lang
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.prompts import load_prompt
 from core.rules.check import group_targets
+from core.store import TermLookupRecord
+from core.store.db import TermStatus
 from shared.schemas import TermLookup
 
 ROLE = "term_extraction"
@@ -39,6 +41,7 @@ class TermLookupResult:
     pending: list[str] = field(default_factory=list)  # 承認待ちに積んだ用語
     resolved: list[str] = field(default_factory=list)  # キャッシュ・送信済みで結果が得られた用語
     blocked: int = 0  # gateway が拒否した数
+    records: list[TermLookupRecord] = field(default_factory=list)  # 解析ごとに保存する照会の記録
     warnings: list[str] = field(default_factory=list)
 
 
@@ -130,10 +133,24 @@ async def lookup_terms(
         except GatewayError as exc:
             result.warnings.append(f"用語の照会を行えませんでした（{exc}）")
             break
+        found = response.response.term if response.response else None
         if response.decision == "pending":
             result.pending.append(term)
+            status: TermStatus = "pending"
         elif response.decision in ("sent", "cached"):
             result.resolved.append(term)
+            status = "found"
         else:
             result.blocked += 1
+            status = "failed" if response.decision == "failed" else "blocked"
+        result.records.append(
+            TermLookupRecord(
+                term=term,
+                request_id=response.request_id,
+                status=status,
+                description=found.description if found else None,
+                source=found.source if found else None,
+                reason=response.reason if status in ("blocked", "failed") else None,
+            )
+        )
     return result

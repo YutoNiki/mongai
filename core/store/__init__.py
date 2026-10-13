@@ -8,6 +8,7 @@ from core.store.db import (
     PaperRecord,
     Progress,
     Store,
+    TermLookupRecord,
     today_jst,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "PaperRecord",
     "Progress",
     "Store",
+    "TermLookupRecord",
     "today_jst",
 ]

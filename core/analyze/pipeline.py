@@ -46,6 +46,7 @@ from core.llm.usage import UsageRow
 from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
 from core.rules.mechanical import RuleViolation, run_mechanical
 from core.rules.models import Rule
+from core.store import TermLookupRecord
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class LogicAnalysis(BaseModel):
     structures: list[ParagraphStructure]
     warnings: list[str] = Field(default_factory=list)
     api_usage: list[UsageRow] = Field(default_factory=list)
+    terms: list[TermLookupRecord] = Field(default_factory=list)  # 未知の用語の照会
 
 
 async def _notify(callback: Callable[..., Awaitable[None] | None] | None, *args: object) -> None:
@@ -334,6 +336,7 @@ async def analyze_logic(
     sentences = {s.sentence_id: s for s in doc.sentences}
     builder = _Builder(doc, client)
     findings: list[Finding] = []
+    term_records: list[TermLookupRecord] = []
 
     # 1. 論証構造の抽出
     done = 0
@@ -457,6 +460,7 @@ async def analyze_logic(
                 client, gateway, doc, targets, analysis_id=analysis_id, lang=prompt_lang
             )
             warnings.extend(terms.warnings)
+            term_records.extend(terms.records)
             if terms.pending:
                 warnings.append(
                     f"未知の用語 {len(terms.pending)} 語（{'、'.join(terms.pending)}）の照会を承認キューに"
@@ -601,4 +605,5 @@ async def analyze_logic(
         structures=list(structures),
         warnings=warnings,
         api_usage=client.usage.rows(),
+        terms=term_records,
     )
