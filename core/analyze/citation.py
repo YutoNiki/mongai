@@ -39,6 +39,8 @@ ROLE_SUPPORT = "citation_support"
 MATCH_THRESHOLD = 0.85
 # タイトルの不一致として指摘する類似度（これ未満。同じ文献だが表記がずれている）
 TITLE_MISMATCH = 0.95
+# 同じ文献とみなした記録の DOI の種類の上限（これを超えると転載が多く、原本を特定できないとみなす）
+MAX_DISTINCT_DOIS = 2
 _KEEP = re.compile(r"[0-9a-z぀-ヿ㐀-䶿一-鿿]")
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 _LABEL = re.compile(r"^\s*\[?\d{1,3}[\].]\s*")
@@ -116,6 +118,17 @@ def _author_matches(ref: Reference, record: BibResult) -> bool:
     return bool(record_surname) and record_surname in head
 
 
+_TITLE_BREAK = re.compile(r"[.:：]\s*")
+
+
+def _split_head(title: str) -> tuple[str, bool]:
+    """タイトルの最初の区切り（「. 」「: 」）より前の部分と、区切りがあったかを返す。"""
+    parts = _TITLE_BREAK.split(title.strip(), maxsplit=1)
+    if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+        return title, False
+    return parts[0].strip(), True
+
+
 def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibResult]:
     """候補のうち、参考文献と同じ文献とみなせるもの（DOI が一致するか、タイトルが十分に似ていて著者か年が合う）。
 
@@ -128,9 +141,10 @@ def matching_records(ref: Reference, candidates: list[BibResult]) -> list[BibRes
     title = lookup_title(ref)
     if not title:
         return []
-    # GROBID がタイトルに掲載誌を続けて読むことがある（"Random Forests. Machine Learning"）。
-    # その場合は最初の「. 」までも比べる。ただし短いタイトルで別の文献を拾わないよう、第一著者の一致を必須にする
-    head, sep, _ = title.partition(". ")
+    # GROBID がタイトルに掲載誌を続けて読むことがある（"Random Forests. Machine Learning"）。また、
+    # データベースが副題を除いたタイトルだけを持つことがある（"XGBoost: A Scalable ..." → "XGBoost"）。
+    # その場合は最初の「. 」「: 」までも比べる。ただし短いタイトルで別の文献を拾わないよう、第一著者の一致を必須にする
+    head, sep = _split_head(title)
     scored: list[tuple[bool, float, BibResult]] = []
     for c in candidates:
         if not c.title:
@@ -177,6 +191,10 @@ def compare(
         return []
     if not by_doi and len({r.source for r in records}) < 2:
         return []
+    # 同じタイトル・著者の記録が別々の DOI で3つ以上ある（転載・再登録が多い有名な論文）場合は、
+    # どれが原本か分からないので指摘しない（会議版とプレプリントの2つまでは通常の範囲とする）
+    if not by_doi and len({r.doi.lower() for r in records if r.doi}) > MAX_DISTINCT_DOIS:
+        return []
     best = records[0]
     diffs: list[tuple[str, str, str, Severity]] = []
     years = [r.year for r in records if r.year]
@@ -186,8 +204,12 @@ def compare(
         diffs.append(("first_author", ref.surnames[0], best.authors[0], "major"))
     if ref.title:
         comparable = [r for r in records if r.title and is_cjk(ref.title) == is_cjk(r.title)]
+        head, has_head = _split_head(ref.title)
         if comparable and all(
-            title_similarity(ref.title, r.title or "") < TITLE_MISMATCH for r in comparable
+            title_similarity(ref.title, r.title or "") < TITLE_MISMATCH
+            # データベースが副題を除いたタイトルだけを持つ場合は不一致としない
+            and not (has_head and title_similarity(head, r.title or "") >= TITLE_MISMATCH)
+            for r in comparable
         ):
             diffs.append(("title", ref.title, comparable[0].title or "", "suggestion"))
     if by_doi:

@@ -84,9 +84,56 @@ def test_match_title_with_venue_appended() -> None:
         doi="10.1023/a:1010933404324", title="Random Forests", authors=["Leo Breiman"], year=2001
     )
     assert match_record(breiman, [right]) == right
+    # データベースが副題を除いたタイトルだけを持つ場合
+    xgb = ref(
+        surnames=["Chen", "Guestrin"],
+        authors=["T Chen"],
+        title="XGBoost: A Scalable Tree Boosting System",
+        year=2012,
+    )
+    xgb_record = record(
+        doi="10.1145/2939672.2939785", title="XGBoost", authors=["Tianqi Chen"], year=2016
+    )
+    assert match_record(xgb, [xgb_record]) == xgb_record
     # 第一著者が違えば、先頭の短いタイトルだけでは同じ文献とみなさない
     other = record(doi="10.1/other", title="Random Forests", authors=["Jane Doe"], year=1999)
     assert match_record(breiman, [other]) is None
+
+
+def test_compare_year_with_subtitle_and_reprints() -> None:
+    xgb = ref(
+        surnames=["Chen"],
+        authors=["T Chen"],
+        title="XGBoost: A Scalable Tree Boosting System",
+        year=2012,
+    )
+    records = [
+        record(
+            doi="10.1145/2939672.2939785",
+            title="XGBoost",
+            authors=["Tianqi Chen"],
+            year=2016,
+            source=s,
+        )
+        for s in ("crossref", "openalex")
+    ]
+    # 年の誤りは指摘し、副題の有無だけの違いはタイトルの不一致としない
+    assert [d[0] for d in compare(xgb, records)] == ["year"]
+    # 同じタイトルの記録が別々の DOI で3つ以上ある（転載が多い）場合は、原本を特定できないので指摘しない
+    attention = ref(
+        surnames=["Vaswani"], authors=["A Vaswani"], title="Attention Is All You Need", year=2017
+    )
+    reprints = [
+        record(
+            doi=f"10.65215/x{i}",
+            title="Attention Is All You Need",
+            authors=["Ashish Vaswani"],
+            year=2025,
+            source=s,
+        )
+        for i, s in enumerate(["crossref", "crossref", "openalex"])
+    ]
+    assert compare(attention, reprints) == []
 
 
 def test_compare_detects_mismatches() -> None:
