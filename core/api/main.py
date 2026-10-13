@@ -31,8 +31,8 @@ from core.api.summary import count_findings
 from core.gateway_client import GatewayClient, GatewayError
 from core.llm.config import get_models_config
 from core.logging_config import configure_logging
-from core.store import FindingNotFoundError, Store
-from core.store.files import load_paper, save_paper
+from core.store import DailyUsage, FindingNotFoundError, PaperBusyError, Store, today_jst
+from core.store.files import delete_paper_file, load_paper, save_paper
 
 configure_logging()
 
@@ -115,6 +115,31 @@ def paper_pdf(doc_id: str) -> Response:
     if data is None:
         raise HTTPException(status_code=404, detail="論文のファイルが見つかりません")
     return Response(content=data, media_type="application/pdf")
+
+
+@app.delete("/api/documents/{doc_id}", status_code=204)
+def delete_document(doc_id: str, store: StoreDep) -> Response:
+    """論文の PDF と、その論文のすべての解析結果を削除する（外部通信ログは追記専用なので残る）。"""
+    if store.get_paper(doc_id) is None:
+        raise HTTPException(status_code=404, detail="論文が見つかりません")
+    try:
+        store.delete_paper(doc_id)
+    except PaperBusyError:
+        raise HTTPException(
+            status_code=409,
+            detail="解析中・順番待ちの論文は削除できません。解析が終わってから削除してください",
+        ) from None
+    delete_paper_file(doc_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------- APIの利用回数
+
+
+@app.get("/api/usage/today")
+def usage_today(store: StoreDep) -> DailyUsage:
+    """今日（日本時間）の おいとまAPI の利用回数とトークン数。解析中の分は約10秒ごとに加わる。"""
+    return store.get_daily_usage(today_jst())
 
 
 # ---------------------------------------------------------------- 解析

@@ -42,6 +42,8 @@ class ApiUsage:
         self._lock = threading.Lock()
         self._counters: dict[tuple[str, str, str], _Counter] = {}
         self._sequence = 0
+        # unreported() で前回までに返した量（日ごとの集計に足した分）
+        self._reported: dict[tuple[str, str, str], tuple[int, int, int]] = {}
 
     def _counter(self, endpoint: str, model: str, role: str | None) -> _Counter:
         key = (endpoint, model, role or "-")
@@ -119,6 +121,33 @@ class ApiUsage:
                 )
                 for (endpoint, model, role), c in sorted(self._counters.items())
             ]
+
+    def unreported(self) -> list[UsageRow]:
+        """前回の呼び出しから増えた分（リクエスト回数・トークン数）を返す。日ごとの集計に使う。"""
+        with self._lock:
+            delta = []
+            for key, c in sorted(self._counters.items()):
+                before = self._reported.get(key, (0, 0, 0))
+                now = (c.requests, c.prompt_tokens, c.completion_tokens)
+                if now == before:
+                    continue
+                self._reported[key] = now
+                endpoint, model, role = key
+                delta.append(
+                    UsageRow(
+                        endpoint=endpoint,
+                        model=model,
+                        role=role,
+                        calls=0,
+                        requests=now[0] - before[0],
+                        retries=0,
+                        failures=0,
+                        prompt_tokens=now[1] - before[1],
+                        completion_tokens=now[2] - before[2],
+                        latency_s=0.0,
+                    )
+                )
+            return delta
 
     @property
     def total_requests(self) -> int:

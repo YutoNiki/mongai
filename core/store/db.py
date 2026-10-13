@@ -3,6 +3,7 @@
 - 指摘の本体は JSON で保存し、絞り込みに使う項目（カテゴリ・重大度・ステータス等）は列にも持つ
 - 指摘のステータス（対応済み・却下と理由）は列を正とする
 - 1つの解析ごとに、おいとまAPIの利用回数（エンドポイント・モデル・役割別）を保存する
+- 日ごと（日本時間）の利用回数は解析とは別に持つ（論文を削除しても、その日の回数は減らさない）
 """
 
 import json
@@ -11,7 +12,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -89,11 +90,37 @@ CREATE TABLE IF NOT EXISTS api_usage (
     latency_s REAL NOT NULL,
     PRIMARY KEY (analysis_id, endpoint, model, role)
 );
+CREATE TABLE IF NOT EXISTS api_usage_daily (
+    day TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    model TEXT NOT NULL,
+    requests INTEGER NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    PRIMARY KEY (day, endpoint, model)
+);
 """
+
+JST = timezone(timedelta(hours=9))
 
 
 class FindingNotFoundError(KeyError):
     pass
+
+
+class PaperBusyError(RuntimeError):
+    """解析が順番待ち・実行中の論文は削除できない。"""
+
+
+class DailyUsage(BaseModel):
+    day: str  # 日本時間の日付（YYYY-MM-DD）
+    requests: int = 0  # HTTP リクエストの回数（再試行を含む）
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+def today_jst() -> str:
+    return datetime.now(JST).date().isoformat()
 
 
 class Progress(BaseModel):
@@ -236,6 +263,29 @@ class Store:
                 (_now(),),
             )
         return running, queued
+
+    def delete_paper(self, doc_id: str) -> list[str]:
+        """論文と、その論文のすべての解析結果を削除し、削除した解析の ID を返す。
+
+        解析が順番待ち・実行中なら PaperBusyError。PDF ファイルは呼び出し側で消す。
+        """
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")  # 確認から削除までの間に解析が始まらないようにする
+            rows = conn.execute(
+                "SELECT analysis_id, status FROM analyses WHERE doc_id = ?", (doc_id,)
+            ).fetchall()
+            if any(r["status"] in ("queued", "running") for r in rows):
+                raise PaperBusyError(doc_id)
+            ids = [r["analysis_id"] for r in rows]
+            for table in ("findings", "paragraph_structures", "api_usage"):
+                conn.executemany(
+                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の3つだけ
+                    [(i,) for i in ids],
+                )
+            conn.execute("DELETE FROM analyses WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM papers WHERE doc_id = ?", (doc_id,))
+        return ids
 
     def list_analyses(self, limit: int = 100) -> list[AnalysisRecord]:
         with self._connect() as conn:
@@ -447,6 +497,34 @@ class Store:
                 for r in rows
             ],
         )
+
+    def add_daily_usage(self, day: str, rows: list[UsageRow]) -> None:
+        """その日の利用回数に rows（前回からの増分）を足す。"""
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT INTO api_usage_daily (day, endpoint, model, requests, prompt_tokens, "
+                "completion_tokens) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(day, endpoint, model) DO UPDATE SET "
+                "requests = requests + excluded.requests, "
+                "prompt_tokens = prompt_tokens + excluded.prompt_tokens, "
+                "completion_tokens = completion_tokens + excluded.completion_tokens",
+                [
+                    (day, r.endpoint, r.model, r.requests, r.prompt_tokens, r.completion_tokens)
+                    for r in rows
+                    if r.requests or r.prompt_tokens or r.completion_tokens
+                ],
+            )
+
+    def get_daily_usage(self, day: str) -> DailyUsage:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(requests), 0) AS requests, "
+                "COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
+                "COALESCE(SUM(completion_tokens), 0) AS completion_tokens "
+                "FROM api_usage_daily WHERE day = ?",
+                (day,),
+            ).fetchone()
+        return DailyUsage(day=day, **dict(row))
 
     def get_api_usage(self, analysis_id: str) -> list[UsageRow]:
         with self._connect() as conn:

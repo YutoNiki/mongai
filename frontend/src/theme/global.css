@@ -122,6 +122,11 @@ button {
   text-decoration: none;
   display: inline-block;
 }
+button.button-danger {
+  background: var(--color-bg);
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
 button:disabled {
   background: var(--color-bg-control);
   color: var(--color-label);
@@ -236,6 +241,9 @@ label {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 0;
+}
+.kpi-breakdown.two {
+  grid-template-columns: repeat(2, 1fr);
 }
 .kpi-breakdown dt {
   font-size: 14px;
@@ -572,4 +580,12 @@ blockquote {
   .meta dl {
     grid-template-columns: 1fr;
   }
+}
+
+/* トップページ：今日の利用回数とアップロード */
+.home-top {
+  margin-bottom: 16px;
+}
+td.row-actions {
+  text-align: right;
 }
