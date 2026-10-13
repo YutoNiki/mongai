@@ -27,6 +27,9 @@ test("トップページに解析の一覧と今日の利用回数が出る", as
   await expect(page.getByRole("heading", { level: 1, name: "論文の投稿前セルフレビュー" })).toBeVisible();
   await expect(page.getByRole("link", { name: title })).toBeVisible();
   await expect(page.getByText("120", { exact: false }).first()).toBeVisible();
+  // 例の論文は「（例）」と表示し、削除のボタンを出さない
+  await expect(page.getByRole("link", { name: `（例）${title}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: /を削除$/ })).toHaveCount(0);
   expect(external).toEqual([]);
 });
 
@@ -36,7 +39,7 @@ test("ダッシュボード：総指摘数・グラフの表形式・絞り込�
   await page.goto("/");
   await page.getByRole("link", { name: title }).click();
   await expect(page).toHaveURL(`/analyses/${analysisId}`);
-  await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: `（例）${title}` })).toBeVisible();
 
   // 左上の全体指標（総指摘数）
   const kpi = page.getByRole("region", { name: /^総指摘数/ });

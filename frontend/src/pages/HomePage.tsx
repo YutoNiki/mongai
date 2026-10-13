@@ -196,7 +196,10 @@ export function HomePage() {
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
                     <th scope="row" data-label="論文">
-                      <Link href={`/analyses/${item.analysis_id}`}>{item.title ?? item.filename ?? item.doc_id}</Link>
+                      <Link href={`/analyses/${item.analysis_id}`}>
+                        {item.sample && "（例）"}
+                        {item.title ?? item.filename ?? item.doc_id}
+                      </Link>
                     </th>
                     <td data-label="状態">
                       {ACTIVE.has(item.status) ? (
@@ -211,17 +214,19 @@ export function HomePage() {
                     </td>
                     <td data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
                     <td className="row-actions">
-                      <button
-                        type="button"
-                        className="button-danger icon-button"
-                        disabled={ACTIVE.has(item.status) || deleting !== null}
-                        title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : "削除"}
-                        onClick={() => void remove(item)}
-                        aria-label={`「${item.title ?? item.filename ?? item.doc_id}」を削除`}
-                        aria-busy={deleting === item.doc_id}
-                      >
-                        <TrashIcon />
-                      </button>
+                      {!item.sample && (
+                        <button
+                          type="button"
+                          className="button-danger icon-button"
+                          disabled={ACTIVE.has(item.status) || deleting !== null}
+                          title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : "削除"}
+                          onClick={() => void remove(item)}
+                          aria-label={`「${item.title ?? item.filename ?? item.doc_id}」を削除`}
+                          aria-busy={deleting === item.doc_id}
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -179,12 +179,14 @@ class Store:
 
     # ------------------------------------------------------------ アップロードされた論文
 
-    def save_paper(self, doc_id: str, *, filename: str, size: int) -> None:
+    def save_paper(
+        self, doc_id: str, *, filename: str, size: int, uploaded_at: str | None = None
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO papers (doc_id, filename, size, uploaded_at) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(doc_id) DO UPDATE SET filename=excluded.filename",
-                (doc_id, filename, size, _now()),
+                (doc_id, filename, size, uploaded_at or _now()),
             )
 
     def get_paper(self, doc_id: str) -> PaperRecord | None:
@@ -226,6 +228,30 @@ class Store:
                 (analysis_id, doc_id, kind, status, settings.model_dump_json(), _now()),
             )
         return analysis_id
+
+    def import_analysis(
+        self, record: AnalysisRecord, findings: list[Finding], api_usage: list[UsageRow]
+    ) -> None:
+        """保存済みの解析結果（ID・日時を含む）をそのまま取り込む（例の解析に使う）。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, progress, "
+                "warnings, error, created_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.analysis_id,
+                    record.doc_id,
+                    record.kind,
+                    record.status,
+                    json.dumps(record.settings, ensure_ascii=False),
+                    record.progress.model_dump_json(),
+                    json.dumps(record.warnings, ensure_ascii=False),
+                    record.error,
+                    record.created_at,
+                    record.finished_at,
+                ),
+            )
+            self._save_usage(conn, record.analysis_id, api_usage)
+        self.save_findings(record.analysis_id, findings)
 
     def update_settings(self, analysis_id: str, values: dict[str, Any]) -> None:
         """解析の設定に値を足す（解析の開始時に使ったルールセットの記録など）。"""

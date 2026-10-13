@@ -10,6 +10,7 @@ from core.jobs import run_analysis, run_lab_extraction, run_rule_extraction
 from core.lab.store import LabStore
 from core.logging_config import configure_logging
 from core.rules.store import RuleStore
+from core.sample import install_sample
 from core.store import Store
 
 configure_logging()
@@ -20,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 async def startup(ctx: dict[str, Any]) -> None:
     """中断された解析の後始末。ジョブは再実行しない設定のため、実行中だったものは失敗にする。"""
-    failed, queued = Store().recover_interrupted()
+    store = Store()
+    install_sample(store)
+    failed, queued = store.recover_interrupted()
     for analysis_id in failed:
         logger.warning("解析 %s はワーカーの再起動で中断されたため、失敗にしました", analysis_id)
     for analysis_id in queued:

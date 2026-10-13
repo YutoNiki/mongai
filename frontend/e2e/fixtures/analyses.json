@@ -12,6 +12,7 @@
    "stage": "locate",
    "done": 0,
    "total": 14
-  }
+  },
+  "sample": true
  }
 ]

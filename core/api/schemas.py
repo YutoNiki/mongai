@@ -85,6 +85,7 @@ class AnalysisSummary(BaseModel):
     api_usage: list[UsageRow]
     api_requests: int
     external_requests: int  # 学外への要求の件数（M7 の検索ゲートウェイで記録する）
+    sample: bool = False  # 例の論文の解析
 
 
 class AnalysisListItem(BaseModel):
@@ -97,6 +98,7 @@ class AnalysisListItem(BaseModel):
     finished_at: str | None
     total: int
     progress: Progress = Progress()  # トップページの進捗バー
+    sample: bool = False  # 例の論文（削除できない）
 
 
 class AuditLog(BaseModel):

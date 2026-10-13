@@ -46,6 +46,7 @@ from core.report.text import text_report
 from core.rules.extract import delete_rule_file, save_document_file
 from core.rules.models import Rule, RuleDocument, RuleStatus, RuleUpdate
 from core.rules.store import RuleNotFoundError, RuleStore
+from core.sample import is_sample
 from core.store import (
     AnalysisRecord,
     DailyUsage,
@@ -178,6 +179,8 @@ def delete_document(doc_id: str, store: StoreDep) -> Response:
     """論文の PDF と、その論文のすべての解析結果を削除する（外部通信ログは追記専用なので残る）。"""
     if store.get_paper(doc_id) is None:
         raise HTTPException(status_code=404, detail="論文が見つかりません")
+    if is_sample(doc_id):
+        raise HTTPException(status_code=403, detail="例の論文は削除できません")
     try:
         store.delete_paper(doc_id)
     except PaperBusyError:
@@ -233,6 +236,7 @@ def list_analyses(store: StoreDep) -> list[AnalysisListItem]:
                 finished_at=record.finished_at,
                 total=sum(f.status != "dismissed" for f in findings),
                 progress=record.progress,
+                sample=is_sample(record.doc_id),
             )
         )
     return items
@@ -263,6 +267,7 @@ async def summarize(store: Store, analysis_id: str, gateway: GatewayClient) -> A
         api_usage=usage,
         api_requests=sum(r.requests for r in usage),
         external_requests=external,
+        sample=is_sample(record.doc_id),
     )
 
 

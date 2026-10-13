@@ -15,6 +15,7 @@ from core.lab.models import LabComment, LabSource
 from core.lab.store import LabStore
 from core.llm.usage import UsageRow
 from core.rules.store import RuleStore
+from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DOC_ID, install_sample
 from core.store import Store, today_jst
 from shared.schemas import GatewayResponse
 from tests.unit.doc_factory import make_doc
@@ -468,3 +469,25 @@ def test_lab_documents_and_comments(
     lab.set_document_status(doc["document_id"], "completed")
     assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 204
     assert client.get("/api/lab/documents").json() == []
+
+
+def test_sample_analysis_is_listed_and_cannot_be_deleted(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    assert install_sample(store)
+    assert not install_sample(store)  # 2回目は取り込まない
+    other = upload(client, pdf)
+    items = {i["doc_id"]: i for i in client.get("/api/analyses").json()}
+    sample = items[SAMPLE_DOC_ID]
+    assert sample["analysis_id"] == SAMPLE_ANALYSIS_ID and sample["sample"] is True
+    assert sample["total"] == 14 and sample["title"]
+    summary = client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}").json()
+    assert summary["sample"] is True and summary["counts"]["total"] == 14
+    assert client.get(f"/api/documents/{SAMPLE_DOC_ID}/paper.pdf").status_code == 200
+    assert client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}/annotated.pdf").status_code == 200
+
+    r = client.delete(f"/api/documents/{SAMPLE_DOC_ID}")
+    assert r.status_code == 403
+    assert store.get_analysis(SAMPLE_ANALYSIS_ID) is not None
+    assert client.delete(f"/api/documents/{other}").status_code == 204  # ほかの論文は削除できる
