@@ -6,7 +6,8 @@ from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
 
-from core.jobs import run_analysis, run_rule_extraction
+from core.jobs import run_analysis, run_lab_extraction, run_rule_extraction
+from core.lab.store import LabStore
 from core.logging_config import configure_logging
 from core.rules.store import RuleStore
 from core.store import Store
@@ -28,6 +29,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     # ルール資料の抽出も、中断されたものは失敗にし、順番待ちのものは積み直す
     for document_id in RuleStore().recover_interrupted():
         await ctx["redis"].enqueue_job("run_rule_extraction", document_id, _job_id=document_id)
+    for document_id in LabStore().recover_interrupted():
+        await ctx["redis"].enqueue_job("run_lab_extraction", document_id, _job_id=document_id)
 
 
 async def ping(ctx: dict[str, Any]) -> str:
@@ -36,7 +39,7 @@ async def ping(ctx: dict[str, Any]) -> str:
 
 
 class WorkerSettings:
-    functions: ClassVar[list[Any]] = [ping, run_analysis, run_rule_extraction]
+    functions: ClassVar[list[Any]] = [ping, run_analysis, run_rule_extraction, run_lab_extraction]
     on_startup = startup
     redis_settings = RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
     # `arq --check` による healthcheck のため短めにする

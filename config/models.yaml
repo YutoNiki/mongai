@@ -31,6 +31,8 @@ roles:
   # early_stop：最初の2回が一致すれば3回目を送らない（残る指摘は3回の多数決と同じ）
   logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, early_stop: true, thinking: true, max_tokens: 16384}
   rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
+  lab_extraction:       {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false, max_tokens: 8192}  # 研究室知識の取り込み
+  lab_check:            {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # 過去の指摘に類似する箇所の判定
   citation_support:     {model: qwen3.8-27b-it, temperature: 0.0, thinking: true, max_tokens: 8192}
   suggestion:           {model: qwen3.8-27b-it, temperature: 0.4, thinking: true, max_tokens: 12288}
   second_opinion:       {model: Ternary-Bonsai-2-27B, temperature: 0.0}

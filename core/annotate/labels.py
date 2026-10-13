@@ -25,6 +25,7 @@ SUBCATEGORY_LABELS: Final[dict[str, str]] = {
     "abbreviation_definition": "略語の定義",
     "figure_table_reference": "図表の参照",
     "unit_consistency": "単位の表記ゆれ",
+    "similar_past_comment": "過去の指摘に類似",
 }
 
 SEVERITY_LABELS: Final[dict[str, str]] = {

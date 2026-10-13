@@ -34,9 +34,12 @@ from core.analyze.second_opinion import ROLE as SECOND_ROLE
 from core.analyze.second_opinion import apply_opinion, needs_second_opinion, second_opinion
 from core.analyze.structure import extract_structure, fallback_structure
 from core.analyze.suggest import suggest
+from core.analyze.templates import text as template
 from core.analyze.voting import Voted, most_common
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
+from core.lab.check import LabMatch, candidates_for, check_lab, embed_targets
+from core.lab.models import LabComment
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
 from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
@@ -61,6 +64,8 @@ class AnalysisSettings(BaseModel):
     max_support_checks: int = Field(default=60, ge=0)
     # 承認済みのルールで判定する（機械判定と LLM 判定。SPEC 3.2・3.3-3）
     with_rule_check: bool = True
+    # 研究室の過去の指摘に類似する箇所を検出する（SPEC 3.3-3）
+    with_lab_check: bool = True
     # 重大・要修正の論理・読みやすさの指摘を、第2のモデルでも判定する（SPEC 3.3-4）
     with_double_check: bool = True
     with_suggestions: bool = True
@@ -237,6 +242,34 @@ class _Builder:
             models=ModelInfo(primary=v.model),
         )
 
+    def from_lab(self, m: LabMatch, lang: Lang) -> Finding | None:
+        if not m.bboxes:
+            return None
+        section_id = next(
+            (self.sentences[s].section_id for s in m.sentence_ids if s in self.sentences), None
+        )
+        source = m.comment.source
+        where = source.doc + (f" p.{source.page}" if source.page else "")
+        return Finding(
+            finding_id=self._next_id(),
+            doc_id=self.doc.doc_id,
+            category="lab",
+            subcategory="similar_past_comment",
+            severity=m.severity,
+            section_id=section_id,
+            page=m.bboxes[0].page,
+            bboxes=m.bboxes,
+            sentence_ids=m.sentence_ids,
+            quote=m.quote,
+            issue=m.issue,
+            rationale=template("lab.rationale", lang, comment=m.comment.comment, source=where),
+            evidence=[Evidence(type="lab", ref=where, excerpt=m.comment.comment)],
+            confidence="low",
+            votes=1,
+            samples=1,
+            models=ModelInfo(primary=m.model),
+        )
+
     def from_flow(self, voted: Voted[FlowIssue]) -> Finding | None:
         issue = voted.item
         para = self.paragraphs.get(issue.paragraph_id)
@@ -280,9 +313,12 @@ async def analyze_logic(
     analysis_id: str | None = None,
     rules: list[Rule] | None = None,
     rule_vectors: dict[str, list[float]] | None = None,
+    lab_comments: list[LabComment] | None = None,
+    lab_vectors: dict[str, list[float]] | None = None,
 ) -> LogicAnalysis:
     """論理・読みやすさの解析。gateway と analysis_id を渡すと引用の検証も、rules（承認済みのルール）を
-    渡すとルールの判定も行う。rule_vectors はルールの埋め込み（ルールが多いときの絞り込みに使う）。"""
+    渡すとルールの判定も行う。rule_vectors はルールの埋め込み（ルールが多いときの絞り込みに使う）。
+    lab_comments（研究室の過去の指摘）と lab_vectors（その埋め込み）を渡すと、類似箇所の検出も行う。"""
     settings = settings or AnalysisSettings()
     prompt_lang = doc.lang
     out_lang = output_language(prompt_lang, doc.lang, settings.output_lang)
@@ -320,7 +356,7 @@ async def analyze_logic(
 
     # 2〜4. 段落内チェック・段落間チェック・引用の検証は互いに依存しないので、同時に進める
     # （1つの工程の終わり際に、遅い数本の応答を待つ間もほかの工程の要求を送れる）
-    stages = ["paragraph_check", "flow_check", "citation", "rule_check"]
+    stages = ["paragraph_check", "flow_check", "citation", "rule_check", "lab_check"]
     progress = _StageProgress(on_progress, stages)
     done = 0
     await progress("paragraph_check", done, len(targets))
@@ -452,12 +488,53 @@ async def analyze_logic(
         await asyncio.gather(*(check_group(g) for g in groups))
         progress.finish("rule_check")
 
+    # 研究室の過去の指摘に類似する箇所（埋め込みで候補を絞り、高速モデルで確かめる）
+    async def lab_checks() -> None:
+        comments = [c for c in lab_comments or [] if c.comment_id in (lab_vectors or {})]
+        if not settings.with_lab_check or not comments or not targets:
+            progress.finish("lab_check")
+            return
+        try:
+            vectors = await embed_targets(client, targets)
+        except OitomaError as exc:
+            warnings.append(f"研究室知識との照合に失敗しました：{exc}")
+            progress.finish("lab_check")
+            return
+        compared = 0
+        await progress("lab_check", compared, len(targets))
+
+        async def check_target(t: Target, vector: list[float]) -> None:
+            nonlocal compared
+            try:
+                found = await check_lab(
+                    client,
+                    t,
+                    candidates_for(vector, comments, lab_vectors or {}),
+                    prompt_lang=prompt_lang,
+                    output_language=out_lang,
+                )
+            except OitomaError as exc:
+                warnings.append(
+                    f"段落 {t.paragraph.paragraph_id} の研究室知識との照合に失敗しました：{exc}"
+                )
+            else:
+                made = [f for f in (builder.from_lab(m, out_lang_code) for m in found) if f]
+                findings.extend(made)
+                if made:
+                    await _notify(on_findings, made)
+            compared += 1
+            await progress("lab_check", compared, len(targets))
+
+        await asyncio.gather(*(check_target(t, v) for t, v in zip(targets, vectors, strict=True)))
+        progress.finish("lab_check")
+
     # 1つが例外で止まったら、ほかも取り消す（解析の失敗として扱う）
     async with asyncio.TaskGroup() as group:
         group.create_task(paragraph_checks())
         group.create_task(flow_checks())
         group.create_task(citation_checks())
         group.create_task(rule_checks())
+        group.create_task(lab_checks())
 
     # 4. 二重チェック（重大・要修正の論理・読みやすさの指摘を、第2のモデルで独立に判定する）
     if settings.with_double_check:

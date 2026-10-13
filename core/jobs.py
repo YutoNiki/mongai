@@ -13,6 +13,9 @@ from core.analyze.pipeline import AnalysisSettings, analyze_logic
 from core.annotate.locate import relocate_findings, summary
 from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.pipeline import ingest_pdf
+from core.lab.extract import extract_lab_knowledge
+from core.lab.models import current_lab_id
+from core.lab.store import LabStore
 from core.llm.client import OitomaClient
 from core.rules.extract import extract_rules
 from core.rules.store import RuleStore
@@ -33,10 +36,12 @@ async def run_analysis(
     client: OitomaClient | None = None,
     gateway: GatewayClient | None = None,
     rule_store: RuleStore | None = None,
+    lab_store: LabStore | None = None,
 ) -> str:
     """解析を1件実行し、最終的なステータスを返す。store・client はテスト用に差し替えられる。"""
     store = store or Store()
     rule_store = rule_store or RuleStore(store.path)
+    lab_store = lab_store or LabStore(store.path)
     record = store.get_analysis(analysis_id)
     if record is None:
         raise ValueError(f"解析 {analysis_id} が見つかりません")
@@ -83,6 +88,9 @@ async def run_analysis(
             analysis_id=analysis_id,
             rules=rules,
             rule_vectors=rule_store.embeddings(status="approved"),
+            # この研究室の過去の指摘だけを使う（ほかの研究室のものは参照しない）
+            lab_comments=lab_store.list_comments(current_lab_id()),
+            lab_vectors=lab_store.comment_vectors(current_lab_id()),
         )
         store.save_structures(analysis_id, result.structures)
         # 指摘の位置を PDF 上の引用箇所に合わせる（文の座標がずれる PDF への対策）
@@ -146,5 +154,42 @@ async def run_rule_extraction(
     finally:
         with contextlib.suppress(Exception):
             Store(rule_store.path).add_daily_usage(today_jst(), llm.usage.unreported())
+        if own_client:
+            await llm.aclose()
+
+
+async def run_lab_extraction(
+    ctx: dict[str, Any],
+    document_id: str,
+    *,
+    lab_store: LabStore | None = None,
+    rule_store: RuleStore | None = None,
+    client: OitomaClient | None = None,
+) -> str:
+    """研究室知識の資料から過去の指摘と研究室のルールを取り出して保存し、最終的なステータスを返す。"""
+    lab_store = lab_store or LabStore()
+    rule_store = rule_store or RuleStore(lab_store.path)
+    own_client = client is None
+    llm = client or OitomaClient()
+    lab_store.set_document_status(document_id, "running")
+    try:
+        comments, rules = await extract_lab_knowledge(llm, lab_store, rule_store, document_id)
+        lab_store.set_document_status(document_id, "completed", rule_count=rules)
+        logger.info(
+            "研究室知識 %s から指摘 %d 件・ルール %d 件を取り出しました",
+            document_id,
+            comments,
+            rules,
+        )
+        return "completed"
+    except Exception as exc:
+        logger.exception("研究室知識 %s の取り込みに失敗しました", document_id)
+        lab_store.set_document_status(
+            document_id, "failed", error=f"取り込みに失敗しました（{type(exc).__name__}）"
+        )
+        return "failed"
+    finally:
+        with contextlib.suppress(Exception):
+            Store(lab_store.path).add_daily_usage(today_jst(), llm.usage.unreported())
         if own_client:
             await llm.aclose()

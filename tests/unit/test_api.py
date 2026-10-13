@@ -8,9 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.main import app, get_gateway, get_queue, get_rule_store, get_store
+from core.api.main import app, get_gateway, get_lab_store, get_queue, get_rule_store, get_store
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox
+from core.lab.models import LabComment, LabSource
+from core.lab.store import LabStore
 from core.llm.usage import UsageRow
 from core.rules.store import RuleStore
 from core.store import Store, today_jst
@@ -37,6 +39,9 @@ class FakeQueue:
     async def enqueue_rules(self, document_id: str) -> None:
         self.enqueued.append(document_id)
 
+    async def enqueue_lab(self, document_id: str) -> None:
+        self.enqueued.append(document_id)
+
 
 @pytest.fixture
 def ctx(
@@ -50,6 +55,8 @@ def ctx(
     app.dependency_overrides[get_gateway] = lambda: OfflineGateway()
     rule_store = RuleStore(tmp_path / "db.sqlite3")
     app.dependency_overrides[get_rule_store] = lambda: rule_store
+    lab_store = LabStore(tmp_path / "db.sqlite3")
+    app.dependency_overrides[get_lab_store] = lambda: lab_store
     pdf = make_pdf(tmp_path / "p.pdf", [[Text(72, 120, "A synthetic paper.")]]).read_bytes()
     yield TestClient(app), store, queue, pdf
     app.dependency_overrides.clear()
@@ -377,3 +384,57 @@ def test_rule_documents_and_rules(ctx: tuple[TestClient, Store, FakeQueue, bytes
     assert {
         x["rule_id"] for x in client.get("/api/rules", params={"status": "disabled"}).json()
     } == set()
+
+
+def test_lab_documents_and_comments(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, queue, pdf = ctx
+    monkeypatch.setenv("MONGAI_LAB_ID", "lab-a")
+    assert (
+        client.post(
+            "/api/lab/documents", files={"file": ("x.exe", b"MZ", "application/octet-stream")}
+        ).status_code
+        == 415
+    )
+    # 拡張子と中身が合わない（.docx なのに ZIP でない）
+    assert (
+        client.post(
+            "/api/lab/documents", files={"file": ("x.docx", b"text", "application/octet-stream")}
+        ).status_code
+        == 415
+    )
+    r = client.post("/api/lab/documents", files={"file": ("2024査読.pdf", pdf, "application/pdf")})
+    assert r.status_code == 201
+    doc = r.json()
+    assert doc["lab_id"] == "lab-a" and queue.enqueued == [doc["document_id"]]
+    assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 409
+
+    lab = LabStore(tmp_path / "db.sqlite3")
+    lab.add_comments(
+        [
+            LabComment(
+                comment_id="LC-1",
+                lab_id="lab-a",
+                document_id=doc["document_id"],
+                comment="一般化しすぎ",
+                source=LabSource(doc="2024査読.pdf"),
+            ),
+            LabComment(
+                comment_id="LC-9",
+                lab_id="lab-b",
+                document_id="LD-000000000009",
+                comment="ほかの研究室",
+                source=LabSource(doc="x.pdf"),
+            ),
+        ],
+        [None, None],
+    )
+    assert [c["comment_id"] for c in client.get("/api/lab/comments").json()] == ["LC-1"]
+    assert (
+        client.delete("/api/lab/comments/LC-9").status_code == 404
+    )  # ほかの研究室のものは消せない
+    assert client.delete("/api/lab/comments/LC-1").status_code == 204
+    lab.set_document_status(doc["document_id"], "completed")
+    assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 204
+    assert client.get("/api/lab/documents").json() == []
