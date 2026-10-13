@@ -227,6 +227,20 @@ class Store:
             )
         return analysis_id
 
+    def update_settings(self, analysis_id: str, values: dict[str, Any]) -> None:
+        """解析の設定に値を足す（解析の開始時に使ったルールセットの記録など）。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT settings FROM analyses WHERE analysis_id = ?", (analysis_id,)
+            ).fetchone()
+            if row is None:
+                return
+            settings = {**json.loads(row["settings"]), **values}
+            conn.execute(
+                "UPDATE analyses SET settings = ? WHERE analysis_id = ?",
+                (json.dumps(settings, ensure_ascii=False), analysis_id),
+            )
+
     def set_status(self, analysis_id: str, status: AnalysisStatus) -> None:
         with self._connect() as conn:
             conn.execute(
