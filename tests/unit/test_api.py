@@ -287,3 +287,51 @@ def test_usage_unreported_returns_increments() -> None:
     assert usage.unreported() == []
     usage.record_request(**kw, attempt=2, status=200, latency_s=1.0)
     assert [(r.requests, r.prompt_tokens) for r in usage.unreported()] == [(1, 0)]
+
+
+def test_diff_json_and_text_report(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    # 初回は前回が無い
+    first = seed(store, doc_id)
+    assert client.get(f"/api/analyses/{first}/diff").json() == {
+        "previous": None,
+        "resolved": [],
+        "new": [],
+        "persisting": [],
+    }
+    second = seed(store, doc_id)
+    box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
+    # 2回目：F-0003 を直し（無くなった）、新しい指摘 F-0004 が出た
+    store.save_findings(
+        second,
+        [
+            finding(
+                "F-0004", "logic", box, "新しく見つかった主張", doc_id=doc_id, subcategory="leap"
+            ),
+        ],
+    )
+    with store._connect() as conn:  # 2回目から F-0003 を除く（直した想定）
+        conn.execute(
+            "DELETE FROM findings WHERE analysis_id = ? AND finding_id = 'F-0003'", (second,)
+        )
+    diff = client.get(f"/api/analyses/{second}/diff").json()
+    assert diff["previous"]["analysis_id"] == first
+    assert diff["new"] == ["F-0004"]
+    assert {p["finding_id"] for p in diff["persisting"]} == {"F-0001", "F-0002"}
+    assert [f["finding_id"] for f in diff["resolved"]] == ["F-0003"]
+    assert client.get("/api/analyses/A-none/diff").status_code == 404
+
+    exported = client.get(f"/api/analyses/{second}/findings.json")
+    assert "attachment" in exported.headers["content-disposition"]
+    body = exported.json()
+    assert body["analysis_id"] == second and body["paper"]["filename"] == "論文.pdf"
+    assert {f["finding_id"] for f in body["findings"]} == {"F-0001", "F-0002", "F-0004"}
+
+    report = client.get(f"/api/analyses/{second}/report.txt")
+    assert report.headers["content-type"].startswith("text/plain")
+    text = report.text
+    assert "指摘は全部で3件" in text and "前回比 ±0件" in text
+    assert "前回との差分：解消 1件、新規 1件、継続 2件。" in text
+    assert "■ 主な指摘（重大・要修正、3件）" in text
+    assert "■ 前回から解消された指摘（1件）" in text

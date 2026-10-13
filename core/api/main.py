@@ -5,6 +5,7 @@
 
 import csv
 import io
+import json
 import os
 from typing import Annotated, Any, Literal, Protocol
 
@@ -18,11 +19,13 @@ from core.analyze.pipeline import AnalysisSettings
 from core.annotate.labels import category_label, severity_label, subcategory_label
 from core.annotate.pdf import annotate_pdf
 from core.api.schemas import (
+    AnalysisDiff,
     AnalysisListItem,
     AnalysisSummary,
     AuditLog,
     CreateAnalysisRequest,
     DocumentInfo,
+    PersistingPair,
     PreviousAnalysis,
     StatusUpdate,
     UploadResponse,
@@ -31,7 +34,16 @@ from core.api.summary import count_findings
 from core.gateway_client import GatewayClient, GatewayError
 from core.llm.config import get_models_config
 from core.logging_config import configure_logging
-from core.store import DailyUsage, FindingNotFoundError, PaperBusyError, Store, today_jst
+from core.report.diff import FindingsDiff, diff_findings
+from core.report.text import text_report
+from core.store import (
+    AnalysisRecord,
+    DailyUsage,
+    FindingNotFoundError,
+    PaperBusyError,
+    Store,
+    today_jst,
+)
 from core.store.files import delete_paper_file, load_paper, save_paper
 
 configure_logging()
@@ -86,9 +98,11 @@ QueueDep = Annotated[JobQueue, Depends(get_queue)]
 GatewayDep = Annotated[GatewayClient, Depends(get_gateway)]
 
 
-def _analysis_or_404(store: Store, analysis_id: str) -> None:
-    if store.get_analysis(analysis_id) is None:
+def _analysis_or_404(store: Store, analysis_id: str) -> AnalysisRecord:
+    record = store.get_analysis(analysis_id)
+    if record is None:
         raise HTTPException(status_code=404, detail="解析が見つかりません")
+    return record
 
 
 @app.get("/api/healthz")
@@ -194,16 +208,7 @@ async def summarize(store: Store, analysis_id: str, gateway: GatewayClient) -> A
         raise HTTPException(status_code=404, detail="解析が見つかりません")
     doc = store.get_document(record.doc_id)
     counts = count_findings(store.get_findings(analysis_id), doc)
-    previous = None
-    prev_record = store.find_previous(analysis_id)
-    if prev_record is not None:
-        prev_counts = count_findings(store.get_findings(prev_record.analysis_id), None)
-        previous = PreviousAnalysis(
-            analysis_id=prev_record.analysis_id,
-            created_at=prev_record.created_at,
-            total=prev_counts.total,
-            by_severity=prev_counts.by_severity,
-        )
+    previous, _ = _diff(store, analysis_id)
     config = get_models_config()
     usage = store.get_api_usage(analysis_id)
     try:
@@ -335,6 +340,88 @@ def findings_csv(
         content="﻿" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{analysis_id}_findings.csv"'},
+    )
+
+
+def _diff(store: Store, analysis_id: str) -> tuple[PreviousAnalysis | None, FindingsDiff | None]:
+    """同じ論文の前回の完了した解析と、その差分（前回が無ければ None）。"""
+    prev_record = store.find_previous(analysis_id)
+    if prev_record is None:
+        return None, None
+    previous_findings = store.get_findings(prev_record.analysis_id)
+    prev_counts = count_findings(previous_findings, None)
+    previous = PreviousAnalysis(
+        analysis_id=prev_record.analysis_id,
+        created_at=prev_record.created_at,
+        total=prev_counts.total,
+        by_severity=prev_counts.by_severity,
+    )
+    return previous, diff_findings(store.get_findings(analysis_id), previous_findings)
+
+
+@app.get("/api/analyses/{analysis_id}/diff")
+def analysis_diff(analysis_id: str, store: StoreDep) -> AnalysisDiff:
+    """前回の解析との差分（解消された指摘・新しい指摘・続いている指摘）。"""
+    _analysis_or_404(store, analysis_id)
+    previous, diff = _diff(store, analysis_id)
+    if previous is None or diff is None:
+        return AnalysisDiff(previous=None, resolved=[], new=[], persisting=[])
+    return AnalysisDiff(
+        previous=previous,
+        resolved=diff.resolved,
+        new=[f.finding_id for f in diff.new],
+        persisting=[
+            PersistingPair(finding_id=c.finding_id, previous_finding_id=p.finding_id)
+            for c, p in diff.persisting
+        ],
+    )
+
+
+@app.get("/api/analyses/{analysis_id}/findings.json")
+def findings_json(analysis_id: str, store: StoreDep) -> Response:
+    """指摘の一覧の JSON（SPEC 3.4 の形式。却下したものも含め、ステータスと却下の理由を付ける）。"""
+    record = _analysis_or_404(store, analysis_id)
+    doc = store.get_document(record.doc_id)
+    paper = store.get_paper(record.doc_id)
+    body = {
+        "analysis_id": analysis_id,
+        "created_at": record.created_at,
+        "paper": {
+            "doc_id": record.doc_id,
+            "title": doc.title if doc else None,
+            "filename": paper.filename if paper else None,
+        },
+        "findings": [f.model_dump(mode="json") for f in store.get_findings(analysis_id)],
+    }
+    return Response(
+        content=json.dumps(body, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_findings.json"'},
+    )
+
+
+@app.get("/api/analyses/{analysis_id}/report.txt")
+def report_text(analysis_id: str, store: StoreDep) -> Response:
+    """主要な問題と件数をまとめたテキストの要約（SPEC 3.5・6.6）。"""
+    record = _analysis_or_404(store, analysis_id)
+    doc = store.get_document(record.doc_id)
+    paper = store.get_paper(record.doc_id)
+    findings = store.get_findings(analysis_id)
+    previous, diff = _diff(store, analysis_id)
+    text = text_report(
+        title=doc.title if doc else None,
+        filename=paper.filename if paper else None,
+        analysis_id=analysis_id,
+        created_at=record.created_at,
+        counts=count_findings(findings, doc),
+        findings=findings,
+        previous_total=previous.total if previous else None,
+        diff=diff,
+    )
+    return Response(
+        content=text,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_report.txt"'},
     )
 
 

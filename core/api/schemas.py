@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from core.analyze.context import OutputLang
+from core.analyze.models import Finding
 from core.llm.usage import UsageRow
 from core.store import AnalysisRecord, PaperRecord, Progress
 
@@ -57,6 +58,20 @@ class PreviousAnalysis(BaseModel):
     created_at: str
     total: int
     by_severity: dict[str, int]
+
+
+class PersistingPair(BaseModel):
+    finding_id: str  # 今回の指摘
+    previous_finding_id: str  # 対応する前回の指摘
+
+
+class AnalysisDiff(BaseModel):
+    """前回の解析との差分（SPEC 3.5）。前回が無ければ previous は None で、ほかは空。"""
+
+    previous: PreviousAnalysis | None
+    resolved: list[Finding]  # 前回はあったが、今回は無い指摘（前回の内容）
+    new: list[str]  # 今回だけにある指摘の番号
+    persisting: list[PersistingPair]
 
 
 class AnalysisSummary(BaseModel):

@@ -9,8 +9,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart } from "../components/BarChart";
 import { FindingsTable } from "../components/FindingsTable";
 import { ProgressPanel } from "../components/ProgressPanel";
-import { api, type AnalysisSummary, type Counts, type Finding } from "../lib/api";
-import { CATEGORIES, CATEGORY_LABELS, SEVERITIES, SEVERITY_LABELS, STATUS_LABELS, label } from "../lib/labels";
+import { api, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding } from "../lib/api";
+import {
+  CATEGORIES,
+  CATEGORY_LABELS,
+  SEVERITIES,
+  SEVERITY_LABELS,
+  STATUS_LABELS,
+  SUBCATEGORY_LABELS,
+  label,
+} from "../lib/labels";
 import { Link } from "../lib/router";
 import { diffText, summaryText } from "../lib/summary";
 
@@ -54,6 +62,7 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [error, setError] = useState<string | null>(null);
+  const [diff, setDiff] = useState<AnalysisDiff | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +79,13 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
   }, [load]);
 
   const running = summary?.analysis.status === "queued" || summary?.analysis.status === "running";
+  // 前回の解析との差分は、解析が終わってから1回だけ取る
+  const completed = summary?.analysis.status === "completed";
+  useEffect(() => {
+    if (!completed) return;
+    api.diff(analysisId).then(setDiff, () => setDiff(null));
+  }, [completed, analysisId]);
+  const newIds = useMemo(() => (diff?.previous ? new Set(diff.new) : undefined), [diff]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => void load(), POLL_MS);
@@ -108,6 +124,12 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           </Link>
           <a className="button-secondary" href={api.csvUrl(analysisId)}>
             指摘の一覧（CSV）
+          </a>
+          <a className="button-secondary" href={api.jsonUrl(analysisId)}>
+            指摘の一覧（JSON）
+          </a>
+          <a className="button-secondary" href={api.reportUrl(analysisId)}>
+            要約レポート（テキスト）
           </a>
         </div>
       </div>
@@ -231,11 +253,45 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           />
         </section>
 
+        {diff?.previous && (
+          <section className="panel full" aria-labelledby="diff-title">
+            <h2 id="diff-title" className="panel-title">
+              前回の解析との差分（前回：{new Date(diff.previous.created_at).toLocaleString("ja-JP")}）
+            </h2>
+            <dl className="kpi-breakdown">
+              <div>
+                <dt>解消</dt>
+                <dd>{diff.resolved.length}件</dd>
+              </div>
+              <div>
+                <dt>新規</dt>
+                <dd>{diff.new.length}件</dd>
+              </div>
+              <div>
+                <dt>継続</dt>
+                <dd>{diff.persisting.length}件</dd>
+              </div>
+            </dl>
+            {diff.resolved.length > 0 && (
+              <details>
+                <summary>解消された指摘（{diff.resolved.length}件）を見る</summary>
+                <ul className="resolved-list">
+                  {diff.resolved.map((f) => (
+                    <li key={f.finding_id}>
+                      {label(SUBCATEGORY_LABELS, f.subcategory)}：「{f.quote}」
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
+
         <section className="panel full" aria-labelledby="list-title">
           <h2 id="list-title" className="panel-title">
             指摘の一覧（重大度の順、{filtered.length}件）
           </h2>
-          <FindingsTable analysisId={analysisId} findings={filtered} />
+          <FindingsTable analysisId={analysisId} findings={filtered} newIds={newIds} />
         </section>
       </div>
 

@@ -652,3 +652,14 @@ button.icon-button {
   color: var(--color-label);
   margin-top: 2px;
 }
+
+/* 再解析の差分：前回に無かった指摘（色ではなく文字で示す） */
+.badge-new {
+  margin-left: 6px;
+  border: 1px solid var(--color-text);
+  font-size: 12px;
+}
+.resolved-list {
+  margin: 8px 0 0;
+  padding-left: 1.5em;
+}

@@ -90,6 +90,14 @@ export interface AnalysisSummary {
   external_requests: number;
 }
 
+/** 前回の解析との差分（GET /analyses/{id}/diff） */
+export interface AnalysisDiff {
+  previous: AnalysisSummary["previous"];
+  resolved: Finding[];
+  new: string[];
+  persisting: { finding_id: string; previous_finding_id: string }[];
+}
+
 export interface AnalysisListItem {
   analysis_id: string;
   doc_id: string;
@@ -195,6 +203,7 @@ export const api = {
   usageToday: () => request<DailyUsage>("/usage/today"),
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
+  diff: (id: string) => request<AnalysisDiff>(`/analyses/${encodeURIComponent(id)}/diff`),
   findings: (id: string, filters: FindingFilters = {}) =>
     request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`),
   updateStatus(id: string, findingId: string, status: Finding["status"], reason?: string) {
@@ -219,6 +228,8 @@ export const api = {
     ),
   csvUrl: (id: string, filters: FindingFilters = {}) =>
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
+  jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,
+  reportUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/report.txt`,
   annotatedUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/annotated.pdf`,
   paperUrl: (docId: string) => `/api/documents/${encodeURIComponent(docId)}/paper.pdf`,
 };

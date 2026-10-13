@@ -12,7 +12,16 @@ export function sortFindings(findings: Finding[]): Finding[] {
 }
 
 /** 指摘の一覧（重大度順）。番号をクリックすると PDF の該当箇所を開く */
-export function FindingsTable({ analysisId, findings }: { analysisId: string; findings: Finding[] }) {
+export function FindingsTable({
+  analysisId,
+  findings,
+  newIds,
+}: {
+  analysisId: string;
+  findings: Finding[];
+  /** 前回の解析に無かった指摘の番号（再解析のとき「新規」と表示する） */
+  newIds?: ReadonlySet<string>;
+}) {
   if (findings.length === 0) return <p>条件に合う指摘はありません。</p>;
   return (
     <div className="table-scroll">
@@ -36,6 +45,7 @@ export function FindingsTable({ analysisId, findings }: { analysisId: string; fi
             <tr key={f.finding_id}>
               <th scope="row" data-label="番号">
                 <Link href={`/analyses/${analysisId}/findings/${f.finding_id}`}>{f.finding_id}</Link>
+                {newIds?.has(f.finding_id) && <span className="badge badge-new">新規</span>}
               </th>
               <td data-label="重大度">
                 <SeverityBadge severity={f.severity} />

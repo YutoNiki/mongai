@@ -76,6 +76,7 @@ export async function mockApi(page: Page): Promise<MockApi> {
     }
     if (path === `/api/documents/${summary.analysis.doc_id}/paper.pdf` || path === `${base}/annotated.pdf`)
       return route.fulfill({ status: 200, contentType: "application/pdf", body: paper });
+    if (path === `${base}/diff`) return route.fulfill(json({ previous: null, resolved: [], new: [], persisting: [] }));
     if (path === "/api/audit-log") return route.fulfill(json({ available: true, mode: "standard", entries: [] }));
     if (path === "/api/gateway/queue") return route.fulfill(json([]));
     return route.fulfill(json({ detail: `E2E のモックに無い API：${path}` }, 404));
