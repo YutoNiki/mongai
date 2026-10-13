@@ -19,6 +19,7 @@ import {
   SUBCATEGORY_LABELS,
   label,
 } from "../lib/labels";
+import { prefetched } from "../lib/prefetch";
 import { Link } from "../lib/router";
 import { diffText, summaryText } from "../lib/summary";
 
@@ -139,8 +140,9 @@ function TermsPanel({ terms }: { terms: TermLookup[] }) {
 }
 
 export function DashboardPage({ analysisId }: { analysisId: string }) {
-  const [summary, setSummary] = useState<AnalysisSummary | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
+  // トップページで先読みしたデータがあれば、最初から表示する（そのあと最新のものを取り直す）
+  const [summary, setSummary] = useState<AnalysisSummary | null>(() => prefetched(analysisId)?.summary ?? null);
+  const [findings, setFindings] = useState<Finding[]>(() => prefetched(analysisId)?.findings ?? []);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [error, setError] = useState<string | null>(null);
   const [diff, setDiff] = useState<AnalysisDiff | null>(null);

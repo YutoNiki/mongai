@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 
 import { ProgressBar } from "../components/ProgressBar";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
 import { elapsedText } from "../lib/progress";
+import { prefetchDashboard } from "../lib/pages";
+import { prefetchAnalysis, waitForAnalysis } from "../lib/prefetch";
 import { Link, navigate } from "../lib/router";
 
 const ANALYSIS_STATUS: Record<string, string> = {
@@ -47,7 +49,19 @@ function ElapsedTime({ item, now }: { item: AnalysisListItem; now: number }) {
 
 const number = (value: number) => value.toLocaleString("ja-JP");
 
+/** 解析結果へ進む：先読みの完了を少し待ってからスライドする（中身のある画面を入れるため） */
+function openAnalysis(event: MouseEvent<HTMLAnchorElement>, analysisId: string): void {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault();
+  void waitForAnalysis(analysisId).then(() => navigate(`/analyses/${analysisId}`, "forward"));
+}
+
 export function HomePage() {
+  // トップページが表示されたあと、手が空いたときに解析結果の画面の部品（グラフのライブラリ）を読み込んでおく
+  useEffect(() => {
+    const timer = window.setTimeout(prefetchDashboard, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [items, setItems] = useState<AnalysisListItem[] | null>(null);
   const [usage, setUsage] = useState<DailyUsage | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -197,7 +211,14 @@ export function HomePage() {
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
                     <th scope="row" data-label="論文">
-                      <Link href={`/analyses/${item.analysis_id}`} transition="forward">
+                      <Link
+                        href={`/analyses/${item.analysis_id}`}
+                        transition="forward"
+                        onPointerEnter={() => void prefetchAnalysis(item.analysis_id)}
+                        onPointerDown={() => void prefetchAnalysis(item.analysis_id)}
+                        onFocus={() => void prefetchAnalysis(item.analysis_id)}
+                        onClick={(event) => openAnalysis(event, item.analysis_id)}
+                      >
                         {item.sample && "（デモ）"}
                         {item.title ?? item.filename ?? item.doc_id}
                       </Link>
