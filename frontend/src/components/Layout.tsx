@@ -5,7 +5,7 @@ import { ApprovalNotice } from "./ApprovalNotice";
 import logoUrl from "../assets/header-logo.png";
 
 const MENU: [string, string][] = [
-  ["/", "解析の一覧"],
+  ["/", "ダッシュボード"],
   ["/rules", "ルール"],
   ["/lab", "専門知識"],
   ["/audit", "外部通信ログ"],
@@ -13,7 +13,7 @@ const MENU: [string, string][] = [
   ["/definitions", "データの定義"],
 ];
 
-/** 今いる画面のメニューか（解析のダッシュボード・詳細は「解析の一覧」の配下とみなす） */
+/** 今いる画面のメニューか（論文の解析結果・指摘の詳細は「ダッシュボード」の子ページとみなす） */
 function isCurrent(href: string, path: string): boolean {
   if (href === "/") return path === "/" || path.startsWith("/analyses/");
   return path === href || path.startsWith(`${href}/`);

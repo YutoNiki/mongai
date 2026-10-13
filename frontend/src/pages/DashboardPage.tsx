@@ -1,5 +1,5 @@
 /**
- * ダッシュボード（提示型、SPEC 6.3）。
+ * 論文の解析結果の画面（提示型のダッシュボード、SPEC 6.3）。トップページ（ダッシュボード）の子ページ。
  * 上部：タイトル・フィルター／左上：総指摘数と重大度の内訳（前回比）／中段：カテゴリ別・セクション別／
  * 下段：指摘の一覧／下部：メタ情報
  */
@@ -197,12 +197,37 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
   return (
     <div className="page dashboard">
       <div className="dashboard-head">
-        <div>
-          <p className="eyebrow">論理・読みやすさの指摘（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）</p>
-          <h1>
-            {summary.sample && "（デモ）"}
-            {title}
-          </h1>
+        <div className="title-with-back">
+          <Link
+            href="/"
+            transition="back"
+            className="back-chevron"
+            aria-label="ダッシュボードに戻る"
+            title="ダッシュボードに戻る"
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+              <path
+                d="M15 4 7 12l8 8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </Link>
+          <div>
+            <p className="eyebrow">
+              <Link href="/" transition="back">
+                ダッシュボード
+              </Link>
+              {" ＞ "}論文の解析結果（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）
+            </p>
+            <h1>
+              {summary.sample && "（デモ）"}
+              {title}
+            </h1>
+          </div>
         </div>
         <div className="downloads">
           <Link className="button-secondary" href={`/analyses/${analysisId}/annotated`}>

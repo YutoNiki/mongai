@@ -1,4 +1,4 @@
-/** 詳細画面：PDF ビューア＋指摘の詳細（ダッシュボードから1クリック） */
+/** 詳細画面：PDF ビューア＋指摘の詳細（論文の解析結果から1クリック） */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -72,7 +72,7 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
       <nav aria-label="パンくず" className="breadcrumb">
         <Link href={`/analyses/${analysisId}`} className="button-secondary back-button">
           <span aria-hidden="true">←</span>
-          ダッシュボードに戻る
+          解析結果に戻る
         </Link>
       </nav>
       <a className="button-secondary mobile-only" href="#pdf-viewer">

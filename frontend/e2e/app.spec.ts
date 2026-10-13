@@ -1,5 +1,5 @@
 /**
- * 画面の E2E テスト（SPEC 7）。主な流れ：トップ → ダッシュボード → 指摘の詳細（PDF）→ ステータスの変更。
+ * 画面の E2E テスト（SPEC 7）。主な流れ：ダッシュボード（トップ）→ 論文の解析結果 → 指摘の詳細（PDF）→ ステータスの変更。
  * あわせて、画面が学外（外部 CDN など）に一切通信しないこと（CLAUDE.md 最優先ルール5）を確かめる。
  */
 
@@ -24,7 +24,7 @@ test("トップページに解析の一覧と今日の利用回数が出る", as
   await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "論文の投稿前セルフレビュー" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "ダッシュボード" })).toBeVisible();
   await expect(page.getByRole("link", { name: title })).toBeVisible();
   await expect(page.getByText("120", { exact: false }).first()).toBeVisible();
   // デモの論文は「（デモ）」と表示し、削除のボタンを出さない
@@ -33,7 +33,7 @@ test("トップページに解析の一覧と今日の利用回数が出る", as
   expect(external).toEqual([]);
 });
 
-test("ダッシュボード：総指摘数・グラフの表形式・絞り込み・2クリックで PDF の該当箇所へ", async ({ page }) => {
+test("論文の解析結果：総指摘数・グラフの表形式・絞り込み・2クリックで PDF の該当箇所へ", async ({ page }) => {
   const api = await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
@@ -173,7 +173,7 @@ test("専門知識：過去の指摘を確認して削除できる", async ({ pa
 });
 
 
-test("承認待ちの外部通信をポップアップで知らせ、承認した用語の説明をダッシュボードに出す", async ({ page }) => {
+test("承認待ちの外部通信をポップアップで知らせ、承認した用語の説明を解析結果に出す", async ({ page }) => {
   const api = await mockApi(page);
   api.queue = [
     {
@@ -229,4 +229,18 @@ test("承認待ちの外部通信をポップアップで知らせ、承認し�
   await expect(approved).toContainText("Forecasting Methods：予測値と実測値の差の絶対値の平均");
   await expect(panel.getByRole("row", { name: /アイソクローン/ })).toContainText("承認すると表示されます");
   expect(external).toEqual([]);
+});
+
+test("解析結果の左上の「＜」でダッシュボードに戻る（ブラウザの戻るでも戻れる）", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await page.getByRole("link", { name: title }).click();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  await page.getByRole("link", { name: "ダッシュボードに戻る" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(page.getByRole("heading", { level: 1, name: "ダッシュボード" })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  await page.goBack();
+  await expect(page).toHaveURL("/");
 });

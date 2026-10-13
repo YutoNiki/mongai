@@ -793,3 +793,82 @@ button.icon-button {
     font-size: 16px;
   }
 }
+
+/* ---- 画面の切り替え（トップページ ⇄ ダッシュボード）。見えている画面をそのまま横に送る ----
+   本文（main）だけを動かすと、スクロールした位置から新しい画面の先頭への縦の動きが加わって斜めに動くので、
+   画面に見えている範囲（root）を動かす。ヘッダーは別に切り出して、その場に止めておく */
+
+.site-header {
+  view-transition-name: site-header;
+}
+::view-transition-group(site-header) {
+  animation: none;
+}
+::view-transition-old(site-header) {
+  display: none;
+}
+::view-transition-new(site-header) {
+  animation: none;
+}
+:root[data-transition="forward"]::view-transition-old(root) {
+  animation: 0.3s ease both slide-to-left;
+}
+:root[data-transition="forward"]::view-transition-new(root) {
+  animation: 0.3s ease both slide-from-right;
+}
+:root[data-transition="back"]::view-transition-old(root) {
+  animation: 0.3s ease both slide-to-right;
+}
+:root[data-transition="back"]::view-transition-new(root) {
+  animation: 0.3s ease both slide-from-left;
+}
+@keyframes slide-to-left {
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes slide-from-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes slide-to-right {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes slide-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+/* ダッシュボードの左上の「＜」（解析の一覧に戻る） */
+.title-with-back {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.back-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-top: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg);
+  color: var(--color-primary);
+}
+.back-chevron:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg-control);
+}
+@media (max-width: 640px) {
+  .back-chevron {
+    width: 44px;
+    height: 44px;
+  }
+}

@@ -110,7 +110,8 @@ export function HomePage() {
 
   return (
     <div className="page">
-      <h1>論文の投稿前セルフレビュー</h1>
+      <p className="eyebrow">論文の投稿前セルフレビュー</p>
+      <h1>ダッシュボード</h1>
       <div className="grid home-top">
         <section className="panel kpi" aria-labelledby="usage-title">
           <h2 id="usage-title" className="panel-title">
@@ -170,7 +171,7 @@ export function HomePage() {
 
       <section className="panel" aria-labelledby="list-title">
         <h2 id="list-title" className="panel-title">
-          解析の一覧（新しい順）
+          解析済みの論文（新しい順。選ぶと解析結果を開きます）
         </h2>
         {items === null ? (
           <p>読み込み中…</p>
@@ -196,7 +197,7 @@ export function HomePage() {
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
                     <th scope="row" data-label="論文">
-                      <Link href={`/analyses/${item.analysis_id}`}>
+                      <Link href={`/analyses/${item.analysis_id}`} transition="forward">
                         {item.sample && "（デモ）"}
                         {item.title ?? item.filename ?? item.doc_id}
                       </Link>

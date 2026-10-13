@@ -33,7 +33,7 @@ export function AnnotatedPage({ analysisId }: { analysisId: string }) {
       <nav aria-label="パンくず" className="breadcrumb">
         <Link href={`/analyses/${analysisId}`} className="button-secondary back-button">
           <span aria-hidden="true">←</span>
-          ダッシュボードに戻る
+          解析結果に戻る
         </Link>
       </nav>
       <div className="dashboard-head">
