@@ -260,9 +260,10 @@ def _row(
         "tp": s.tp,
         "fp": s.fp,
         "fn": s.fn,
-        "precision": _fmt(s.precision),
-        "recall": _fmt(s.recall),
-        "f1": _fmt(s.f1),
+        # 対照群の誤検出の行は fp / n だけが意味を持つ
+        "precision": "-" if s.label == "control_fp" else _fmt(s.precision),
+        "recall": "-" if s.label == "control_fp" else _fmt(s.recall),
+        "f1": "-" if s.label == "control_fp" else _fmt(s.f1),
         "latency_s": latency,
         "errors": errors,
     }
