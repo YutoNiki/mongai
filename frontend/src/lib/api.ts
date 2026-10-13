@@ -188,6 +188,31 @@ export interface RuleDocument {
 
 export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section" | "check_type">>;
 
+/** 研究室知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
+export interface LabDocument {
+  document_id: string;
+  lab_id: string;
+  filename: string;
+  kind: "pdf" | "docx" | "markdown" | "text";
+  status: "queued" | "running" | "completed" | "failed";
+  comment_count: number;
+  rule_count: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface LabComment {
+  comment_id: string;
+  lab_id: string;
+  document_id: string;
+  comment: string;
+  example: string | null;
+  category: "logic" | "readability" | "rule" | "citation" | "other";
+  source: { doc: string; page: number | null };
+  created_at: string;
+}
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -278,6 +303,17 @@ export const api = {
   },
   deleteRuleDocument: (documentId: string) =>
     request<undefined>(`/rule-documents/${encodeURIComponent(documentId)}`, { method: "DELETE" }),
+  labDocuments: () => request<LabDocument[]>("/lab/documents"),
+  uploadLabDocument(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    return request<LabDocument>("/lab/documents", { method: "POST", body });
+  },
+  deleteLabDocument: (documentId: string) =>
+    request<undefined>(`/lab/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" }),
+  labComments: () => request<LabComment[]>("/lab/comments"),
+  deleteLabComment: (commentId: string) =>
+    request<undefined>(`/lab/comments/${encodeURIComponent(commentId)}`, { method: "DELETE" }),
   csvUrl: (id: string, filters: FindingFilters = {}) =>
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
   jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,

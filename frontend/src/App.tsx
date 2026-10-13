@@ -6,6 +6,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { DefinitionsPage } from "./pages/DefinitionsPage";
 import { DetailPage } from "./pages/DetailPage";
 import { HomePage } from "./pages/HomePage";
+import { LabPage } from "./pages/LabPage";
 import { QueuePage } from "./pages/QueuePage";
 import { RulesPage } from "./pages/RulesPage";
 
@@ -19,6 +20,7 @@ function Route({ path }: { path: string }) {
   if (path === "/audit") return <AuditPage />;
   if (path === "/queue") return <QueuePage />;
   if (path === "/rules") return <RulesPage />;
+  if (path === "/lab") return <LabPage />;
   if (path === "/definitions") return <DefinitionsPage />;
   if (path === "/") return <HomePage />;
   return <p className="page">ページが見つかりません。</p>;

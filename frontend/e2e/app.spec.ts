@@ -147,3 +147,20 @@ test("ルール：確認して承認・編集・一括承認できる", async ({
   expect(external).toEqual([]);
 });
 
+test("研究室知識：過去の指摘を確認して削除できる", async ({ page }) => {
+  const api = await mockApi(page);
+  const external = watchExternal(page);
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "研究室知識" }).click();
+  await expect(page).toHaveURL("/lab");
+  await expect(page.getByRole("heading", { level: 1, name: "研究室知識" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "登録した研究室知識の資料" })).toContainText("2024年度_査読コメント.docx");
+  const table = page.getByRole("table", { name: "過去の指摘の一覧" });
+  await expect(table).toContainText("手法の有効性を一般化して述べている");
+  page.once("dialog", (dialog) => void dialog.accept());
+  await table.getByRole("button", { name: "削除" }).click();
+  await expect(page.getByText("過去の指摘はまだありません。")).toBeVisible();
+  expect(api.labComments).toEqual([]);
+  expect(external).toEqual([]);
+});
+

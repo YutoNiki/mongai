@@ -128,3 +128,12 @@ export const TARGET_SECTION_LABELS: Record<string, string> = {
   引用: "引用",
 };
 
+/** 研究室の過去の指摘の種類 */
+export const LAB_CATEGORY_LABELS: Record<string, string> = {
+  logic: "論理",
+  readability: "読みやすさ",
+  rule: "書き方の決まり",
+  citation: "引用",
+  other: "その他",
+};
+

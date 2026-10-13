@@ -304,7 +304,7 @@ export function RulesPage() {
                       <span className={`badge rule-${r.status}`}>{label(RULE_STATUS_LABELS, r.status)}</span>
                     </td>
                     <td data-label="対象">{label(TARGET_SECTION_LABELS, r.target_section)}</td>
-                    <td data-label="ルール">
+                    <td className="wide" data-label="ルール">
                       {editing === r.rule_id ? (
                         <RuleEditor
                           rule={r}

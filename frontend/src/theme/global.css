@@ -665,7 +665,7 @@ button.icon-button {
 }
 
 /* ルールの画面 */
-.rules-table td[data-label="ルール"] {
+.rules-table td.wide {
   min-width: 280px;
   white-space: normal;
 }

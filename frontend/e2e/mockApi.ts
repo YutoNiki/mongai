@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
-import type { AnalysisListItem, AnalysisSummary, Finding, Rule } from "../src/lib/api";
+import type { AnalysisListItem, AnalysisSummary, Finding, LabComment, Rule } from "../src/lib/api";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
@@ -67,7 +67,24 @@ function sampleRules(): Rule[] {
   ];
 }
 
+/** 研究室知識の画面用の合成の過去の指摘 */
+function sampleLabComments(): LabComment[] {
+  return [
+    {
+      comment_id: "LC-0001",
+      lab_id: "default",
+      document_id: "LD-000000000001",
+      comment: "1つのデータセットの結果から、手法の有効性を一般化して述べている",
+      example: "提案手法はあらゆる場面で有効である",
+      category: "logic",
+      source: { doc: "2024年度_査読コメント.docx", page: null },
+      created_at: "2026-10-13T00:00:00+00:00",
+    },
+  ];
+}
+
 export interface MockApi {
+  labComments: LabComment[];
   rules: Rule[];
   findings: Finding[];
   /** PATCH で送られた本文 */
@@ -88,6 +105,7 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
 
 export async function mockApi(page: Page): Promise<MockApi> {
   const state: MockApi = {
+    labComments: sampleLabComments(),
     rules: sampleRules(),
     findings: structuredClone(initialFindings),
     updates: [],
@@ -155,6 +173,29 @@ export async function mockApi(page: Page): Promise<MockApi> {
       const body = request.postDataJSON() as { rule_ids: string[]; status: Rule["status"] };
       state.rules = state.rules.map((r) => (body.rule_ids.includes(r.rule_id) ? { ...r, status: body.status } : r));
       return route.fulfill(json(state.rules.filter((r) => body.rule_ids.includes(r.rule_id))));
+    }
+    if (path === "/api/lab/documents" && request.method() === "GET")
+      return route.fulfill(
+        json([
+          {
+            document_id: "LD-000000000001",
+            lab_id: "default",
+            filename: "2024年度_査読コメント.docx",
+            kind: "docx",
+            status: "completed",
+            comment_count: state.labComments.length,
+            rule_count: 1,
+            error: null,
+            created_at: "2026-10-13T00:00:00+00:00",
+            finished_at: "2026-10-13T00:01:00+00:00",
+          },
+        ]),
+      );
+    if (path === "/api/lab/comments") return route.fulfill(json(state.labComments));
+    const labDelete = path.match(/^\/api\/lab\/comments\/([^/]+)$/);
+    if (labDelete && request.method() === "DELETE") {
+      state.labComments = state.labComments.filter((c) => c.comment_id !== decodeURIComponent(labDelete[1] ?? ""));
+      return route.fulfill({ status: 204 });
     }
     if (path === "/api/audit-log") return route.fulfill(json({ available: true, mode: "standard", entries: [] }));
     if (path === "/api/gateway/queue") return route.fulfill(json([]));
