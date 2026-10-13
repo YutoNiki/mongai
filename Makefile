@@ -8,7 +8,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-highlights check-api config clean clean-data
+.PHONY: help setup build up down dev logs test test-integration test-security lint format eval check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -64,6 +64,11 @@ check-highlights: ## 指摘の位置の診断（例：make check-highlights ANAL
 
 check-api: ## おいとまAPIへの疎通と機能の確認（oitoma_proxy 経由）
 	$(COMPOSE_TEST) run --rm api_check
+
+LEVELS ?= 1,4,8,16,32
+bench-concurrency: ## 同時リクエスト数ごとの おいとまAPI の処理量を測る（合成データのみ。LEVELS=1,4,8,16,32 THINKING=1）
+	$(COMPOSE_TEST) build api_check
+	$(COMPOSE_TEST) run --rm api_check python -m core.llm.bench --levels $(LEVELS) $(if $(THINKING),--thinking,)
 
 config: ## compose ファイルの検証
 	$(COMPOSE) config -q
