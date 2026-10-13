@@ -497,7 +497,7 @@ async def analyze_logic(
         try:
             vectors = await embed_targets(client, targets)
         except OitomaError as exc:
-            warnings.append(f"研究室知識との照合に失敗しました：{exc}")
+            warnings.append(f"専門知識との照合に失敗しました：{exc}")
             progress.finish("lab_check")
             return
         compared = 0
@@ -515,7 +515,7 @@ async def analyze_logic(
                 )
             except OitomaError as exc:
                 warnings.append(
-                    f"段落 {t.paragraph.paragraph_id} の研究室知識との照合に失敗しました：{exc}"
+                    f"段落 {t.paragraph.paragraph_id} の専門知識との照合に失敗しました：{exc}"
                 )
             else:
                 made = [f for f in (builder.from_lab(m, out_lang_code) for m in found) if f]

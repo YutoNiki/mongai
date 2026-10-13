@@ -32,7 +32,7 @@ TEXTS: dict[str, dict[Lang, str]] = {
         "ja": "引用している文の主張が、引用先の文献（{reference}）のアブストラクトと対応していません。",
         "en": "The claim of this sentence does not correspond to the abstract of the cited reference ({reference}).",
     },
-    # 研究室知識（core/lab/check.py）
+    # 専門知識（core/lab/check.py）
     "lab.rationale": {
         "ja": "研究室の過去の査読・添削で、同じ種類の問題が指摘されています：「{comment}」（{source}）",
         "en": 'The same kind of problem was pointed out in the lab\'s past reviews or edits: "{comment}" ({source})',

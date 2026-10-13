@@ -7,7 +7,7 @@ CATEGORY_LABELS: Final[dict[str, str]] = {
     "readability": "読みやすさ",
     "rule": "ルール違反",
     "citation": "引用",
-    "lab": "研究室知識",
+    "lab": "専門知識",
 }
 
 SUBCATEGORY_LABELS: Final[dict[str, str]] = {

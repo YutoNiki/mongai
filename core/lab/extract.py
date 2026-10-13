@@ -1,4 +1,4 @@
-"""研究室知識の資料から、過去の指摘と研究室のルールを取り出す（SPEC 3.1・3.2）。
+"""専門知識の資料から、過去の指摘と研究室のルールを取り出す（SPEC 3.1・3.2）。
 
 1. 資料（PDF / DOCX / Markdown / テキスト）をチャンクに分け、高速モデル（役割 lab_extraction）で
    過去の指摘（一般化したもの）と研究室のルール（SPEC 3.2 の形式）を取り出す
@@ -67,7 +67,7 @@ async def extract_lab_knowledge(
     """資料から過去の指摘と研究室のルールを取り出して保存し、(指摘の数, 追加したルールの数) を返す。"""
     doc = lab_store.find_document(document_id)
     if doc is None:
-        raise ValueError(f"研究室知識の資料 {document_id} が見つかりません")
+        raise ValueError(f"専門知識の資料 {document_id} が見つかりません")
     pages = read_pages(document_path(document_id, doc.kind), doc.kind)
     lang = guess_lang("\n".join(text for _, text in pages))
     system = load_prompt(ROLE, lang, output_language="日本語" if lang == "ja" else "English")
@@ -113,7 +113,7 @@ async def extract_lab_knowledge(
     try:
         vectors = list(await client.embed(texts, role=EMBEDDING_ROLE)) if texts else []
     except OitomaError as exc:
-        logger.warning("研究室知識の埋め込みに失敗しました（%s）", type(exc).__name__)
+        logger.warning("専門知識の埋め込みに失敗しました（%s）", type(exc).__name__)
         vectors = [None] * len(texts)
     lab_store.add_comments(comments, vectors[: len(comments)])
     added = 0

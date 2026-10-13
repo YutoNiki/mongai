@@ -5,7 +5,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   readability: "読みやすさ",
   rule: "ルール違反",
   citation: "引用",
-  lab: "研究室知識",
+  lab: "専門知識",
 };
 
 export const SUBCATEGORY_LABELS: Record<string, string> = {
@@ -54,7 +54,7 @@ export const STAGE_LABELS: Record<string, string> = {
   flow_check: "段落間のチェック",
   citation: "引用の検証",
   rule_check: "ルールの判定",
-  lab_check: "研究室知識との照合",
+  lab_check: "専門知識との照合",
   double_check: "二重チェック",
   suggestion: "改善案の作成",
   locate: "指摘の位置の確認",

@@ -118,7 +118,7 @@ def test_each_category_has_distinct_shape(pdf_and_boxes: tuple[bytes, list[BBox]
         assert annot["type"] == SHAPES[category]
         assert annot["stroke"] == pytest.approx(hex_to_rgb(ANNOTATION_COLORS[category]), abs=0.01)
     assert annots["MongAI F-0002"]["opacity"] == pytest.approx(HIGHLIGHT_OPACITY, abs=0.01)
-    assert annots["MongAI F-0005"]["dashes"]  # 研究室知識は点線の枠
+    assert annots["MongAI F-0005"]["dashes"]  # 専門知識は点線の枠
     assert not annots["MongAI F-0004"]["dashes"]  # 引用は実線の枠
     # 余白のラベルに、種類名が文字で入っている（色だけで区別しない）
     text = page_text(out)
@@ -127,7 +127,7 @@ def test_each_category_has_distinct_shape(pdf_and_boxes: tuple[bytes, list[BBox]
         "F-0002 読みやすさ",
         "F-0003 ルール違反",
         "F-0004 引用",
-        "F-0005 研究室知識",
+        "F-0005 専門知識",
     ]:
         assert label in text
 

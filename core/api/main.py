@@ -605,7 +605,7 @@ def delete_rule_document(document_id: str, rules: RuleStoreDep) -> Response:
     return Response(status_code=204)
 
 
-# ---------------------------------------------------------------- 研究室知識（SPEC 3.1〜3.3）
+# ---------------------------------------------------------------- 専門知識（SPEC 3.1〜3.3）
 # すべて、この MongAI が扱う研究室（current_lab_id）のデータだけを読み書きする
 
 
@@ -640,7 +640,7 @@ def delete_lab_document(document_id: str, lab: LabStoreDep, rules: RuleStoreDep)
     """資料と、そこから取り出した過去の指摘・研究室のルールを削除する。"""
     doc = lab.get_document(current_lab_id(), document_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="研究室知識の資料が見つかりません")
+        raise HTTPException(status_code=404, detail="専門知識の資料が見つかりません")
     if doc.status in ("queued", "running"):
         raise HTTPException(status_code=409, detail="取り込み中は削除できません")
     lab.delete_document(current_lab_id(), document_id)

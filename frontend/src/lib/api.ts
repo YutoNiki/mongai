@@ -197,7 +197,7 @@ export interface RuleDocument {
 
 export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section" | "check_type">>;
 
-/** 研究室知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
+/** 専門知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
 export interface LabDocument {
   document_id: string;
   lab_id: string;

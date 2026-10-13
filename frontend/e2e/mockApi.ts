@@ -67,7 +67,7 @@ function sampleRules(): Rule[] {
   ];
 }
 
-/** 研究室知識の画面用の合成の過去の指摘 */
+/** 専門知識の画面用の合成の過去の指摘 */
 function sampleLabComments(): LabComment[] {
   return [
     {

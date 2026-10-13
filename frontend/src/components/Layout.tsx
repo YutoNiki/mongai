@@ -6,7 +6,7 @@ import logoUrl from "../assets/header-logo.png";
 const MENU: [string, string][] = [
   ["/", "解析の一覧"],
   ["/rules", "ルール"],
-  ["/lab", "研究室知識"],
+  ["/lab", "専門知識"],
   ["/audit", "外部通信ログ"],
   ["/queue", "承認キュー"],
   ["/definitions", "データの定義"],
