@@ -123,6 +123,7 @@ ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 ```bash
 make dev             # 開発モード（ホットリロード）
 make test            # 単体・結合テスト
+make test-e2e        # 画面の E2E テスト（Playwright、ネットワークなし）
 make test-security   # ネットワーク分離・ゲートウェイのテスト
 make lint
 make logs
@@ -142,7 +143,7 @@ make down
 | 論理チェック、引用の支持判定、改善案 | `qwen3.8-27b-it`（思考） |
 | 重要な指摘の二重チェック | `Ternary-Bonsai-2-27B` |
 | 検索用の埋め込み | `qwen3-embedding-8b` |
-| ゲートウェイの漏えい検査 | `multilingual-e5` |
+| ゲートウェイの漏えい検査 | `gte-qwen2-7b-it`（`multilingual-e5` が おいとま側で使えないための暫定） |
 
 モデルの比較は評価ハーネスで行います。
 
@@ -150,7 +151,19 @@ make down
 make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B,qwen3.6-35b-a3b-it
 ```
 
-評価データは `eval/datasets/` に、結果は `eval/results/` に保存されます。
+評価データ（合成データ）は `eval/datasets/` にあります。
+
+| ファイル | 内容 | 対応する役割 |
+|---|---|---|
+| `paragraph.jsonl` | 前提と根拠の不一致・論理の飛躍・主張の過大（各10件）と、問題のない対照群（10件） | `logic_check` |
+| `flow.jsonl` | 段落間の接続の断絶（10件）と対照群（6件） | `logic_check` |
+| `citation_support.jsonl` | 引用内容の不一致（10件、うち2件はアブストラクトにプロンプトインジェクションを含む）と、支持している対照群（6件） | `citation_support` |
+
+結果は `eval/results/` に CSV（指標）と JSONL（1件ごとの予測）で保存され、比較ページ `eval/results/index.html` が作り直されます。一部だけ試すときは `EVAL_ARGS="--lang ja --limit 5"` のように指定します。ルール違反の評価データは、ルールの判定（M6）を実装してから加えます。
+
+## デモ
+
+問題を意図的に仕込んだ合成論文 `demo/demo_paper_ja.pdf` と、デモの手順・正解の一覧を [docs/demo.md](docs/demo.md) にまとめています。
 
 ## デザイン
 
@@ -168,7 +181,8 @@ UIはデジタル庁「[ダッシュボードデザインの実践ガイドブ�
 ├── gateway/       検索ゲートウェイ
 ├── searcher/      検索エージェント
 ├── frontend/      ダッシュボードとPDFビューア
-├── eval/          モデル評価ハーネス
+├── eval/          モデル評価ハーネス（合成の評価データ、比較ページ）
+├── demo/          デモ用の合成論文
 ├── tests/         単体・結合・セキュリティテスト
 └── docs/          仕様書、API調査メモ、デザインチェックリスト
 ```
