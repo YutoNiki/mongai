@@ -54,9 +54,9 @@ lint: ## ruff / mypy / eslint / tsc
 format: ## ruff format で整形（ソースは読み取り専用マウントなので差分の表示のみ）
 	$(RUN_TEST) ruff format --diff .
 
-eval: ## モデル評価（例：make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B）
+eval: ## モデル評価（例：make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B EVAL_ARGS="--lang ja --limit 5"）。結果は eval/results/
 	@test -n "$(MODELS)" || (echo "MODELS を指定してください" >&2; exit 1)
-	$(COMPOSE) run --rm -v ./eval:/app/eval worker python -m eval.run --role $(ROLE) --models $(MODELS)
+	$(COMPOSE) run --rm -u "$$(id -u):$$(id -g)" -v ./eval:/app/eval worker python -m eval.run --role $(ROLE) --models $(MODELS) $(EVAL_ARGS)
 
 check-highlights: ## 指摘の位置の診断（例：make check-highlights ANALYSIS=A-xxxx。FIX=1 で位置を保存）。本文は表示しない
 	@test -n "$(ANALYSIS)" || (echo "ANALYSIS を指定してください" >&2; exit 1)
