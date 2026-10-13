@@ -195,6 +195,14 @@ def test_chunk_lines_overlap() -> None:
         assert b[0] == a[-1]  # 1行ずつ重ねる
 
 
+def test_chunk_lines_max_lines() -> None:
+    chunks = chunk_lines(["短い行"] * 40, max_tokens=10_000, max_lines=16)
+    assert all(len(c) <= 16 for c in chunks) and len(chunks) == 3
+    assert chunks[0][0] == 0 and chunks[-1][-1] == 39
+    for a, b in itertools.pairwise(chunks):
+        assert b[0] == a[-1]
+
+
 def test_protected_terms() -> None:
     text = "BERT と ROUGE-1 で 3.5 ポイント向上した [12]（田中, 2020）(Smith et al., 2019)．"
     assert set(protected_terms(text)) >= {

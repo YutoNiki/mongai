@@ -322,7 +322,12 @@ async def analyze_logic(
         await progress("flow_check", 0, 1)
         try:
             flow, _, flow_warnings = await check_flow(
-                client, targets, by_paragraph, prompt_lang=prompt_lang, output_language=out_lang
+                client,
+                targets,
+                by_paragraph,
+                prompt_lang=prompt_lang,
+                output_language=out_lang,
+                on_chunk=lambda done, total: progress("flow_check", done, total),
             )
             warnings.extend(flow_warnings)
             new = [f for f in (builder.from_flow(v) for v in flow) if f is not None]
@@ -331,7 +336,7 @@ async def analyze_logic(
                 await _notify(on_findings, new)
         except OitomaError as exc:
             warnings.append(f"段落間のチェックに失敗しました：{exc}")
-        await progress("flow_check", 1, 1)
+        progress.finish("flow_check")
 
     # 引用の検証（gateway 経由。学外に出るのは引用文献の書誌情報だけ）
     async def citation_checks() -> None:
