@@ -35,6 +35,7 @@ from core.analyze.second_opinion import apply_opinion, needs_second_opinion, sec
 from core.analyze.structure import extract_structure, fallback_structure
 from core.analyze.suggest import suggest
 from core.analyze.templates import text as template
+from core.analyze.terms import lookup_terms
 from core.analyze.voting import Voted, most_common
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
@@ -45,6 +46,7 @@ from core.llm.usage import UsageRow
 from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
 from core.rules.mechanical import RuleViolation, run_mechanical
 from core.rules.models import Rule
+from core.store import TermLookupRecord
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,8 @@ class AnalysisSettings(BaseModel):
     with_lab_check: bool = True
     # 重大・要修正の論理・読みやすさの指摘を、第2のモデルでも判定する（SPEC 3.3-4）
     with_double_check: bool = True
+    # 定義なしで使われている一般的な専門用語を gateway に照会する（standard モードでは承認制。M7）
+    with_term_lookup: bool = True
     with_suggestions: bool = True
 
 
@@ -76,6 +80,7 @@ class LogicAnalysis(BaseModel):
     structures: list[ParagraphStructure]
     warnings: list[str] = Field(default_factory=list)
     api_usage: list[UsageRow] = Field(default_factory=list)
+    terms: list[TermLookupRecord] = Field(default_factory=list)  # 未知の用語の照会
 
 
 async def _notify(callback: Callable[..., Awaitable[None] | None] | None, *args: object) -> None:
@@ -331,6 +336,7 @@ async def analyze_logic(
     sentences = {s.sentence_id: s for s in doc.sentences}
     builder = _Builder(doc, client)
     findings: list[Finding] = []
+    term_records: list[TermLookupRecord] = []
 
     # 1. 論証構造の抽出
     done = 0
@@ -448,6 +454,18 @@ async def analyze_logic(
         findings.extend(new)
         if new:
             await _notify(on_findings, new)
+        if settings.with_term_lookup and targets:
+            # 原稿は check_citations で gateway に登録済み。用語の照会は承認キューに積まれる
+            terms = await lookup_terms(
+                client, gateway, doc, targets, analysis_id=analysis_id, lang=prompt_lang
+            )
+            warnings.extend(terms.warnings)
+            term_records.extend(terms.records)
+            if terms.pending:
+                warnings.append(
+                    f"未知の用語 {len(terms.pending)} 語（{'、'.join(terms.pending)}）の照会を承認キューに"
+                    "積みました。「承認キュー」の画面で承認すると、その用語だけを学外に送信します"
+                )
         progress.finish("citation")
 
     # ルールの判定（機械判定は LLM を使わずにすぐ終わる。LLM 判定は段落ごと）
@@ -497,7 +515,7 @@ async def analyze_logic(
         try:
             vectors = await embed_targets(client, targets)
         except OitomaError as exc:
-            warnings.append(f"研究室知識との照合に失敗しました：{exc}")
+            warnings.append(f"専門知識との照合に失敗しました：{exc}")
             progress.finish("lab_check")
             return
         compared = 0
@@ -515,7 +533,7 @@ async def analyze_logic(
                 )
             except OitomaError as exc:
                 warnings.append(
-                    f"段落 {t.paragraph.paragraph_id} の研究室知識との照合に失敗しました：{exc}"
+                    f"段落 {t.paragraph.paragraph_id} の専門知識との照合に失敗しました：{exc}"
                 )
             else:
                 made = [f for f in (builder.from_lab(m, out_lang_code) for m in found) if f]
@@ -587,4 +605,5 @@ async def analyze_logic(
         structures=list(structures),
         warnings=warnings,
         api_usage=client.usage.rows(),
+        terms=term_records,
     )

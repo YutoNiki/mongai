@@ -1,5 +1,5 @@
 /**
- * 画面の E2E テスト（SPEC 7）。主な流れ：トップ → ダッシュボード → 指摘の詳細（PDF）→ ステータスの変更。
+ * 画面の E2E テスト（SPEC 7）。主な流れ：ダッシュボード（トップ）→ 論文の解析結果 → 指摘の詳細（PDF）→ ステータスの変更。
  * あわせて、画面が学外（外部 CDN など）に一切通信しないこと（CLAUDE.md 最優先ルール5）を確かめる。
  */
 
@@ -24,19 +24,22 @@ test("トップページに解析の一覧と今日の利用回数が出る", as
   await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "論文の投稿前セルフレビュー" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "ダッシュボード" })).toBeVisible();
   await expect(page.getByRole("link", { name: title })).toBeVisible();
   await expect(page.getByText("120", { exact: false }).first()).toBeVisible();
+  // デモの論文は「（デモ）」と表示し、削除のボタンを出さない
+  await expect(page.getByRole("link", { name: `（デモ）${title}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: /を削除$/ })).toHaveCount(0);
   expect(external).toEqual([]);
 });
 
-test("ダッシュボード：総指摘数・グラフの表形式・絞り込み・2クリックで PDF の該当箇所へ", async ({ page }) => {
+test("論文の解析結果：総指摘数・グラフの表形式・絞り込み・2クリックで PDF の該当箇所へ", async ({ page }) => {
   const api = await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
   await page.getByRole("link", { name: title }).click();
   await expect(page).toHaveURL(`/analyses/${analysisId}`);
-  await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: `（デモ）${title}` })).toBeVisible();
 
   // 左上の全体指標（総指摘数）
   const kpi = page.getByRole("region", { name: /^総指摘数/ });
@@ -55,6 +58,11 @@ test("ダッシュボード：総指摘数・グラフの表形式・絞り込�
   await expect(rows).toHaveCount(logicCount);
   await page.getByRole("button", { name: "絞り込みを解除" }).click();
   await expect(rows).toHaveCount(summary.counts.total);
+
+  // 確度と回数は多数決をした指摘にだけ出る（引用の指摘は1回だけの判定なので空欄）
+  const confidence = (id: string) => rows.filter({ hasText: id }).locator('td[data-label="確度"]');
+  await expect(confidence("F-0005")).toHaveText("高（2回中2回）");
+  await expect(confidence("F-0001")).toHaveText("");
 
   // 指摘の番号 → 詳細画面（PDF ビューア）
   const firstLink = rows.first().getByRole("link");
@@ -147,14 +155,14 @@ test("ルール：確認して承認・編集・一括承認できる", async ({
   expect(external).toEqual([]);
 });
 
-test("研究室知識：過去の指摘を確認して削除できる", async ({ page }) => {
+test("専門知識：過去の指摘を確認して削除できる", async ({ page }) => {
   const api = await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
-  await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "研究室知識" }).click();
+  await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "専門知識" }).click();
   await expect(page).toHaveURL("/lab");
-  await expect(page.getByRole("heading", { level: 1, name: "研究室知識" })).toBeVisible();
-  await expect(page.getByRole("table", { name: "登録した研究室知識の資料" })).toContainText("2024年度_査読コメント.docx");
+  await expect(page.getByRole("heading", { level: 1, name: "専門知識" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "登録した専門知識の資料" })).toContainText("2024年度_査読コメント.docx");
   const table = page.getByRole("table", { name: "過去の指摘の一覧" });
   await expect(table).toContainText("手法の有効性を一般化して述べている");
   page.once("dialog", (dialog) => void dialog.accept());
@@ -164,3 +172,75 @@ test("研究室知識：過去の指摘を確認して削除できる", async ({
   expect(external).toEqual([]);
 });
 
+
+test("承認待ちの外部通信をポップアップで知らせ、承認した用語の説明を解析結果に出す", async ({ page }) => {
+  const api = await mockApi(page);
+  api.queue = [
+    {
+      request_id: "R-000000000001",
+      analysis_id: analysisId,
+      doc_id: summary.analysis.doc_id,
+      kind: "term_lookup",
+      request: { kind: "term_lookup", term: "アイソクローン", lang: "ja" },
+      status: "pending",
+      created_at: "2026-10-13T12:00:00+00:00",
+    },
+  ];
+  api.terms = [
+    {
+      term: "アイソクローン",
+      query: "isochrone",
+      request_id: "R-000000000001",
+      status: "pending",
+      matched: null,
+      description: null,
+      source: null,
+      reason: null,
+      updated_at: "",
+    },
+    {
+      term: "平均絶対誤差",
+      query: "mean absolute error",
+      request_id: "R-000000000002",
+      status: "approved",
+      matched: "Forecasting Methods",
+      description: "予測値と実測値の差の絶対値の平均",
+      source: "openalex",
+      reason: null,
+      updated_at: "",
+    },
+  ];
+  const external = watchExternal(page);
+  await page.goto("/");
+  const notice = page.getByRole("status").filter({ hasText: "承認待ちの外部通信が1件あります" });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("用語「アイソクローン」");
+  // 「あとで」で閉じると、同じ要求はもう知らせない
+  await notice.getByRole("button", { name: "あとで" }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("承認待ちの外部通信が")).toHaveCount(0);
+
+  await page.goto(`/analyses/${analysisId}`);
+  const panel = page.getByRole("region", { name: /未知の用語の照会/ });
+  await expect(panel).toContainText("承認待ちが1語あります");
+  const approved = panel.getByRole("row", { name: /平均絶対誤差/ });
+  await expect(approved).toContainText("照会した語：mean absolute error");
+  await expect(approved).toContainText("Forecasting Methods：予測値と実測値の差の絶対値の平均");
+  await expect(panel.getByRole("row", { name: /アイソクローン/ })).toContainText("承認すると表示されます");
+  expect(external).toEqual([]);
+});
+
+test("解析結果の左上の「＜」でダッシュボードに戻る（ブラウザの戻るでも戻れる）", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await page.getByRole("link", { name: title }).click();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  await page.getByRole("link", { name: "ダッシュボードに戻る" }).click();
+  await expect(page).toHaveURL("/");
+  await expect(page.getByRole("heading", { level: 1, name: "ダッシュボード" })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+});

@@ -1,0 +1,107 @@
+{
+ "analysis": {
+  "analysis_id": "A-2e5ff44fcce2",
+  "doc_id": "67dc154e691a70a2",
+  "kind": "logic",
+  "status": "completed",
+  "settings": {
+   "output_lang": "paper",
+   "max_paragraphs": null,
+   "min_paragraph_chars": 40,
+   "with_flow_check": true,
+   "with_citation_check": true,
+   "max_support_checks": 60,
+   "with_rule_check": true,
+   "with_lab_check": true,
+   "with_double_check": true,
+   "with_term_lookup": true,
+   "with_suggestions": true,
+   "ruleset": {
+    "approved": 3,
+    "updated_at": "2026-10-13T09:13:09+00:00"
+   }
+  },
+  "warnings": [
+   "未知の用語 3 語（アイソクローン、平均絶対誤差、通院）の照会を承認キューに積みました。「承認キュー」の画面で承認すると、その用語だけを学外に送信します"
+  ],
+  "error": null,
+  "created_at": "2026-10-13T12:47:36+00:00",
+  "finished_at": "2026-10-13T13:07:12+00:00"
+ },
+ "filename": "demo_paper_ja.pdf",
+ "uploaded_at": "2026-10-13T11:47:04+00:00",
+ "api_usage": [
+  {
+   "endpoint": "chat/completions",
+   "model": "Ternary-Bonsai-2-27B",
+   "role": "second_opinion",
+   "calls": 8,
+   "requests": 8,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 6761,
+   "completion_tokens": 10274,
+   "latency_s": 231.306
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.6-35b-a3b-it",
+   "role": "structure_extraction",
+   "calls": 14,
+   "requests": 14,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 9729,
+   "completion_tokens": 3675,
+   "latency_s": 50.789
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.6-35b-a3b-it",
+   "role": "term_extraction",
+   "calls": 7,
+   "requests": 7,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 5519,
+   "completion_tokens": 355,
+   "latency_s": 5.182
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "citation_support",
+   "calls": 4,
+   "requests": 4,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 3517,
+   "completion_tokens": 2914,
+   "latency_s": 77.692
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "logic_check",
+   "calls": 39,
+   "requests": 39,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 67192,
+   "completion_tokens": 139171,
+   "latency_s": 3386.357
+  },
+  {
+   "endpoint": "chat/completions",
+   "model": "qwen3.8-27b-it",
+   "role": "suggestion",
+   "calls": 11,
+   "requests": 11,
+   "retries": 0,
+   "failures": 0,
+   "prompt_tokens": 6909,
+   "completion_tokens": 34194,
+   "latency_s": 770.368
+  }
+ ]
+}

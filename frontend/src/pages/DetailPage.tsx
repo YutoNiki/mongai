@@ -1,11 +1,11 @@
-/** 詳細画面：PDF ビューア＋指摘の詳細（ダッシュボードから1クリック） */
+/** 詳細画面：PDF ビューア＋指摘の詳細（論文の解析結果から1クリック） */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CategoryBadge, SeverityBadge, StatusBadge } from "../components/Badges";
 import { sortFindings } from "../components/FindingsTable";
 import { PdfViewer } from "../components/PdfViewer";
-import { api, type AnalysisSummary, type Finding } from "../lib/api";
+import { api, isVoted, type AnalysisSummary, type Finding } from "../lib/api";
 import { CATEGORY_LABELS, SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link, navigate } from "../lib/router";
 import { annotationColors } from "../theme/palette";
@@ -70,7 +70,10 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
   return (
     <div className="page detail">
       <nav aria-label="パンくず" className="breadcrumb">
-        <Link href={`/analyses/${analysisId}`}>ダッシュボードに戻る</Link>
+        <Link href={`/analyses/${analysisId}`} className="button-secondary back-button">
+          <span aria-hidden="true">←</span>
+          解析結果に戻る
+        </Link>
       </nav>
       <a className="button-secondary mobile-only" href="#pdf-viewer">
         PDF の該当箇所を見る
@@ -130,13 +133,17 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
                 "（なし）"
               )}
             </dd>
-            <dt>確度</dt>
-            <dd>
-              {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
-              {finding.models.secondary &&
-                `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
-              ）
-            </dd>
+            {isVoted(finding) && (
+              <>
+                <dt>確度</dt>
+                <dd>
+                  {finding.confidence === "high" ? "高" : "低"}（{finding.models.primary} が {finding.samples} 回中 {finding.votes} 回指摘
+                  {finding.models.secondary &&
+                    `。第2のモデル ${finding.models.secondary} は${finding.models.agreed ? "問題と認めた" : "問題と認めなかった"}`}
+                  ）
+                </dd>
+              </>
+            )}
           </dl>
 
           <fieldset className="status-form">

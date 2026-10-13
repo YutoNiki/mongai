@@ -1,5 +1,5 @@
 /**
- * ダッシュボード（提示型、SPEC 6.3）。
+ * 論文の解析結果の画面（提示型のダッシュボード、SPEC 6.3）。トップページ（ダッシュボード）の子ページ。
  * 上部：タイトル・フィルター／左上：総指摘数と重大度の内訳（前回比）／中段：カテゴリ別・セクション別／
  * 下段：指摘の一覧／下部：メタ情報
  */
@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart } from "../components/BarChart";
 import { FindingsTable } from "../components/FindingsTable";
 import { ProgressPanel } from "../components/ProgressPanel";
-import { api, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding } from "../lib/api";
+import { api, isVoted, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding, type TermLookup } from "../lib/api";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -19,6 +19,7 @@ import {
   SUBCATEGORY_LABELS,
   label,
 } from "../lib/labels";
+import { prefetched } from "../lib/prefetch";
 import { Link } from "../lib/router";
 import { diffText, summaryText } from "../lib/summary";
 
@@ -39,7 +40,7 @@ function applyFilters(findings: Finding[], f: Filters, sectionOf: Record<string,
       (!f.category || x.category === f.category) &&
       (!f.severity || x.severity === f.severity) &&
       (!f.section || sectionOf[x.section_id ?? ""] === f.section) &&
-      (!f.confidence || x.confidence === f.confidence) &&
+      (!f.confidence || (isVoted(x) && x.confidence === f.confidence)) &&
       (f.status ? x.status === f.status : x.status !== "dismissed"),
   );
 }
@@ -65,12 +66,87 @@ function rulesetText(settings: AnalysisSummary["analysis"]["settings"]): string 
   return `承認済み ${ruleset.approved}件${when}`;
 }
 
+const TERM_STATUS: Record<TermLookup["status"], string> = {
+  pending: "承認待ち",
+  approved: "承認して照会済み",
+  found: "照会済み",
+  rejected: "却下",
+  blocked: "照会しなかった",
+  failed: "照会に失敗",
+};
+
+/** 未知の用語の照会（承認制の外部通信）と、承認後に学外の辞書から得た説明 */
+function TermsPanel({ terms }: { terms: TermLookup[] }) {
+  const pending = terms.filter((t) => t.status === "pending").length;
+  return (
+    <section className="panel full" aria-labelledby="terms-title">
+      <h2 id="terms-title" className="panel-title">
+        未知の用語の照会（{terms.length}語）
+      </h2>
+      <p className="note">
+        論文の中で定義せずに使われている一般的な専門用語を、学外の辞書（OpenAlex の分野の辞書）で照会します。
+        辞書は英語の見出しだけを持つので、日本語の用語は英語の対応語で照会します。照会は承認制で、承認するまで学外には送信されません。
+        説明は学外のデータベースで該当した見出しのもので、用語そのものの定義とは限らず、内容も保証されません。
+        {pending > 0 && (
+          <>
+            {" "}
+            承認待ちが{pending}語あります（<Link href="/queue">承認キュー</Link>）。
+          </>
+        )}
+      </p>
+      <div className="table-scroll">
+        <table className="data-table responsive">
+          <caption className="visually-hidden">照会した用語と説明</caption>
+          <thead>
+            <tr>
+              <th scope="col">用語</th>
+              <th scope="col">状態</th>
+              <th scope="col">説明（学外の辞書）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {terms.map((t) => (
+              <tr key={t.term}>
+                <th scope="row" data-label="用語">
+                  {t.term}
+                  {t.query && t.query !== t.term && <span className="sub">（照会した語：{t.query}）</span>}
+                </th>
+                <td data-label="状態">
+                  {TERM_STATUS[t.status]}
+                  {t.reason && <span className="sub">（{t.reason}）</span>}
+                </td>
+                <td className="wide" data-label="説明（学外の辞書）">
+                  {t.status === "pending" ? (
+                    <Link href="/queue">承認すると表示されます</Link>
+                  ) : t.description ? (
+                    <>
+                      {t.matched && <strong>{t.matched}：</strong>}
+                      {t.description}
+                      {t.source && <span className="sub">（出典：{t.source}）</span>}
+                    </>
+                  ) : t.status === "approved" || t.status === "found" ? (
+                    "辞書に説明が見つかりませんでした"
+                  ) : (
+                    "-"
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPage({ analysisId }: { analysisId: string }) {
-  const [summary, setSummary] = useState<AnalysisSummary | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
+  // トップページで先読みしたデータがあれば、最初から表示する（そのあと最新のものを取り直す）
+  const [summary, setSummary] = useState<AnalysisSummary | null>(() => prefetched(analysisId)?.summary ?? null);
+  const [findings, setFindings] = useState<Finding[]>(() => prefetched(analysisId)?.findings ?? []);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [error, setError] = useState<string | null>(null);
   const [diff, setDiff] = useState<AnalysisDiff | null>(null);
+  const [terms, setTerms] = useState<TermLookup[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +168,7 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
   useEffect(() => {
     if (!completed) return;
     api.diff(analysisId).then(setDiff, () => setDiff(null));
+    api.terms(analysisId).then(setTerms, () => setTerms([]));
   }, [completed, analysisId]);
   const newIds = useMemo(() => (diff?.previous ? new Set(diff.new) : undefined), [diff]);
   useEffect(() => {
@@ -122,9 +199,37 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
   return (
     <div className="page dashboard">
       <div className="dashboard-head">
-        <div>
-          <p className="eyebrow">論理・読みやすさの指摘（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）</p>
-          <h1>{title}</h1>
+        <div className="title-with-back">
+          <Link
+            href="/"
+            transition="back"
+            className="back-chevron"
+            aria-label="ダッシュボードに戻る"
+            title="ダッシュボードに戻る"
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+              <path
+                d="M15 4 7 12l8 8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </Link>
+          <div>
+            <p className="eyebrow">
+              <Link href="/" transition="back">
+                ダッシュボード
+              </Link>
+              {" ＞ "}論文の解析結果（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）
+            </p>
+            <h1>
+              {summary.sample && "（デモ）"}
+              {title}
+            </h1>
+          </div>
         </div>
         <div className="downloads">
           <Link className="button-secondary" href={`/analyses/${analysisId}/annotated`}>
@@ -301,6 +406,8 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           </h2>
           <FindingsTable analysisId={analysisId} findings={filtered} newIds={newIds} />
         </section>
+
+        {terms.length > 0 && <TermsPanel terms={terms} />}
       </div>
 
       <footer className="meta" aria-label="メタ情報">

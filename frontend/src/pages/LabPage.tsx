@@ -1,5 +1,5 @@
 /**
- * 研究室知識の画面（SPEC 3.1〜3.3）：過去の査読コメント・回答書・添削メモの登録と、取り出した過去の指摘の確認。
+ * 専門知識の画面（SPEC 3.1〜3.3）：過去の査読コメント・回答書・添削メモの登録と、取り出した過去の指摘の確認。
  * 過去の指摘は、解析のときに似た箇所の検出に使う。資料から取り出した研究室のルールは「ルール」の画面で承認する。
  */
 
@@ -79,7 +79,7 @@ export function LabPage() {
 
   return (
     <div className="page">
-      <h1>研究室知識</h1>
+      <h1>専門知識</h1>
       <div className="grid">
         <section className="panel kpi" aria-labelledby="lab-count-title">
           <h2 id="lab-count-title" className="panel-title">
@@ -103,7 +103,7 @@ export function LabPage() {
           </p>
           <form onSubmit={upload} className="upload-form">
             <label>
-              研究室知識の資料
+              専門知識の資料
               <input
                 type="file"
                 accept=".pdf,.docx,.md,.markdown,.txt"
@@ -126,7 +126,7 @@ export function LabPage() {
           </h2>
           <div className="table-scroll">
             <table className="data-table responsive">
-              <caption className="visually-hidden">登録した研究室知識の資料</caption>
+              <caption className="visually-hidden">登録した専門知識の資料</caption>
               <thead>
                 <tr>
                   <th scope="col">資料</th>

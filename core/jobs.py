@@ -93,6 +93,7 @@ async def run_analysis(
             lab_vectors=lab_store.comment_vectors(current_lab_id()),
         )
         store.save_structures(analysis_id, result.structures)
+        store.save_term_lookups(analysis_id, result.terms)
         # 指摘の位置を PDF 上の引用箇所に合わせる（文の座標がずれる PDF への対策）
         store.set_progress(analysis_id, "locate", 0, len(result.findings))
         findings, counts = relocate_findings(
@@ -166,7 +167,7 @@ async def run_lab_extraction(
     rule_store: RuleStore | None = None,
     client: OitomaClient | None = None,
 ) -> str:
-    """研究室知識の資料から過去の指摘と研究室のルールを取り出して保存し、最終的なステータスを返す。"""
+    """専門知識の資料から過去の指摘と研究室のルールを取り出して保存し、最終的なステータスを返す。"""
     lab_store = lab_store or LabStore()
     rule_store = rule_store or RuleStore(lab_store.path)
     own_client = client is None
@@ -176,14 +177,14 @@ async def run_lab_extraction(
         comments, rules = await extract_lab_knowledge(llm, lab_store, rule_store, document_id)
         lab_store.set_document_status(document_id, "completed", rule_count=rules)
         logger.info(
-            "研究室知識 %s から指摘 %d 件・ルール %d 件を取り出しました",
+            "専門知識 %s から指摘 %d 件・ルール %d 件を取り出しました",
             document_id,
             comments,
             rules,
         )
         return "completed"
     except Exception as exc:
-        logger.exception("研究室知識 %s の取り込みに失敗しました", document_id)
+        logger.exception("専門知識 %s の取り込みに失敗しました", document_id)
         lab_store.set_document_status(
             document_id, "failed", error=f"取り込みに失敗しました（{type(exc).__name__}）"
         )

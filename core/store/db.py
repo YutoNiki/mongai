@@ -90,6 +90,29 @@ CREATE TABLE IF NOT EXISTS api_usage (
     latency_s REAL NOT NULL,
     PRIMARY KEY (analysis_id, endpoint, model, role)
 );
+CREATE TABLE IF NOT EXISTS term_lookups (
+    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
+    term TEXT NOT NULL,
+    query TEXT,
+    request_id TEXT,
+    status TEXT NOT NULL,
+    matched TEXT,
+    description TEXT,
+    source TEXT,
+    reason TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (analysis_id, term)
+);
+CREATE INDEX IF NOT EXISTS term_lookups_by_request ON term_lookups(request_id);
+-- 承認キューでの承認・却下の結果（要求ごと）。解析の途中で承認しても失われないよう、解析の記録とは分けて持つ
+CREATE TABLE IF NOT EXISTS term_decisions (
+    request_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    matched TEXT,
+    description TEXT,
+    source TEXT,
+    decided_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS api_usage_daily (
     day TEXT NOT NULL,
     endpoint TEXT NOT NULL,
@@ -131,6 +154,27 @@ class Progress(BaseModel):
     total: int = 0
 
 
+TermStatus = Literal["pending", "approved", "rejected", "found", "blocked", "failed"]
+
+
+class TermLookupRecord(BaseModel):
+    """解析で照会した未知の用語（gateway の承認制の term_lookup）と、その結果。
+
+    status：pending 承認待ち / approved 承認して送信した / rejected 却下した / found 照会済み（キャッシュ）/
+    blocked gateway が拒否した / failed 検索に失敗した。description は学外の辞書の説明（外部データ）。
+    """
+
+    term: str  # 論文の中の用語
+    query: str | None = None  # 実際に照会した語（日本語の論文では英語の対応語）
+    request_id: str | None = None
+    status: TermStatus
+    matched: str | None = None  # 学外の辞書で該当した見出し
+    description: str | None = None
+    source: str | None = None
+    reason: str | None = None
+    updated_at: str = ""
+
+
 class PaperRecord(BaseModel):
     doc_id: str
     filename: str
@@ -164,6 +208,10 @@ class Store:
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(analyses)")}
             if "progress" not in columns:  # M3 で作ったデータベースへの列の追加
                 conn.execute("ALTER TABLE analyses ADD COLUMN progress TEXT NOT NULL DEFAULT '{}'")
+            term_columns = {r["name"] for r in conn.execute("PRAGMA table_info(term_lookups)")}
+            for column in ("query", "matched"):  # 英語での照会を加える前の表への列の追加
+                if column not in term_columns:
+                    conn.execute(f"ALTER TABLE term_lookups ADD COLUMN {column} TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -179,12 +227,14 @@ class Store:
 
     # ------------------------------------------------------------ アップロードされた論文
 
-    def save_paper(self, doc_id: str, *, filename: str, size: int) -> None:
+    def save_paper(
+        self, doc_id: str, *, filename: str, size: int, uploaded_at: str | None = None
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO papers (doc_id, filename, size, uploaded_at) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(doc_id) DO UPDATE SET filename=excluded.filename",
-                (doc_id, filename, size, _now()),
+                (doc_id, filename, size, uploaded_at or _now()),
             )
 
     def get_paper(self, doc_id: str) -> PaperRecord | None:
@@ -226,6 +276,30 @@ class Store:
                 (analysis_id, doc_id, kind, status, settings.model_dump_json(), _now()),
             )
         return analysis_id
+
+    def import_analysis(
+        self, record: AnalysisRecord, findings: list[Finding], api_usage: list[UsageRow]
+    ) -> None:
+        """保存済みの解析結果（ID・日時を含む）をそのまま取り込む（デモの解析に使う）。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, progress, "
+                "warnings, error, created_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.analysis_id,
+                    record.doc_id,
+                    record.kind,
+                    record.status,
+                    json.dumps(record.settings, ensure_ascii=False),
+                    record.progress.model_dump_json(),
+                    json.dumps(record.warnings, ensure_ascii=False),
+                    record.error,
+                    record.created_at,
+                    record.finished_at,
+                ),
+            )
+            self._save_usage(conn, record.analysis_id, api_usage)
+        self.save_findings(record.analysis_id, findings)
 
     def update_settings(self, analysis_id: str, values: dict[str, Any]) -> None:
         """解析の設定に値を足す（解析の開始時に使ったルールセットの記録など）。"""
@@ -291,9 +365,9 @@ class Store:
             if any(r["status"] in ("queued", "running") for r in rows):
                 raise PaperBusyError(doc_id)
             ids = [r["analysis_id"] for r in rows]
-            for table in ("findings", "paragraph_structures", "api_usage"):
+            for table in ("findings", "paragraph_structures", "api_usage", "term_lookups"):
                 conn.executemany(
-                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の3つだけ
+                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の4つだけ
                     [(i,) for i in ids],
                 )
             conn.execute("DELETE FROM analyses WHERE doc_id = ?", (doc_id,))
@@ -397,6 +471,70 @@ class Store:
                 (analysis_id,),
             ).fetchall()
         return [ParagraphStructure.model_validate_json(r["data"]) for r in rows]
+
+    # ------------------------------------------------------------ 未知の用語の照会
+
+    def save_term_lookups(self, analysis_id: str, records: list[TermLookupRecord]) -> None:
+        now = _now()
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO term_lookups (analysis_id, term, query, request_id, status, "
+                "matched, description, source, reason, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        analysis_id,
+                        r.term,
+                        r.query,
+                        r.request_id,
+                        r.status,
+                        r.matched,
+                        r.description,
+                        r.source,
+                        r.reason,
+                        now,
+                    )
+                    for r in records
+                ],
+            )
+
+    def get_term_lookups(self, analysis_id: str) -> list[TermLookupRecord]:
+        """解析の照会の記録に、承認キューでの決定（あれば）を重ねて返す。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT t.term, t.query, t.request_id, "
+                "COALESCE(d.status, t.status) AS status, "
+                "CASE WHEN d.request_id IS NULL THEN t.matched ELSE d.matched END AS matched, "
+                "CASE WHEN d.request_id IS NULL THEN t.description ELSE d.description END "
+                "AS description, "
+                "CASE WHEN d.request_id IS NULL THEN t.source ELSE d.source END AS source, "
+                "t.reason, COALESCE(d.decided_at, t.updated_at) AS updated_at "
+                "FROM term_lookups t LEFT JOIN term_decisions d ON d.request_id = t.request_id "
+                "WHERE t.analysis_id = ? ORDER BY t.rowid",
+                (analysis_id,),
+            ).fetchall()
+        return [TermLookupRecord(**dict(r)) for r in rows]
+
+    def decide_term_lookup(
+        self,
+        request_id: str,
+        status: TermStatus,
+        *,
+        matched: str | None = None,
+        description: str | None = None,
+        source: str | None = None,
+    ) -> None:
+        """承認キューで承認・却下した結果を、要求ごとに記録する。
+
+        その要求を積んだすべての解析に反映される（解析がまだ終わっておらず、照会の記録が保存される前に
+        承認した場合も、後から保存された記録に重ねて表示する）。
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO term_decisions (request_id, status, matched, description, "
+                "source, decided_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (request_id, status, matched, description, source, _now()),
+            )
 
     # ------------------------------------------------------------ 指摘
 

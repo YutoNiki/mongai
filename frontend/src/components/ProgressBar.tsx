@@ -2,7 +2,7 @@ import type { Progress } from "../lib/api";
 import { STAGE_LABELS, label } from "../lib/labels";
 import { overallPercent } from "../lib/progress";
 
-/** 解析全体の進捗バー。色だけに頼らず、工程名と割合を文字でも示す。 */
+/** 解析全体の進捗バー。色だけに頼らず、工程名と割合を文字でも示す。解析中はスピナーも回す。 */
 export function ProgressBar({ status, progress }: { status: string; progress: Progress }) {
   const percent = overallPercent(status, progress);
   const stage = status === "queued" ? "順番待ち" : progress.stage ? label(STAGE_LABELS, progress.stage) : "準備中";
@@ -20,7 +20,11 @@ export function ProgressBar({ status, progress }: { status: string; progress: Pr
       >
         <div className="progress-bar-fill" style={{ width: `${percent}%` }} />
       </div>
-      <span className="progress-bar-text">{text}</span>
+      <span className="progress-bar-status">
+        {/* 処理が続いていることを示す回転の印（装飾。状態は文字で示すので読み上げない） */}
+        {(status === "queued" || status === "running") && <span className="spinner" aria-hidden="true" />}
+        <span className="progress-bar-text">{text}</span>
+      </span>
     </div>
   );
 }

@@ -118,7 +118,7 @@ def test_each_category_has_distinct_shape(pdf_and_boxes: tuple[bytes, list[BBox]
         assert annot["type"] == SHAPES[category]
         assert annot["stroke"] == pytest.approx(hex_to_rgb(ANNOTATION_COLORS[category]), abs=0.01)
     assert annots["MongAI F-0002"]["opacity"] == pytest.approx(HIGHLIGHT_OPACITY, abs=0.01)
-    assert annots["MongAI F-0005"]["dashes"]  # 研究室知識は点線の枠
+    assert annots["MongAI F-0005"]["dashes"]  # 専門知識は点線の枠
     assert not annots["MongAI F-0004"]["dashes"]  # 引用は実線の枠
     # 余白のラベルに、種類名が文字で入っている（色だけで区別しない）
     text = page_text(out)
@@ -127,7 +127,7 @@ def test_each_category_has_distinct_shape(pdf_and_boxes: tuple[bytes, list[BBox]
         "F-0002 読みやすさ",
         "F-0003 ルール違反",
         "F-0004 引用",
-        "F-0005 研究室知識",
+        "F-0005 専門知識",
     ]:
         assert label in text
 
@@ -141,6 +141,14 @@ def test_popup_contents(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:
     assert "根拠：" in text and "S-00004「two datasets」" in text
     assert "改善案：\n1. 案1\n2. 案2" in text
     assert read_annots(annotate_pdf(data, [f]))[0]["content"] == text
+
+
+def test_popup_without_votes_for_single_judgement(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:
+    _, boxes = pdf_and_boxes
+    voted = popup_text(finding("F-0001", "logic", boxes[0], LINES[0]))
+    single = popup_text(finding("F-0002", "citation", boxes[0], LINES[0], votes=1, samples=1))
+    assert "3 回中" in voted
+    assert single.endswith("（MongAI F-0002）") and "回中" not in single
 
 
 def test_annotation_narrowed_to_quote(pdf_and_boxes: tuple[bytes, list[BBox]]) -> None:

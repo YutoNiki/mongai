@@ -46,12 +46,14 @@ from core.report.text import text_report
 from core.rules.extract import delete_rule_file, save_document_file
 from core.rules.models import Rule, RuleDocument, RuleStatus, RuleUpdate
 from core.rules.store import RuleNotFoundError, RuleStore
+from core.sample import is_sample
 from core.store import (
     AnalysisRecord,
     DailyUsage,
     FindingNotFoundError,
     PaperBusyError,
     Store,
+    TermLookupRecord,
     today_jst,
 )
 from core.store.files import delete_paper_file, load_paper, save_paper
@@ -178,6 +180,8 @@ def delete_document(doc_id: str, store: StoreDep) -> Response:
     """論文の PDF と、その論文のすべての解析結果を削除する（外部通信ログは追記専用なので残る）。"""
     if store.get_paper(doc_id) is None:
         raise HTTPException(status_code=404, detail="論文が見つかりません")
+    if is_sample(doc_id):
+        raise HTTPException(status_code=403, detail="デモの論文は削除できません")
     try:
         store.delete_paper(doc_id)
     except PaperBusyError:
@@ -233,6 +237,7 @@ def list_analyses(store: StoreDep) -> list[AnalysisListItem]:
                 finished_at=record.finished_at,
                 total=sum(f.status != "dismissed" for f in findings),
                 progress=record.progress,
+                sample=is_sample(record.doc_id),
             )
         )
     return items
@@ -263,6 +268,7 @@ async def summarize(store: Store, analysis_id: str, gateway: GatewayClient) -> A
         api_usage=usage,
         api_requests=sum(r.requests for r in usage),
         external_requests=external,
+        sample=is_sample(record.doc_id),
     )
 
 
@@ -287,7 +293,7 @@ def _filtered(
     status: Status | None,
 ) -> list[Finding]:
     _analysis_or_404(store, analysis_id)
-    return store.get_findings(
+    findings = store.get_findings(
         analysis_id,
         category=category,
         severity=severity,
@@ -295,6 +301,8 @@ def _filtered(
         confidence=confidence,
         status=status,
     )
+    # 確度で絞るときは、確度を示さない（多数決をしていない）指摘を除く
+    return [f for f in findings if f.voted] if confidence else findings
 
 
 @app.get("/api/analyses/{analysis_id}/findings")
@@ -361,7 +369,7 @@ def findings_csv(
                 category_label(f.category),
                 subcategory_label(f.subcategory),
                 severity_label(f.severity),
-                "高" if f.confidence == "high" else "低",
+                ("高" if f.confidence == "high" else "低") if f.voted else "",
                 f.page,
                 f.quote,
                 f.issue,
@@ -393,6 +401,13 @@ def _diff(store: Store, analysis_id: str) -> tuple[PreviousAnalysis | None, Find
         by_severity=prev_counts.by_severity,
     )
     return previous, diff_findings(store.get_findings(analysis_id), previous_findings)
+
+
+@app.get("/api/analyses/{analysis_id}/terms")
+def analysis_terms(analysis_id: str, store: StoreDep) -> list[TermLookupRecord]:
+    """この解析で照会した未知の用語と、その結果（承認後は学外の辞書の説明）。"""
+    _analysis_or_404(store, analysis_id)
+    return store.get_term_lookups(analysis_id)
 
 
 @app.get("/api/analyses/{analysis_id}/diff")
@@ -510,7 +525,7 @@ async def gateway_queue(gateway: GatewayDep) -> list[dict[str, Any]]:
 
 @app.post("/api/gateway/queue/{request_id}/{action}")
 async def gateway_decide(
-    request_id: str, action: Literal["approve", "reject"], gateway: GatewayDep
+    request_id: str, action: Literal["approve", "reject"], gateway: GatewayDep, store: StoreDep
 ) -> dict[str, Any]:
     try:
         response = await (
@@ -518,6 +533,20 @@ async def gateway_decide(
         )
     except GatewayError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
+    # 用語の照会なら、その要求を積んだ解析の記録に結果を反映する（ダッシュボードに表示する）
+    found = response.response.term if response.response else None
+    if action == "reject":
+        store.decide_term_lookup(request_id, "rejected")
+    elif response.decision == "sent":
+        store.decide_term_lookup(
+            request_id,
+            "approved",
+            matched=found.term if found else None,
+            description=found.description if found else None,
+            source=found.source if found else None,
+        )
+    elif response.decision == "failed":
+        store.decide_term_lookup(request_id, "failed")
     return {
         "request_id": response.request_id,
         "decision": response.decision,
@@ -598,7 +627,7 @@ def delete_rule_document(document_id: str, rules: RuleStoreDep) -> Response:
     return Response(status_code=204)
 
 
-# ---------------------------------------------------------------- 研究室知識（SPEC 3.1〜3.3）
+# ---------------------------------------------------------------- 専門知識（SPEC 3.1〜3.3）
 # すべて、この MongAI が扱う研究室（current_lab_id）のデータだけを読み書きする
 
 
@@ -633,7 +662,7 @@ def delete_lab_document(document_id: str, lab: LabStoreDep, rules: RuleStoreDep)
     """資料と、そこから取り出した過去の指摘・研究室のルールを削除する。"""
     doc = lab.get_document(current_lab_id(), document_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="研究室知識の資料が見つかりません")
+        raise HTTPException(status_code=404, detail="専門知識の資料が見つかりません")
     if doc.status in ("queued", "running"):
         raise HTTPException(status_code=409, detail="取り込み中は削除できません")
     lab.delete_document(current_lab_id(), document_id)

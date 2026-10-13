@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 
 import { ProgressBar } from "../components/ProgressBar";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
 import { elapsedText } from "../lib/progress";
+import { prefetchDashboard } from "../lib/pages";
+import { prefetchAnalysis, waitForAnalysis } from "../lib/prefetch";
 import { Link, navigate } from "../lib/router";
 
 const ANALYSIS_STATUS: Record<string, string> = {
@@ -47,7 +49,19 @@ function ElapsedTime({ item, now }: { item: AnalysisListItem; now: number }) {
 
 const number = (value: number) => value.toLocaleString("ja-JP");
 
+/** 解析結果へ進む：先読みの完了を少し待ってからスライドする（中身のある画面を入れるため） */
+function openAnalysis(event: MouseEvent<HTMLAnchorElement>, analysisId: string): void {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault();
+  void waitForAnalysis(analysisId).then(() => navigate(`/analyses/${analysisId}`, "forward"));
+}
+
 export function HomePage() {
+  // トップページが表示されたあと、手が空いたときに解析結果の画面の部品（グラフのライブラリ）を読み込んでおく
+  useEffect(() => {
+    const timer = window.setTimeout(prefetchDashboard, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [items, setItems] = useState<AnalysisListItem[] | null>(null);
   const [usage, setUsage] = useState<DailyUsage | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -110,7 +124,8 @@ export function HomePage() {
 
   return (
     <div className="page">
-      <h1>論文の投稿前セルフレビュー</h1>
+      <p className="eyebrow">論文の投稿前セルフレビュー</p>
+      <h1>ダッシュボード</h1>
       <div className="grid home-top">
         <section className="panel kpi" aria-labelledby="usage-title">
           <h2 id="usage-title" className="panel-title">
@@ -134,7 +149,6 @@ export function HomePage() {
                   <dd>{number(usage.completion_tokens)}</dd>
                 </div>
               </dl>
-              <p className="note">おいとまAPIへの回数（再試行を含む）。日本時間の0時に切り替わります。</p>
             </>
           )}
         </section>
@@ -144,7 +158,6 @@ export function HomePage() {
           </h2>
           <p className="note">
             アップロードした論文は学内のサーバーにだけ保存され、学外には送信されません。
-            実際の未発表論文を扱うときは、開発用のAIツール（Claude Code など）を起動していない状態で操作してください。
           </p>
           <form onSubmit={submit} className="upload-form">
             <label>
@@ -172,7 +185,7 @@ export function HomePage() {
 
       <section className="panel" aria-labelledby="list-title">
         <h2 id="list-title" className="panel-title">
-          解析の一覧（新しい順）
+          解析済みの論文（新しい順。選ぶと解析結果を開きます）
         </h2>
         {items === null ? (
           <p>読み込み中…</p>
@@ -198,7 +211,17 @@ export function HomePage() {
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
                     <th scope="row" data-label="論文">
-                      <Link href={`/analyses/${item.analysis_id}`}>{item.title ?? item.filename ?? item.doc_id}</Link>
+                      <Link
+                        href={`/analyses/${item.analysis_id}`}
+                        transition="forward"
+                        onPointerEnter={() => void prefetchAnalysis(item.analysis_id)}
+                        onPointerDown={() => void prefetchAnalysis(item.analysis_id)}
+                        onFocus={() => void prefetchAnalysis(item.analysis_id)}
+                        onClick={(event) => openAnalysis(event, item.analysis_id)}
+                      >
+                        {item.sample && "（デモ）"}
+                        {item.title ?? item.filename ?? item.doc_id}
+                      </Link>
                     </th>
                     <td data-label="状態">
                       {ACTIVE.has(item.status) ? (
@@ -213,17 +236,19 @@ export function HomePage() {
                     </td>
                     <td data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
                     <td className="row-actions">
-                      <button
-                        type="button"
-                        className="button-danger icon-button"
-                        disabled={ACTIVE.has(item.status) || deleting !== null}
-                        title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : "削除"}
-                        onClick={() => void remove(item)}
-                        aria-label={`「${item.title ?? item.filename ?? item.doc_id}」を削除`}
-                        aria-busy={deleting === item.doc_id}
-                      >
-                        <TrashIcon />
-                      </button>
+                      {!item.sample && (
+                        <button
+                          type="button"
+                          className="button-danger icon-button"
+                          disabled={ACTIVE.has(item.status) || deleting !== null}
+                          title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : "削除"}
+                          onClick={() => void remove(item)}
+                          aria-label={`「${item.title ?? item.filename ?? item.doc_id}」を削除`}
+                          aria-busy={deleting === item.doc_id}
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

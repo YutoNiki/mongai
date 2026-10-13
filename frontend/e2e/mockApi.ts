@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
-import type { AnalysisListItem, AnalysisSummary, Finding, LabComment, Rule } from "../src/lib/api";
+import type { AnalysisListItem, AnalysisSummary, Finding, LabComment, QueueItem, Rule, TermLookup } from "../src/lib/api";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
@@ -67,7 +67,7 @@ function sampleRules(): Rule[] {
   ];
 }
 
-/** 研究室知識の画面用の合成の過去の指摘 */
+/** 専門知識の画面用の合成の過去の指摘 */
 function sampleLabComments(): LabComment[] {
   return [
     {
@@ -91,6 +91,10 @@ export interface MockApi {
   updates: { findingId: string; body: { status: string; reason: string | null } }[];
   /** /api への要求の URL（パスとクエリ） */
   requests: string[];
+  /** 承認キュー（既定は空。通知のテストで積む） */
+  queue: QueueItem[];
+  /** この解析で照会した用語 */
+  terms: TermLookup[];
 }
 
 /** core の GET /findings と同じ絞り込み（指定がなければ却下済みも含めてすべて返す） */
@@ -110,6 +114,8 @@ export async function mockApi(page: Page): Promise<MockApi> {
     findings: structuredClone(initialFindings),
     updates: [],
     requests: [],
+    queue: [],
+    terms: [],
   };
   const json = (body: unknown, status = 200) => ({
     status,
@@ -197,6 +203,8 @@ export async function mockApi(page: Page): Promise<MockApi> {
       state.labComments = state.labComments.filter((c) => c.comment_id !== decodeURIComponent(labDelete[1] ?? ""));
       return route.fulfill({ status: 204 });
     }
+    if (path === "/api/gateway/queue") return route.fulfill(json(state.queue));
+    if (path === `${base}/terms`) return route.fulfill(json(state.terms));
     if (path === "/api/audit-log") return route.fulfill(json({ available: true, mode: "standard", entries: [] }));
     if (path === "/api/gateway/queue") return route.fulfill(json([]));
     return route.fulfill(json({ detail: `E2E のモックに無い API：${path}` }, 404));

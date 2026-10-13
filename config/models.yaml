@@ -30,6 +30,7 @@ roles:
   reference_extraction: {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # GROBID が失敗した場合の参考文献の構造化
   # early_stop：最初の2回が一致すれば3回目を送らない（残る指摘は3回の多数決と同じ）
   logic_check:          {model: qwen3.8-27b-it, temperature: 0.2, samples: 3, vote: majority, early_stop: true, thinking: true, max_tokens: 16384}
+  term_extraction:      {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}  # 未知の用語の照会（gateway の承認制の term_lookup）
   rule_check:           {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false}
   lab_extraction:       {model: qwen3.6-35b-a3b-it, temperature: 0.0, thinking: false, max_tokens: 8192}  # 研究室知識の取り込み
   # 過去の指摘に類似する箇所の判定。高速モデルでは「今後の課題」などを誤って一致とした（2026-10-13）ため思考モデルにする

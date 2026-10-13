@@ -31,6 +31,11 @@ export interface Finding {
   dismiss_reason: string | null;
 }
 
+/** 多数決（複数回の判定）を取った指摘か。1回だけの判定の指摘には、確度と回数を示さない。 */
+export function isVoted(finding: Pick<Finding, "samples">): boolean {
+  return finding.samples >= 2;
+}
+
 export interface Progress {
   stage: string | null;
   done: number;
@@ -88,6 +93,8 @@ export interface AnalysisSummary {
   api_usage: UsageRow[];
   api_requests: number;
   external_requests: number;
+  /** デモの論文の解析（削除できない） */
+  sample: boolean;
 }
 
 /** 前回の解析との差分（GET /analyses/{id}/diff） */
@@ -108,6 +115,8 @@ export interface AnalysisListItem {
   finished_at: string | null;
   total: number;
   progress: Progress;
+  /** デモの論文（削除できない） */
+  sample: boolean;
 }
 
 export interface FindingFilters {
@@ -138,6 +147,21 @@ export interface AuditEntry {
   request: ExternalRequest | string;
   decision: string;
   reason: string | null;
+}
+
+/** 解析で照会した未知の用語と、その結果（GET /analyses/{id}/terms）。description は学外の辞書の説明 */
+export interface TermLookup {
+  term: string;
+  /** 実際に照会した語（日本語の論文では英語の対応語） */
+  query: string | null;
+  request_id: string | null;
+  status: "pending" | "approved" | "rejected" | "found" | "blocked" | "failed";
+  /** 学外の辞書で該当した見出し */
+  matched: string | null;
+  description: string | null;
+  source: string | null;
+  reason: string | null;
+  updated_at: string;
 }
 
 export interface QueueItem {
@@ -188,7 +212,7 @@ export interface RuleDocument {
 
 export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section" | "check_type">>;
 
-/** 研究室知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
+/** 専門知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
 export interface LabDocument {
   document_id: string;
   lab_id: string;
@@ -277,6 +301,7 @@ export const api = {
       `/audit-log${analysisId ? `?analysis_id=${encodeURIComponent(analysisId)}` : ""}`,
     ),
   queue: () => request<QueueItem[]>("/gateway/queue"),
+  terms: (analysisId: string) => request<TermLookup[]>(`/analyses/${encodeURIComponent(analysisId)}/terms`),
   decide: (requestId: string, action: "approve" | "reject") =>
     request<{ request_id: string; decision: string; reason: string | null }>(
       `/gateway/queue/${encodeURIComponent(requestId)}/${action}`,

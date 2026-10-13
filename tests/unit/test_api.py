@@ -15,8 +15,9 @@ from core.lab.models import LabComment, LabSource
 from core.lab.store import LabStore
 from core.llm.usage import UsageRow
 from core.rules.store import RuleStore
-from core.store import Store, today_jst
-from shared.schemas import GatewayResponse
+from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DOC_ID, install_sample
+from core.store import Store, TermLookupRecord, today_jst
+from shared.schemas import GatewayResponse, SearchResponse, TermResult
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
 from tests.unit.test_annotate import finding
@@ -174,6 +175,36 @@ def test_findings_filters_status_and_csv(ctx: tuple[TestClient, Store, FakeQueue
     text = csv.content.decode("utf-8")
     assert text.startswith("﻿番号,種類,内容,重大度")
     assert "F-0001,論理,主張の過大,重大" in text and "却下,意図した表現" in text
+
+
+def test_single_judgement_has_no_confidence(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    """多数決をしていない（1回だけの判定の）指摘は、確度で絞り込まれず、CSV でも確度を空欄にする。"""
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    doc = make_doc([("1 はじめに", "introduction", [["文．"]])])
+    store.save_document(doc.model_copy(update={"doc_id": doc_id}))
+    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings())
+    box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
+    store.save_findings(
+        aid,
+        [
+            finding("F-0001", "logic", box, "q", doc_id=doc_id, confidence="low", votes=2),
+            finding(
+                "F-0002", "citation", box, "q", doc_id=doc_id, confidence="low", votes=1, samples=1
+            ),
+        ],
+    )
+    store.finish_analysis(aid, status="completed")
+    base = f"/api/analyses/{aid}/findings"
+    low = client.get(base, params={"confidence": "low"}).json()
+    assert [f["finding_id"] for f in low] == ["F-0001"]
+    counts = client.get(f"/api/analyses/{aid}").json()["counts"]
+    assert counts["by_confidence"] == {"low": 1}
+    rows = client.get(f"{base}.csv").content.decode("utf-8").splitlines()
+    assert rows[1].startswith("F-0001,論理,主張の過大,要修正,低,")
+    assert rows[2].split(",")[4] == ""
 
 
 def test_audit_log_when_gateway_unavailable(
@@ -438,3 +469,65 @@ def test_lab_documents_and_comments(
     lab.set_document_status(doc["document_id"], "completed")
     assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 204
     assert client.get("/api/lab/documents").json() == []
+
+
+def test_sample_analysis_is_listed_and_cannot_be_deleted(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    assert install_sample(store)
+    assert not install_sample(store)  # 2回目は取り込まない
+    other = upload(client, pdf)
+    items = {i["doc_id"]: i for i in client.get("/api/analyses").json()}
+    sample = items[SAMPLE_DOC_ID]
+    assert sample["analysis_id"] == SAMPLE_ANALYSIS_ID and sample["sample"] is True
+    assert sample["total"] == 11 and sample["title"]
+    summary = client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}").json()
+    assert summary["sample"] is True and summary["counts"]["total"] == 11
+    assert client.get(f"/api/documents/{SAMPLE_DOC_ID}/paper.pdf").status_code == 200
+    assert client.get(f"/api/analyses/{SAMPLE_ANALYSIS_ID}/annotated.pdf").status_code == 200
+
+    r = client.delete(f"/api/documents/{SAMPLE_DOC_ID}")
+    assert r.status_code == 403
+    assert store.get_analysis(SAMPLE_ANALYSIS_ID) is not None
+    assert client.delete(f"/api/documents/{other}").status_code == 204  # ほかの論文は削除できる
+
+
+class TermGateway(RecordingGateway):
+    """承認すると、用語の説明（学外の辞書の結果）を返す gateway。"""
+
+    async def approve(self, request_id: str) -> GatewayResponse:
+        self.decided.append((request_id, "approve"))
+        term = TermResult(term="Isochrone", description="等時間で到達できる範囲", source="openalex")
+        return GatewayResponse(
+            request_id=request_id, decision="sent", response=SearchResponse(term=term)
+        )
+
+
+def test_term_lookups_follow_queue_decisions(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, _, pdf = ctx
+    app.dependency_overrides[get_gateway] = lambda: TermGateway()
+    aid = seed(store, upload(client, pdf))
+    store.save_term_lookups(
+        aid,
+        [
+            TermLookupRecord(term="アイソクローン", request_id="R-1", status="pending"),
+            TermLookupRecord(term="通院", request_id="R-2", status="pending"),
+            TermLookupRecord(term="DRT-Opt", request_id="R-3", status="blocked", reason="造語"),
+        ],
+    )
+    assert client.post("/api/gateway/queue/R-1/approve").status_code == 200
+    assert client.post("/api/gateway/queue/R-2/reject").status_code == 200
+    terms = {t["term"]: t for t in client.get(f"/api/analyses/{aid}/terms").json()}
+    assert terms["アイソクローン"]["status"] == "approved"
+    assert terms["アイソクローン"]["description"] == "等時間で到達できる範囲"
+    assert terms["アイソクローン"]["source"] == "openalex"
+    assert terms["アイソクローン"]["matched"] == "Isochrone"
+    assert terms["通院"]["status"] == "rejected" and terms["通院"]["description"] is None
+    assert terms["DRT-Opt"]["status"] == "blocked" and terms["DRT-Opt"]["reason"] == "造語"
+    assert client.get("/api/analyses/A-none/terms").status_code == 404
+    # 論文を削除すると、照会の記録も消える
+    assert client.delete(f"/api/documents/{store.get_analysis(aid).doc_id}").status_code == 204  # type: ignore[union-attr]
+    assert store.get_term_lookups(aid) == []

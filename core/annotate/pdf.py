@@ -1,7 +1,7 @@
 """注釈付きPDFの生成（SPEC 4章）。
 
 - 種類は形と色の両方で区別する：論理＝下線、読みやすさ＝網掛け、ルール違反＝波線、
-  引用＝枠、研究室知識＝点線の枠
+  引用＝枠、専門知識＝点線の枠
 - 指摘の引用箇所（quote）をページ上で探し、見つかればその範囲に、見つからなければ文全体に付ける
 - 余白に番号ラベル（「F-0012 論理」）を置く。重なる場合は下にずらす
 - ポップアップには「[種類・重大度] 指摘 / 理由 / 根拠 / 改善案」を入れる
@@ -67,9 +67,12 @@ def popup_text(finding: Finding) -> str:
     if finding.suggestions:
         lines.append("改善案：")
         lines += [f"{i}. {s}" for i, s in enumerate(finding.suggestions, start=1)]
-    lines.append(
-        f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
-    )
+    if finding.voted:
+        lines.append(
+            f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
+        )
+    else:
+        lines.append(f"（MongAI {finding.finding_id}）")
     return "\n".join(lines)
 
 
