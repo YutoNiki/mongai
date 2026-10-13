@@ -75,7 +75,7 @@ async def test_lookup_terms_queues_for_approval() -> None:
             result = await lookup_terms(client, gateway, doc, targets, analysis_id="A-1", lang="ja")
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert "アイソクローン" in sent  # 段落を渡している
-    assert result.pending == ["アイソクローン"] and result.blocked == 1
+    assert result.pending == ["アイソクローン→isochrone"] and result.blocked == 1
     # 日本語の用語は英語の対応語で照会する（対応語が無ければ日本語のまま）
     assert gateway.requests[0] == {"kind": "term_lookup", "term": "isochrone", "lang": "en"}
     assert gateway.requests[1] == {"kind": "term_lookup", "term": "DRT-Opt", "lang": "ja"}

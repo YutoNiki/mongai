@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_DIR = Path(__file__).parent
 SAMPLE_DOC_ID = "67dc154e691a70a2"
-SAMPLE_ANALYSIS_ID = "A-e8f312ab9445"
+SAMPLE_ANALYSIS_ID = "A-2e5ff44fcce2"
 
 
 class _SampleAnalysis(BaseModel):

@@ -62,7 +62,8 @@ def lookup_query(term: str, english: str | None, lang: Lang) -> tuple[str, Lang]
 
 @dataclass
 class TermLookupResult:
-    pending: list[str] = field(default_factory=list)  # 承認待ちに積んだ用語
+    # 承認待ちに積んだ用語（英語で照会したものは「用語→照会した語」）
+    pending: list[str] = field(default_factory=list)
     resolved: list[str] = field(default_factory=list)  # キャッシュ・送信済みで結果が得られた用語
     blocked: int = 0  # gateway が拒否した数
     records: list[TermLookupRecord] = field(default_factory=list)  # 解析ごとに保存する照会の記録
@@ -166,7 +167,7 @@ async def lookup_terms(
             break
         found = response.response.term if response.response else None
         if response.decision == "pending":
-            result.pending.append(term)
+            result.pending.append(term if query == term else f"{term}→{query}")
             status: TermStatus = "pending"
         elif response.decision in ("sent", "cached"):
             result.resolved.append(term)
