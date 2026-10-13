@@ -16,6 +16,22 @@ const ACTIVE = new Set(["queued", "running"]);
 const REFRESH_MS = 15_000;
 const REFRESH_ACTIVE_MS = 5_000;
 
+/** ゴミ箱のアイコン（外部の素材を使わず、SVG で描く） */
+function TrashIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const number = (value: number) => value.toLocaleString("ja-JP");
 
 export function HomePage() {
@@ -178,13 +194,14 @@ export function HomePage() {
                     <td className="row-actions">
                       <button
                         type="button"
-                        className="button-danger"
+                        className="button-danger icon-button"
                         disabled={ACTIVE.has(item.status) || deleting !== null}
-                        title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : undefined}
+                        title={ACTIVE.has(item.status) ? "解析が終わってから削除できます" : "削除"}
                         onClick={() => void remove(item)}
                         aria-label={`「${item.title ?? item.filename ?? item.doc_id}」を削除`}
+                        aria-busy={deleting === item.doc_id}
                       >
-                        {deleting === item.doc_id ? "削除中…" : "削除"}
+                        <TrashIcon />
                       </button>
                     </td>
                   </tr>
