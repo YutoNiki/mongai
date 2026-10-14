@@ -154,7 +154,7 @@ make down
 ```
 
 - 開発用の構成（`make dev`）には、開発用のモック認証サービス（`devauth`）が加わります。http://127.0.0.1:8080/auth/dev-login?user=alice を開くと、利用者 alice としてログインした状態になります（パスワードは無く、開発専用です。ログアウトは `/auth/dev-logout`）。画面の「Googleでログイン」は alice でのログイン、「ログアウト」は devauth のログアウトになります。本番相当の構成（`MONGAI_ENV=production`）の `core` は、開発用の鍵を受け付けず、`devauth` も含みません。Google のログイン（`authn`）とは鍵・Cookie・セッションが別です
-- Google のログインのテストは、偽の Google（`tests/unit/fake_google.py`）を使い、外部と通信せずに行います（`make test`）
+- Google のログインのテストは、偽の Google（`tests/unit/fake_google.py`）を使い、外部と通信せずに行います（`make test`）。実際の Google のアカウントで動作を確かめる手順と、共有のサーバーで試すときの注意は [docs/auth-setup.md](docs/auth-setup.md) の 3.2・第10章にあります
 - 認証の運用：`make authn-rotate-key`（署名の鍵の更新）、`make authn-revoke-sessions`（全員のログインを無効にする）
 - 開発・テストには、公開済みのオープンアクセス論文か合成データだけを使ってください
 - `make live` では、`core`・`gateway`・`searcher`・`worker` は Python のファイルを保存するとそのサービスだけ再起動し、画面は自動で作り直されます（ブラウザを再読み込みすると反映）。**`core/` のファイルを保存すると `worker` も再起動し、実行中の解析・抽出は失敗になります**（もう一度解析してください）。`frontend/index.html`・`vite.config.ts`・依存関係・Dockerfile を変えたときは、もう一度 `make live` を実行します。作業ツリーがそのまま公開されるので、ブランチの切り替えにも注意してください
