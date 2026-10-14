@@ -243,7 +243,7 @@ export function HomePage() {
 
       <section className="panel" aria-labelledby="list-title">
         <h2 id="list-title" className="panel-title">
-          解析済みの論文（新しい順。選ぶと解析結果を開きます）
+          解析済みの論文
         </h2>
         {items === null ? (
           <p>読み込み中…</p>
