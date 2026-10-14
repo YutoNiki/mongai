@@ -11,7 +11,7 @@ DEFAULT_LAB_ID = "default"
 
 
 def current_lab_id() -> str:
-    """この MongAI が扱う研究室（プロトタイプでは1つ。環境変数 MONGAI_LAB_ID で変えられる）。"""
+    """この SI-NSA が扱う研究室（プロトタイプでは1つ。環境変数 MONGAI_LAB_ID で変えられる）。"""
     return os.environ.get("MONGAI_LAB_ID") or DEFAULT_LAB_ID
 
 

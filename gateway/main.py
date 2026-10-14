@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=os.environ.get("MONGAI_LOG_LEVEL", "INFO"))
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-app = FastAPI(title="MongAI gateway", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="SI-NSA gateway", docs_url=None, redoc_url=None, openapi_url=None)
 
 _registry = ManuscriptRegistry()
 _store: AuditStore | None = None

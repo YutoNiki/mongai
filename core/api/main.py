@@ -70,7 +70,7 @@ DISPLAYED_ROLES = (
     "suggestion",
 )
 
-app = FastAPI(title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="SI-NSA core", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 class JobQueue(Protocol):
@@ -628,7 +628,7 @@ def delete_rule_document(document_id: str, rules: RuleStoreDep) -> Response:
 
 
 # ---------------------------------------------------------------- 専門知識（SPEC 3.1〜3.3）
-# すべて、この MongAI が扱う研究室（current_lab_id）のデータだけを読み書きする
+# すべて、この SI-NSA が扱う研究室（current_lab_id）のデータだけを読み書きする
 
 
 @app.get("/api/lab/documents")

@@ -69,10 +69,10 @@ def popup_text(finding: Finding) -> str:
         lines += [f"{i}. {s}" for i, s in enumerate(finding.suggestions, start=1)]
     if finding.voted:
         lines.append(
-            f"（MongAI {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
+            f"（SI-NSA {finding.finding_id}、{finding.samples} 回中 {finding.votes} 回の判定）"
         )
     else:
-        lines.append(f"（MongAI {finding.finding_id}）")
+        lines.append(f"（SI-NSA {finding.finding_id}）")
     return "\n".join(lines)
 
 
@@ -201,7 +201,7 @@ def annotate_pdf(
                 rects = _target_rects(page, finding, boxes)
                 for annot in _add_shape(page, finding.category, rects):
                     annot.set_info(
-                        title=f"MongAI {finding.finding_id}",
+                        title=f"SI-NSA {finding.finding_id}",
                         subject=subcategory_label(finding.subcategory),
                         content=popup_text(finding),
                     )

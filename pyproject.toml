@@ -1,7 +1,7 @@
 [project]
 name = "mongai"
 version = "0.1.0"
-description = "門外不出（MongAI）：学内ローカルLLM基盤「おいとま」上で動く論文の投稿前セルフレビューシステム"
+description = "SI-NSA：学内ローカルLLM基盤「おいとま」上で動く論文の投稿前セルフレビューシステム"
 requires-python = ">=3.12,<3.13"
 
 # 依存ライブラリは requirements/*.txt でサービスごとに固定する（docs/dependencies.md も参照）

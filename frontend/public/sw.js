@@ -1,5 +1,5 @@
 /*
- * MongAI の Service Worker（PWA）。
+ * SI-NSA の Service Worker（PWA）。
  *
  * 画面の部品（HTML・JS・CSS・アイコン・フォント・PDF.js の部品）だけをキャッシュする。
  * 論文・解析結果（/api 以下）は端末に保存しない（キャッシュしない）。
