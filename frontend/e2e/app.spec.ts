@@ -5,7 +5,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { analysisId, mockApi, summary } from "./mockApi";
+import { analysisId, GUEST, mockApi, summary } from "./mockApi";
 
 const title = summary.document?.title ?? "";
 
@@ -332,4 +332,68 @@ test("論文を複数まとめてアップロードし、それぞれの解析�
   expect(api.uploads).toBe(3);
   expect(api.started).toEqual(["0000000000000001", "0000000000000002", "0000000000000003"]);
   await expect(page).toHaveURL("/"); // 複数のときはトップページに留まる
+});
+
+test("ゲスト：共通デモを閲覧でき、論文の解析にはログインを案内する", async ({ page }) => {
+  const api = await mockApi(page, { me: GUEST });
+  const external = watchExternal(page);
+  await page.goto("/");
+  await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
+  const login = page.getByRole("banner").getByRole("link", { name: "Googleでログイン" });
+  await expect(login).toHaveAttribute("href", "/auth/login");
+  // アップロードの代わりにログインの案内を出す（アクセス制御そのものは API が行う）
+  await expect(page.getByLabel("論文のPDF（複数選べます）")).toHaveCount(0);
+  await expect(page.getByText("論文を解析するには、岡山大学のGoogleアカウントでのログインが必要です", { exact: false })).toBeVisible();
+  // 利用回数は利用者ごとなので、ゲストでは問い合わせない
+  expect(api.requests).not.toContain("GET /api/usage/today");
+  // デモの解析結果は開ける
+  await page.getByRole("link", { name: `（デモ）${title}` }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(title);
+  // ほかの画面から始めると、ログイン後にその画面へ戻る
+  await expect(page.getByRole("banner").getByRole("link", { name: "Googleでログイン" })).toHaveAttribute(
+    "href",
+    `/auth/login?next=${encodeURIComponent(`/analyses/${analysisId}`)}`,
+  );
+  expect(external).toEqual([]);
+});
+
+test("ログイン中：利用者を表示し、ログアウトするとゲストとして読み込み直す", async ({ page }) => {
+  const api = await mockApi(page);
+  await page.goto("/");
+  await expect(page.getByText("taro@s.okayama-u.ac.jp")).toBeVisible();
+  await expect(page.getByLabel("論文のPDF（複数選べます）")).toBeVisible();
+  await page.evaluate(() => window.sessionStorage.setItem("mongai:demo-status:x", "{}"));
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
+  expect(api.logouts).toBe(1);
+  await expect(page.getByLabel("論文のPDF（複数選べます）")).toHaveCount(0);
+  expect(await page.evaluate(() => window.sessionStorage.length)).toBe(0);
+});
+
+test("ログインの失敗（許可外のアカウント）を知らせ、URL からエラーを消す", async ({ page }) => {
+  await mockApi(page, { me: GUEST });
+  await page.goto("/?auth_error=denied");
+  await expect(page.getByRole("alert")).toContainText("このGoogleアカウントではログインできません");
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("セッションが切れたら、もう一度ログインするかゲストに戻るよう案内する", async ({ page }) => {
+  const api = await mockApi(page, { me: "expired" });
+  await page.goto("/");
+  await expect(page.getByRole("alert").first()).toContainText("ログインの有効期限が切れた");
+  await expect(page.getByRole("link", { name: "もう一度ログイン" })).toHaveAttribute("href", "/auth/login");
+  await page.getByRole("button", { name: "ゲストに戻る" }).click();
+  await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
+  expect(api.logouts).toBe(1);
+});
+
+test("ログアウトを確定できなかったときは、ゲストに切り替えずに知らせる", async ({ page }) => {
+  const api = await mockApi(page, { logoutStatus: 503 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page.getByRole("alert")).toContainText("ログアウトを確定できませんでした");
+  await expect(page.getByText("taro@s.okayama-u.ac.jp")).toBeVisible();
+  expect(api.logouts).toBe(1);
 });

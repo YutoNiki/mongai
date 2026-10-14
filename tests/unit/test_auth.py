@@ -147,6 +147,32 @@ def test_same_email_with_another_identity_is_not_linked(
     assert google != other
 
 
+def test_directory_allows_subdomains_but_not_lookalikes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """許可したドメインのサブドメインは登録できる。部分一致（fakeokayama-u.ac.jp など）は登録しない。"""
+    monkeypatch.setenv("MONGAI_ALLOWED_EMAIL_DOMAINS", "okayama-u.ac.jp")
+    directory = UserDirectory(UserStore(tmp_path / "db.sqlite3"))
+    assert directory.resolve(identity("a", "a@s.okayama-u.ac.jp")).startswith("U-")
+    assert directory.resolve(identity("b", "B@A.B.OKAYAMA-U.AC.JP")).startswith("U-")
+    for email in ("c@fakeokayama-u.ac.jp", "c@okayama-u.ac.jp.evil.com", "c@okayama-u.ac.j"):
+        with pytest.raises(InvalidAssertion):
+            directory.resolve(identity("c", email))
+
+
+def test_existing_user_outside_allowed_domains_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既に登録した利用者でも、主張のメールアドレスが許可の範囲外・未確認なら拒否する。"""
+    monkeypatch.setenv("MONGAI_ALLOWED_EMAIL_DOMAINS", "example.ac.jp")
+    directory = UserDirectory(UserStore(tmp_path / "db.sqlite3"))
+    directory.resolve(identity())
+    with pytest.raises(InvalidAssertion):
+        directory.resolve(identity(email="alice@evil.example"))
+    with pytest.raises(InvalidAssertion):
+        directory.resolve(identity(email_verified=False))
+
+
 def test_disabled_user_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MONGAI_ALLOWED_EMAIL_DOMAINS", "example.ac.jp")
     users = UserStore(tmp_path / "db.sqlite3")

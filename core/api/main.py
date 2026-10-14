@@ -23,7 +23,17 @@ from core.api.dependencies import (
     get_user_directory,
     get_verifier,
 )
-from core.api.routers import analyses, documents, exports, findings, gateway, lab, rules, usage
+from core.api.routers import (
+    analyses,
+    documents,
+    exports,
+    findings,
+    gateway,
+    lab,
+    me,
+    rules,
+    usage,
+)
 from core.logging_config import configure_logging
 from core.store.db import DEFAULT_DB_PATH
 from core.store.schema import ensure_schema
@@ -65,6 +75,7 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(me.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(usage.router, prefix="/api")
 app.include_router(analyses.router, prefix="/api")

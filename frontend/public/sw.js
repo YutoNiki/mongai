@@ -2,10 +2,10 @@
  * SI-NSA の Service Worker（PWA）。
  *
  * 画面の部品（HTML・JS・CSS・アイコン・フォント・PDF.js の部品）だけをキャッシュする。
- * 論文・解析結果（/api 以下）は端末に保存しない（キャッシュしない）。
+ * 論文・解析結果（/api 以下）とログイン（/auth 以下）は扱わない（端末に保存せず、常にネットワークから取る）。
  */
 // 中身を変えたら番号を上げる（古いキャッシュは activate で消える）
-const CACHE = "mongai-shell-v2";
+const CACHE = "mongai-shell-v3";
 const SHELL = ["/", "/manifest.webmanifest", "/favicon.ico", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -23,17 +23,26 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  // 同じオリジンの GET だけを扱う。API（論文・解析結果）は常にネットワークから取り、保存しない
-  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
+  // 同じオリジンの GET だけを扱う。API（論文・解析結果）とログイン（/auth/）は常にネットワークから取り、保存しない
+  if (
+    request.method !== "GET" ||
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/auth/")
+  ) {
     return;
   }
-  // 画面の遷移：ネットワークを優先し、つながらないときだけ保存した画面を返す
+  // 画面の遷移：ネットワークを優先し、つながらないときだけ保存した画面を返す。
+  // 保存するのは画面（index.html）の正常な応答だけ（リダイレクトなどは保存しない）
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put("/", copy));
+          const html = (response.headers.get("content-type") ?? "").startsWith("text/html");
+          if (response.ok && response.type === "basic" && !response.redirected && html) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put("/", copy));
+          }
           return response;
         })
         .catch(() => caches.match("/")),

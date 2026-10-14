@@ -2,7 +2,7 @@
 
 SI-NSA に認証・認可を入れるための設計の基準です。実装の PR はこの文書に沿って進め、方針を変えるときはこの文書を先に更新します。
 
-- 状態：設計確定（2026-10-14。実装はまだ行っていない）。まだ決まっていない事項は第L章にまとめる
+- 状態：設計確定（2026-10-14）。個人データの分離（K.2 の PR2）まで実装済み。ログイン（PR3。Google の OIDC）は実装済みで、実際の Google アカウントでのログインは手動での確認待ち。まだ決まっていない事項は第L章にまとめる
 - 対象のコード：`upstream/main` の 0b3916e（API を `core/api/routers/` に分けた後）
 - 関連：`docs/SPEC.md`（第2章 セキュリティ要件、3.1 入力）、`docs/demo.md`、`TODO.md`「認証・認可の準備」
 
@@ -731,13 +731,15 @@ flowchart LR
     end
     subgraph auth_net["auth_net internal: true"]
         authn[authn 認証サービス]
+    end
+    subgraph auth_egress_net["auth_egress_net internal: true"]
         auth_proxy[auth_proxy Squid]
     end
     web -->|auth_request 本文なし| authn
     web -->|/auth/ ログイン・コールバック| authn
     web -->|/api/ + 署名つきの主張| core
     authn --> auth_proxy
-    auth_proxy -->|許可ドメインだけ| idp[(認証プロバイダー)]
+    auth_proxy -->|auth_outbound_net 許可ドメインだけ| idp[(Google の OIDC)]
     browser -.->|ログインのページ遷移| idp
 ```
 
@@ -750,7 +752,19 @@ flowchart LR
 - `authn` と、その外向きのプロキシ（`auth_proxy`。認証プロバイダーのドメインだけを許可）は、`data_private`・`app_db`・`audit_log` をマウントしない。`authn` に渡るのはセッションの Cookie とヘッダーだけ
 - ユーザーの表（`users`・`user_identities`）は `core` の DB に置き、`authn` は外部の識別子を主張に載せるだけにする（`authn` は DB を持たないか、セッションだけを持つ）
 
-ネットワークの名前・Squid の設定・`authn` の実装（自作か、`oauth2-proxy` の `auth_request` 対応を使うか）は、PR3 の実装の前に提案して確認を取ります。新しい外部通信の経路を作る変更なので、CLAUDE.md の「`internal: true` のネットワーク構成を崩す変更は事前に確認」にも当たります。`oauth2-proxy` を使う場合も、`core` が検証できる署名つきの主張を渡せること（未署名のヘッダーを信用しないこと）を条件にします。
+**実装（2026-10-14。認証専用の外向きの経路を追加することは、利用者の承認を得た）**
+
+- ネットワーク：`auth_net`（`web`・`authn`。`internal: true`）、`auth_egress_net`（`authn`・`auth_proxy`。`internal: true`）、`auth_outbound_net`（`auth_proxy` の外向き）。`authn` は `core`・`worker`・`gateway`・`searcher` とネットワークを共有しない。新しいホストのポートは公開しない
+- `auth_proxy`：Squid。HTTPS の CONNECT だけを、`config/proxy/auth_allowlist.txt` のホスト（`accounts.google.com`：OIDC Discovery、`oauth2.googleapis.com`：トークンの交換、`www.googleapis.com`：JWKS）に完全一致で許可する。書誌検索用の `egress_proxy` とは別にする。ブラウザが開くログインの画面（`accounts.google.com`）は、ブラウザから直接開く
+- `authn`：自作（`authn/`。FastAPI・Authlib・joserfc）。`oauth2-proxy` は、`core` が検証できる Ed25519 の主張を作れず、Google の `hd` とメールのドメインを「許可したドメインとそのサブドメイン」で確かめる処理も足せないため採らなかった（L.7）
+  - ログイン：認可コードフロー＋PKCE（S256）。`state`・`nonce`・PKCE の値はサーバー側（`authn_data` の SQLite）に保存し、ブラウザの Cookie（ランダムな値のハッシュで照合）に結び付ける。1回だけ使え、10分で失効する。リダイレクト URI は設定値（`GOOGLE_OAUTH_REDIRECT_URI`）だけから決め、要求の `Host` は使わない。ログイン後に戻す先はアプリの中のパスだけ
+  - ID トークンの検証：署名（Google の JWKS、RS256）、`iss`（`https://accounts.google.com` か `accounts.google.com`）、`aud`（クライアント ID）、`azp`、`exp`・`iat`（発行から10分以内）、`nonce`、`sub`、`email_verified` が true、`email` と `hd` のドメインがそれぞれ許可したドメインかそのサブドメイン（両者の一致までは求めない）。認可の要求に付ける `hd` はアカウント選択の補助（`*`：Google Workspace のアカウント全般）で、判定には使わない。特定のドメイン（`okayama-u.ac.jp`）を指定すると、Google の画面がメールアドレスの末尾をそのドメインに固定し、`s.okayama-u.ac.jp` の学生が入力できなくなる（2026-10-14 に実際のログインで確認）
+  - セッション：HttpOnly・SameSite=Lax・Path=/ の Cookie に、ランダムな ID（256ビット）だけを入れる。サーバー側には ID のハッシュ・`iss`・`sub`・メールアドレス・日時だけを保存する（Google のトークンは保存しない）。期間8時間・無操作120分（設定で変更可）。ログアウトでサーバー側から消す。ログインのたびに新しい ID にする
+  - 主張：有効期間60秒、`kid` は `authn-` で始まる。秘密鍵は `authn_data` に（0600）、公開鍵は `authn_public` に置き、`core` は読み取り専用でマウントする（`MONGAI_AUTH_PUBLIC_KEY_FILE=/keys/authn/authn.json`）
+  - `/auth/verify`：Cookie なし → 200（ゲスト）、有効 → 200＋主張、不正・失効 → 401、ストアの障害 → 503。nginx は 401 を `{"detail":"invalid_session"}`、`authn` に問い合わせられないときは 503 `{"detail":"auth_unavailable"}` で返す（ゲストにしない）。`/auth/verify` はブラウザから直接呼べない（404）
+  - ログアウト：`POST /auth/logout`。`Origin` が設定のオリジンと一致し、`Sec-Fetch-Site` が same-origin のときだけ受け付ける
+- `core`：`GET /api/me`（ゲストか、ログインした利用者のメールアドレス・表示名だけを返す）。`UserDirectory` は、許可したドメインを設定しているとき、既に登録した利用者でも主張のメールアドレスが範囲外なら拒否する
+- 設定・運用の手順は `docs/auth-setup.md`
 
 ### I.4 ローカル PC と研究室サーバー
 
@@ -765,7 +779,7 @@ flowchart LR
 
 最終的な認証プロバイダーはまだ決まっていません（L.1）。候補ごとの注意点だけを記録します。
 
-- **Google（大学の Google Workspace アカウント）**：OIDC。`hd`（ドメイン）で学内のアカウントに限定できる。`sub` を外部識別子にする（メールアドレスにしない）
+- **Google（大学の Google Workspace アカウント）**：OIDC。`hd`（ドメイン）で学内のアカウントに限定できる。`sub` を外部識別子にする（メールアドレスにしない）。**採用した（L.1）**
 - **Supabase Auth ＋ Google OAuth**（`gomazarashi/location-message-app` で利用）：Supabase はホスティングされた外部サービスで、利用者のメールアドレス・名前が Supabase に保存される。論文は送らないが、個人情報の外部保存になる。ブラウザの SDK を使うと CSP の `connect-src` を緩める必要がある（案D）ので、使うなら `authn` のサーバー側のフローに限る
 - **岡山大学の公式 SSO**：連携の可否・方式（SAML か OIDC か）・申請の手続きが不明。SAML の場合は `authn` で OIDC 相当の主張に変換する
 
@@ -774,7 +788,7 @@ flowchart LR
 ### I.6 CSP とヘッダー
 
 - 現行の CSP（`connect-src 'self'`、`form-action 'self'`）は変えない。ログインはリンクによるページ遷移で認証プロバイダーに移るので、`connect-src` に学外のドメインは要らない。ログインを `<form>` の送信で始めると、ブラウザによっては `form-action` のリダイレクトの扱いで止まるので、リンク（`GET`）で始める
-- セッションの Cookie は `HttpOnly`、`SameSite=Lax`、`Path=/`。HTTPS でない（`127.0.0.1` の HTTP）構成では `Secure` を付けられないため、研究室サーバーでの TLS の有無とあわせて PR3 で決める
+- セッションの Cookie は `HttpOnly`、`SameSite=Lax`、`Path=/`。リダイレクト URI が `https://` のときは `Secure` と `__Host-` の接頭辞を付ける。`http://localhost` の構成（SSH のポートフォワード）では `Secure` を付けられない（通信は SSH で暗号化される）
 - Service Worker（`frontend/public/sw.js`）は `/api/` 以下をキャッシュしない設計で、利用者ごとのデータが端末に残らない。この方針を保ち、`/auth/` も同じくキャッシュの対象外にする
 
 ---
@@ -829,7 +843,7 @@ flowchart LR
 
 - gateway：`owner_id` の無い一覧の要求の拒否、他人の `owner_id` での承認の拒否、`pending_for` が別の `owner_id` をまとめないこと
 - gateway → `searcher`：`owner_id` が `searcher` に渡らないこと
-- PR3：`authn` と `auth_proxy` に `data_private` がマウントされていないこと、`auth_proxy` が許可ドメイン以外を拒否すること、`core` から認証プロバイダーに到達できないこと、nginx がブラウザから来た主張のヘッダーを上書きすること
+- PR3：`authn` と `auth_proxy` に `data_private` がマウントされていないこと、`auth_proxy` が許可ドメイン以外を拒否すること、`core` から認証プロバイダーに到達できないこと、nginx がブラウザから来た主張のヘッダーを上書きすること（`tests/security/run.sh`・`tests/unit/test_compose_structure.py` に追加済み）。OIDC の検証・セッション・ログアウトは偽の Google（`tests/unit/fake_google.py`）で `tests/unit/test_authn.py`、`authn` と `core` の結合は `tests/unit/test_authn_core.py`、画面は `frontend/e2e/app.spec.ts`
 
 ---
 
@@ -867,6 +881,7 @@ PR2 は大きくなるので、コミットをデータモデル → 移行 → 
 - 決めるもの：プロバイダー、許可するメールのドメインの一覧（`okayama-u.ac.jp` と `s.okayama-u.ac.jp` の扱いなど）、プロバイダーの移行時の紐付けの手順
 - 決定済み：許可するドメインの利用者は、初回のログインで自動で登録する（事前登録制にしない）
 - 判断の時期：PR3 の着手前（PR1・PR2 はプロバイダーに依存しない）
+- **決定（2026-10-14）**：Google の OIDC。許可するのは `okayama-u.ac.jp` とそのすべてのサブドメイン（大文字・小文字を区別せず、部分一致にしない）。メールのドメインと `hd` の両方が許可の範囲にあることを求める（両者の一致までは求めない）。学生・教職員の区別はしない。実際の岡山大学のアカウントで `hd` がどう発行されるかは未確認で、ログインできない場合も検証は緩めず、`authn` のログ（クレームの名前・`hd`・メールのドメインだけ）で調べる（`docs/auth-setup.md` 第5章）
 
 ### L.2 岡山大学の公式 SSO との連携の可否
 
@@ -900,7 +915,7 @@ PR2 は大きくなるので、コミットをデータモデル → 移行 → 
 
 | 事項 | 推奨 | 時期 |
 |---|---|---|
-| 認証サービスの実装（自作か `oauth2-proxy` か） | 署名つきの主張を渡せる方。PR3 で比較して提案 | PR3 |
+| 認証サービスの実装（自作か `oauth2-proxy` か） | **決定**：自作（FastAPI・Authlib）。I.3 の「実装」 | PR3 |
 | 利用者ごとの利用量の上限 | 今回は作らない（おいとまAPI は回数・負荷の制限なし） | 運用の開始後 |
 
 ---
@@ -937,7 +952,7 @@ PR2 は大きくなるので、コミットをデータモデル → 移行 → 
 |---|---|---|---|---|
 | 1 | ベクトル DB | SPEC 7「LanceDB（名前空間ごとにテーブル）」、3.1「ベクタDB上で名前空間を分ける」 | SQLite に埋め込みを JSON で保存。`lancedb` ボリュームはマウントだけ | 所有者の列で絞る（G.6）。SPEC との差異は別途整理 |
 | 2 | 先行研究の PDF の入力 | SPEC 3.1 | 未実装 | 実装するときは個人のデータとして扱う |
-| 3 | 認証 | `core/api/main.py` の docstring「認証は無い（web は 127.0.0.1 にだけ公開し、SSH のポートフォワード等で利用する前提）」、README の構成図 | 認証なし | この設計で認証を入れる。PR3 で docstring・README を更新 |
+| 3 | 認証 | `core/api/main.py` の docstring「認証は無い（web は 127.0.0.1 にだけ公開し、SSH のポートフォワード等で利用する前提）」、README の構成図 | Google の OIDC（PR3） | docstring・README・構成図は更新済み |
 | 4 | 文書 ID | `core/store/files.py`「内容の SHA-256 の先頭16桁。core.ingest.pipeline と同じ」 | 内容ハッシュ | ランダムな ID と `content_sha256` に分ける（第E章） |
 | 5 | 指摘の却下理由の再利用 | SPEC 3.4「将来、研究室知識として再利用する」 | 未実装 | 再利用するときは、指摘の所有者（解析の所有者）の専門知識にだけ加える |
-| 6 | デモの手順 | `docs/demo.md`「トップページで `demo_paper_ja.pdf` をアップロードし、解析を開始する」 | 共通デモの文書に解析が付く（第M章 #3） | 個人の文書として解析される（ログインが必要になる）。PR3 で `docs/demo.md` を更新 |
+| 6 | デモの手順 | `docs/demo.md`「トップページで `demo_paper_ja.pdf` をアップロードし、解析を開始する」 | 共通デモの文書に解析が付く（第M章 #3） | 個人の文書として解析される（ログインが必要になる）。`docs/demo.md` は更新済み |

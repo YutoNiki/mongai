@@ -13,6 +13,8 @@ COMPOSE="docker compose -f compose.yaml"
 OITOMA_MODELS_URL="https://ironical.okayama-u.ac.jp/ai/v1/models"
 OUTSIDE_URL="https://example.com/"
 ALLOWED_URL="https://api.crossref.org/works?rows=0"
+GOOGLE_DISCOVERY_URL="https://accounts.google.com/.well-known/openid-configuration"
+SERVICES="web core worker gateway searcher redis grobid oitoma_proxy egress_proxy authn auth_proxy"
 
 passed=0
 failed=0
@@ -63,7 +65,7 @@ container_id() {
 }
 
 echo "== 稼働確認"
-for svc in web core worker gateway searcher redis grobid oitoma_proxy egress_proxy; do
+for svc in $SERVICES; do
     if [ -n "$(container_id "$svc")" ]; then
         pass "$svc が起動している"
     else
@@ -124,8 +126,158 @@ if [ -n "$sid" ]; then
     fi
 fi
 
+echo "== 認証サービス（authn）と認証専用のプロキシ（auth_proxy）"
+expect_blocked "authn から example.com に直接到達できない" authn "$OUTSIDE_URL" ""
+expect_blocked "authn から Google に直接（プロキシなしで）到達できない" authn "$GOOGLE_DISCOVERY_URL" ""
+expect_blocked "auth_proxy が許可外のドメイン（example.com）を拒否する" \
+    authn "$OUTSIDE_URL" "http://auth_proxy:3128"
+expect_blocked "auth_proxy が書誌API（crossref）を拒否する（書誌検索用のプロキシとは分ける）" \
+    authn "$ALLOWED_URL" "http://auth_proxy:3128"
+expect_blocked "auth_proxy が おいとまAPIを拒否する" \
+    authn "$OITOMA_MODELS_URL" "http://auth_proxy:3128"
+expect_blocked "auth_proxy が Google 以外の googleapis.com を拒否する（ワイルドカードで許可しない）" \
+    authn "https://storage.googleapis.com/" "http://auth_proxy:3128"
+expect_blocked "auth_proxy が許可ドメインへの平文HTTPを拒否する" \
+    authn "http://accounts.google.com/.well-known/openid-configuration" "http://auth_proxy:3128"
+if out=$(probe authn "$GOOGLE_DISCOVERY_URL" "http://auth_proxy:3128"); then
+    pass "authn から auth_proxy 経由で Google の OIDC の設定に到達できる"
+else
+    warn "authn から auth_proxy 経由で Google に到達できない（ホストの外部接続を確認）" "$out"
+fi
+for target in "http://core:8000/api/healthz" "http://gateway:8000/healthz" "http://searcher:8000/healthz" \
+        "http://redis:6379/" "http://oitoma_proxy:3128/" "http://egress_proxy:3128/"; do
+    expect_blocked "authn から $target に到達できない" authn "$target" ""
+done
+for svc in core worker gateway searcher; do
+    expect_blocked "$svc から authn に到達できない" "$svc" "http://authn:8000/healthz" ""
+    expect_blocked "$svc から auth_proxy 経由で Google に到達できない" \
+        "$svc" "$GOOGLE_DISCOVERY_URL" "http://auth_proxy:3128"
+done
+expect_blocked "searcher から egress_proxy 経由で Google の認証に到達できない" \
+    searcher "$GOOGLE_DISCOVERY_URL" "http://egress_proxy:3128"
+
+aid=$(container_id authn)
+if [ -n "$aid" ]; then
+    mounts=$(docker inspect -f '{{range .Mounts}}{{.Name}}->{{.Destination}} {{end}}' "$aid")
+    if echo "$mounts" | grep -E -q 'data_private|lancedb|app_db|audit_log|devauth'; then
+        fail "authn に論文データ・DB・監査ログのボリュームがマウントされていない" "$mounts"
+    else
+        pass "authn に論文データ・DB・監査ログのボリュームがマウントされていない"
+    fi
+    if $COMPOSE exec -T authn python -c 'import os,sys; sys.exit(0 if not any(os.path.exists(p) for p in ("/data/private","/data/db","/data/audit","/data/lancedb")) else 1)'; then
+        pass "authn から未公開論文・DB・監査ログのディレクトリが見えない"
+    else
+        fail "authn から未公開論文・DB・監査ログのディレクトリが見えない"
+    fi
+    perm=$($COMPOSE exec -T authn stat -c '%a' /data/authn/signing_key.json 2>/dev/null | tr -d '\r')
+    if [ "$perm" = "600" ]; then
+        pass "authn の署名の秘密鍵は所有者だけが読める（600）"
+    else
+        fail "authn の署名の秘密鍵は所有者だけが読める（600）" "perm=$perm"
+    fi
+fi
+for svc in core worker gateway searcher web; do
+    cid=$(container_id "$svc")
+    [ -z "$cid" ] && continue
+    if docker inspect -f '{{range .Mounts}}{{.Name}} {{end}}' "$cid" | grep -q 'authn_data'; then
+        fail "$svc に認証サービスの秘密鍵・セッションのボリュームがマウントされていない"
+    else
+        pass "$svc に認証サービスの秘密鍵・セッションのボリュームがマウントされていない"
+    fi
+done
+if $COMPOSE exec -T core python -c '
+import pathlib, sys
+files = [p for p in pathlib.Path("/keys").rglob("*") if p.is_file()]
+bad = [str(p) for p in files if "private_key" in p.read_text(errors="ignore")]
+sys.exit(1 if bad or not pathlib.Path("/keys/authn/authn.json").exists() else 0)'; then
+    pass "core には authn の公開鍵だけがあり、秘密鍵は無い"
+else
+    fail "core には authn の公開鍵だけがあり、秘密鍵は無い"
+fi
+if $COMPOSE exec -T core sh -c 'touch /keys/authn/x 2>/dev/null'; then
+    fail "core は authn の公開鍵を書き換えられない（読み取り専用）"
+else
+    pass "core は authn の公開鍵を書き換えられない（読み取り専用）"
+fi
+if [ -z "$(docker ps -q --filter label=com.docker.compose.project=mongai --filter label=com.docker.compose.service=devauth)" ]; then
+    pass "本番相当の構成で開発用の devauth が動いていない"
+else
+    fail "本番相当の構成で開発用の devauth が動いていない"
+fi
+
+echo "== web（nginx）の認証の中継"
+# internal_net の core のコンテナから web（nginx）に要求し、ブラウザからの要求と同じ経路を確かめる。
+# 引数：メソッド パス [ヘッダー名=値 ...]。出力：ステータス 本文の先頭
+WEBPROBE='
+import sys, urllib.request as u, urllib.error as e
+method, path, *pairs = sys.argv[1:]
+headers = dict(p.split("=", 1) for p in pairs)
+req = u.Request("http://web:8080" + path, method=method, headers=headers,
+                data=b"x" if method == "POST" else None)
+class NoRedirect(u.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+try:
+    resp = u.build_opener(u.ProxyHandler({}), NoRedirect).open(req, timeout=8)
+    status, body, location = resp.status, resp.read(300), ""
+except e.HTTPError as err:
+    status, body, location = err.code, err.read(300), err.headers.get("Location", "")
+print(status, body.decode(errors="replace"), location)
+'
+web_req() {
+    $COMPOSE exec -T core python -c "$WEBPROBE" "$@" 2>&1
+}
+out=$(web_req GET /api/me "X-MongAI-Assertion=forged.forged.forged")
+case "$out" in
+    "200 "*'"authenticated":false'*) pass "ブラウザが送った X-MongAI-Assertion は捨てられ、ゲストとして扱われる" ;;
+    *) fail "ブラウザが送った X-MongAI-Assertion は捨てられ、ゲストとして扱われる" "$out" ;;
+esac
+out=$(web_req GET /api/analyses "Cookie=mongai_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+case "$out" in
+    "401 "*invalid_session*) pass "無効なセッションの Cookie は 401（invalid_session）で、ゲストにならない" ;;
+    *) fail "無効なセッションの Cookie は 401（invalid_session）で、ゲストにならない" "$out" ;;
+esac
+out=$(web_req GET /auth/verify)
+case "$out" in
+    "404 "*) pass "/auth/verify はブラウザから直接呼べない（404）" ;;
+    *) fail "/auth/verify はブラウザから直接呼べない（404）" "$out" ;;
+esac
+out=$(web_req GET /api/healthz)
+case "$out" in
+    "200 "*'"status":"ok"'*) pass "GET /api/healthz はゲストで使える" ;;
+    *) fail "GET /api/healthz はゲストで使える" "$out" ;;
+esac
+out=$(web_req GET /api/analyses)
+case "$out" in
+    "200 "*) pass "Cookie の無い要求はゲストとして共通デモを閲覧できる" ;;
+    *) fail "Cookie の無い要求はゲストとして共通デモを閲覧できる" "$out" ;;
+esac
+out=$(web_req POST /auth/logout "Origin=https://evil.example")
+case "$out" in
+    "403 "*) pass "ほかのサイトからのログアウトの要求は拒否される（CSRF 対策）" ;;
+    *) fail "ほかのサイトからのログアウトの要求は拒否される（CSRF 対策）" "$out" ;;
+esac
+# 設定と違う名前（web:8080）で開くと、要求の Host ではなく設定したオリジンに移す（オープンリダイレクトにしない）
+out=$(web_req GET /auth/login)
+case "$out" in
+    *web:8080*) fail "/auth/login は authn に中継され、設定したオリジンにだけ移す" "$out" ;;
+    "303 "*"/auth/login") pass "/auth/login は authn に中継され、設定したオリジンにだけ移す" ;;
+    *) fail "/auth/login は authn に中継され、設定したオリジンにだけ移す" "$out" ;;
+esac
+# 設定したオリジン（既定は localhost:8080）で開くと、Google の画面へ移るか、未設定のエラーで画面に戻る（ループしない）
+out=$(web_req GET /auth/login "Host=localhost:8080")
+case "$out" in
+    "303 "*"https://accounts.google.com/"*|"303 "*"/?auth_error=not_configured") pass "設定したオリジンの /auth/login はリダイレクトのループにならない" ;;
+    *) fail "設定したオリジンの /auth/login はリダイレクトのループにならない" "$out" ;;
+esac
+if $COMPOSE exec -T web nginx -t >/dev/null 2>&1; then
+    pass "nginx の設定が有効（nginx -t）"
+else
+    fail "nginx の設定が有効（nginx -t）" "$($COMPOSE exec -T web nginx -t 2>&1 | tail -3)"
+fi
+
 echo "== ポート公開（web の 127.0.0.1:8080 のみ）"
-for svc in web core worker gateway searcher redis grobid oitoma_proxy egress_proxy; do
+for svc in $SERVICES; do
     cid=$(container_id "$svc")
     [ -z "$cid" ] && continue
     bindings=$(docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostIp}}:{{.HostPort}}->{{$p}} {{end}}{{end}}' "$cid" | xargs)
@@ -143,7 +295,7 @@ for svc in web core worker gateway searcher redis grobid oitoma_proxy egress_pro
 done
 
 echo "== 非root・読み取り専用"
-for svc in web core worker gateway searcher redis grobid oitoma_proxy egress_proxy; do
+for svc in $SERVICES; do
     cid=$(container_id "$svc")
     [ -z "$cid" ] && continue
     uid=$($COMPOSE exec -T "$svc" id -u 2>/dev/null | tr -d '\r')

@@ -4,6 +4,8 @@
   鍵の ID は dev- で始まり、本番の構成（MONGAI_ENV=production）の core は受け付けない
 - /auth/dev-login?user=alice で、その名前の利用者としてログインした状態にする（Cookie）。
   /auth/dev-logout でゲストに戻る。パスワードは無い（開発用のため。本番では使わない）
+- 画面の「Googleでログイン」（/auth/login）は利用者 alice でのログインに、「ログアウト」（POST /auth/logout）は
+  Cookie の削除にする（本物の authn と同じ入口。画面を開発用の構成でも試せるようにする）
 - web（nginx）の auth_request から /auth/verify を呼ぶ。Cookie が無ければゲスト（主張なし）、
   有効なら主張をヘッダーで返し、不正なら 401
 - 学外とは通信しない（internal_net だけに所属する）
@@ -97,6 +99,18 @@ def dev_login(user: str) -> Response:
         return Response("user は英小文字・数字・-・_ の32文字以内にしてください", status_code=422)
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(COOKIE, user, httponly=True, samesite="lax", path="/")
+    return response
+
+
+@app.get("/auth/login")
+def login() -> Response:
+    return RedirectResponse("/auth/dev-login?user=alice", status_code=303)
+
+
+@app.post("/auth/logout")
+def logout() -> Response:
+    response = Response(status_code=204)
+    response.delete_cookie(COOKIE, path="/")
     return response
 
 
