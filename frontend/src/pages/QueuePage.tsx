@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api, type QueueItem } from "../lib/api";
 import { DECISION_LABELS, REQUEST_KIND_LABELS, label } from "../lib/labels";
@@ -9,50 +9,25 @@ import { Link } from "../lib/router";
 export function QueuePage() {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  // まとめて承認・却下する要求の ID
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
-    api.queue().then(
-      (queue) => {
-        setItems(queue);
-        // 処理済みで一覧から消えた要求は選択から外す
-        const ids = new Set(queue.map((item) => item.request_id));
-        setSelected((prev) => new Set([...prev].filter((id) => ids.has(id))));
-      },
-      () => setMessage("承認キューを読み込めませんでした"),
-    );
+    api.queue().then(setItems, () => setMessage("承認キューを読み込めませんでした"));
   }, []);
   useEffect(load, [load]);
 
-  const allSelected = items !== null && items.length > 0 && selected.size === items.length;
-  useEffect(() => {
-    if (selectAllRef.current) selectAllRef.current.indeterminate = selected.size > 0 && !allSelected;
-  }, [selected, allSelected]);
-
-  const toggle = (requestId: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(requestId)) next.delete(requestId);
-      else next.add(requestId);
-      return next;
-    });
-  const toggleAll = () => setSelected(allSelected || !items ? new Set() : new Set(items.map((item) => item.request_id)));
-
-  /** 選択した要求を1件ずつ順に処理する（途中で失敗しても残りを続け、結果を件数でまとめて知らせる） */
-  const decideSelected = async (action: "approve" | "reject") => {
-    const targets = (items ?? []).filter((item) => selected.has(item.request_id));
+  /**
+   * 表示中の要求をすべて1件ずつ順に処理する（途中で失敗しても残りを続け、結果を件数でまとめて知らせる）。
+   * 画面を開いた後にキューに入った要求は、利用者が見ていないので対象にしない
+   */
+  const decideAll = async (action: "approve" | "reject") => {
+    const targets = items ?? [];
     if (targets.length === 0) return;
-    if (
-      action === "approve" &&
-      !window.confirm(
-        `選択した ${targets.length} 件を学外に送信します。どれも原稿の内容を含んでいないことを確認しましたか？`,
-      )
-    ) {
-      return;
-    }
+    const question =
+      action === "approve"
+        ? `表示中の ${targets.length} 件をすべて学外に送信します。どれも原稿の内容を含んでいないことを確認しましたか？`
+        : `表示中の ${targets.length} 件をすべて却下しますか？`;
+    if (!window.confirm(question)) return;
     setBusy(true);
     const counts = new Map<string, number>();
     let errors = 0;
@@ -106,35 +81,23 @@ export function QueuePage() {
           <p>承認待ちの要求はありません。</p>
         ) : (
           <>
-            {/* 表の見出しは狭い画面で隠れるため、「すべて選択」は表の外に置く */}
             <div className="status-buttons">
-              <label className="queue-select-all">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  checked={allSelected}
-                  disabled={busy}
-                  onChange={toggleAll}
-                />
-                すべて選択
-              </label>
-              <button type="button" disabled={busy || selected.size === 0} onClick={() => void decideSelected("approve")}>
-                選択した {selected.size} 件を承認して送信
+              <button type="button" disabled={busy} onClick={() => void decideAll("approve")}>
+                すべて承認して送信（{items.length} 件）
               </button>
               <button
                 type="button"
                 className="button-secondary"
-                disabled={busy || selected.size === 0}
-                onClick={() => void decideSelected("reject")}
+                disabled={busy}
+                onClick={() => void decideAll("reject")}
               >
-                選択した {selected.size} 件を却下
+                すべて却下（{items.length} 件）
               </button>
             </div>
             <div className="table-scroll">
               <table className="data-table responsive">
                 <thead>
                   <tr>
-                    <th scope="col">選択</th>
                     <th scope="col">種類</th>
                     <th scope="col">内容</th>
                     <th scope="col">解析</th>
@@ -144,15 +107,6 @@ export function QueuePage() {
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.request_id}>
-                      <td data-label="選択">
-                        <input
-                          type="checkbox"
-                          aria-label={`${describeRequest(item.request)} を選択`}
-                          checked={selected.has(item.request_id)}
-                          disabled={busy}
-                          onChange={() => toggle(item.request_id)}
-                        />
-                      </td>
                       <td data-label="種類">{label(REQUEST_KIND_LABELS, item.kind)}</td>
                       <td data-label="内容">{describeRequest(item.request)}</td>
                       <td data-label="解析">
