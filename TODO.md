@@ -156,6 +156,7 @@
   - 原稿自身のタイトル（接頭辞を除いた一部を含む）の照会も拒否
   - 原稿の照合情報はメモリ上だけに持ち、解析の終了時に消す
 - [x] 運用モード（strict / standard / offline、`config/gateway.yaml`）と承認キュー画面
+- [x] 承認キューで、選択した要求をまとめて承認・却下する（承認の前に確認を出す。狭い画面でも「すべて選択」を使える）
 - [x] 監査ログ（追記専用。更新・削除をトリガーで禁止）と外部通信ログ画面
 - [x] `searcher`：Crossref・OpenAlex・Semantic Scholar・arXiv・CiNii Research・J-STAGE（PubMed は未対応）
 - [x] 書誌の存在と一致の判定（著者・年・タイトル・巻・ページ）。版の違い・GROBID の姓の取り違えを誤検出しないよう調整
