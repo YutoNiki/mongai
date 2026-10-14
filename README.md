@@ -137,6 +137,7 @@ ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 
 ```bash
 make dev             # 開発モード（ホットリロード）
+make live            # 運用中のサーバー向け：本番相当の構成のまま、ソースの変更を自動で反映
 make test            # 単体・結合テスト
 make test-e2e        # 画面の E2E テスト（Playwright、ネットワークなし）
 make test-security   # ネットワーク分離・ゲートウェイのテスト
@@ -147,6 +148,7 @@ make down
 
 - 開発用の構成（`make dev`）には、開発用のモック認証サービス（`devauth`）が加わります。http://127.0.0.1:8080/auth/dev-login?user=alice を開くと、利用者 alice としてログインした状態になります（パスワードは無く、開発専用です。ログアウトは `/auth/dev-logout`）。本番相当の構成（`MONGAI_ENV=production`）の `core` は、開発用の鍵を受け付けません
 - 開発・テストには、公開済みのオープンアクセス論文か合成データだけを使ってください
+- `make live` では、`core`・`gateway`・`searcher`・`worker` は Python のファイルを保存するとそのサービスだけ再起動し、画面は自動で作り直されます（ブラウザを再読み込みすると反映）。**`core/` のファイルを保存すると `worker` も再起動し、実行中の解析・抽出は失敗になります**（もう一度解析してください）。`frontend/index.html`・`vite.config.ts`・依存関係・Dockerfile を変えたときは、もう一度 `make live` を実行します。作業ツリーがそのまま公開されるので、ブランチの切り替えにも注意してください
 - ネットワーク構成・ゲートウェイ・`searcher` を変更したら、必ず `make test-security` を通してください
 
 ### モデルの割り当てと評価

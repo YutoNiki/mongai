@@ -36,6 +36,7 @@ services:
       - ./compose.yaml:/app/compose.yaml:ro
       - ./compose.dev.yaml:/app/compose.dev.yaml:ro
       - ./compose.test.yaml:/app/compose.test.yaml:ro
+      - ./compose.live.yaml:/app/compose.live.yaml:ro
       - ./docker:/app/docker:ro
       - ./.env.example:/app/.env.example:ro
     tmpfs:

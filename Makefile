@@ -2,13 +2,14 @@
 
 COMPOSE      := docker compose -f compose.yaml
 COMPOSE_DEV  := $(COMPOSE) -f compose.dev.yaml
+COMPOSE_LIVE := $(COMPOSE) -f compose.live.yaml
 COMPOSE_TEST := $(COMPOSE) -f compose.test.yaml --profile test
 RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev logs migrate claim-legacy test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev live logs migrate claim-legacy test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -29,6 +30,9 @@ down: ## 停止
 
 dev: ## 開発モード（ホットリロード）
 	$(COMPOSE_DEV) up --build
+
+live: ## 運用中のサーバー向けの起動（本番相当の構成で、ソースの変更を自動で反映。worker の再起動で実行中の解析は失敗になる）
+	$(COMPOSE_LIVE) up -d --build --wait
 
 logs: ## ログ
 	$(COMPOSE) logs -f --tail=200
@@ -86,6 +90,7 @@ bench-concurrency: ## 同時リクエスト数ごとの おいとまAPI の処�
 config: ## compose ファイルの検証
 	$(COMPOSE) config -q
 	$(COMPOSE_DEV) config -q
+	$(COMPOSE_LIVE) config -q
 	$(COMPOSE_TEST) config -q
 	@echo "compose の設定は有効です"
 

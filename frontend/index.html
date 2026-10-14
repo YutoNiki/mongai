@@ -12,7 +12,9 @@
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- ブラウザは既定でクッキーなしでマニフェストを取得する。Cloudflare Access の後ろではログイン画面に
+         転送されてインストールできない（ショートカット扱いになる）ため、クッキーを付けて取得させる -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <title>SI-NSA</title>
   </head>
   <body>
