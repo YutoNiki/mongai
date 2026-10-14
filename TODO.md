@@ -214,6 +214,11 @@
 - [ ] README の最終確認（実データでの運用手順）
 - [x] デモシナリオとデモ用データ（`docs/demo.md`、`demo/demo_paper_ja.pdf`。公開論文の改変ではなく、問題を9か所仕込んだ合成論文。参考文献だけ実在の書誌。最終の試行では9か所中8か所を検出、約12分）
 
+## 認証・認可の準備（ブランチ `refactor/api-routers`）
+
+- [x] `core/api/main.py` のエンドポイントを `core/api/routers/` にリソースごとに分割し、依存性を `core/api/dependencies.py`、解析・指摘の共通の読み出しを `core/api/queries.py` にまとめる（URL・応答・OpenAPI は分割前と同じ。`tests/unit/test_api_routes.py` でルート表を固定）
+- [ ] 利用者ごとのアクセス制御（デモの論文は全員が閲覧、それ以外は本人だけ）
+
 ---
 
 ## 決定事項
