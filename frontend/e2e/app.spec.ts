@@ -260,7 +260,7 @@ test("承認待ちの外部通信をポップアップで知らせ、承認し�
   expect(external).toEqual([]);
 });
 
-test("承認キュー：選択した要求をまとめて承認・却下できる", async ({ page }) => {
+test("承認キュー：キューの要求をすべてまとめて承認・却下できる", async ({ page }) => {
   const api = await mockApi(page);
   const item = (n: number, term: string) => ({
     request_id: `R-00000000000${n}`,
@@ -271,35 +271,30 @@ test("承認キュー：選択した要求をまとめて承認・却下でき�
     status: "pending",
     created_at: "2026-10-13T12:00:00+00:00",
   });
-  api.queue = [item(1, "アイソクローン"), item(2, "残差"), item(3, "交差検証")];
+  api.queue = [item(1, "アイソクローン"), item(2, "残差")];
   const external = watchExternal(page);
   await page.goto("/queue");
-  const approve = page.getByRole("button", { name: /選択した \d+ 件を承認して送信/ });
-  await expect(approve).toBeDisabled();
 
-  // すべて選んでから1件外し、残りの2件をまとめて承認する
-  await page.getByRole("checkbox", { name: "すべて選択" }).check();
-  await page.getByRole("checkbox", { name: /交差検証/ }).uncheck();
+  // 確認で取り消すと送信しない
+  page.once("dialog", (dialog) => void dialog.dismiss());
+  await page.getByRole("button", { name: "すべて承認して送信（2 件）" }).click();
+  expect(api.decisions).toEqual([]);
+
   page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "選択した 2 件を承認して送信" }).click();
+  await page.getByRole("button", { name: "すべて承認して送信（2 件）" }).click();
   await expect(page.getByText("2 件を承認しました（送信 2 件）")).toBeVisible();
+  await expect(page.getByText("承認待ちの要求はありません。")).toBeVisible();
   expect(api.decisions).toEqual([
     { requestId: "R-000000000001", action: "approve" },
     { requestId: "R-000000000002", action: "approve" },
   ]);
-  await expect(page.getByRole("row", { name: /交差検証/ })).toBeVisible();
-  await expect(page.getByRole("row", { name: /アイソクローン/ })).toHaveCount(0);
 
-  // 確認で取り消すと送信しない
-  await page.getByRole("checkbox", { name: /交差検証/ }).check();
-  page.once("dialog", (dialog) => void dialog.dismiss());
-  await page.getByRole("button", { name: "選択した 1 件を承認して送信" }).click();
-  expect(api.decisions).toHaveLength(2);
-
-  // 残りをまとめて却下する
-  await page.getByRole("button", { name: "選択した 1 件を却下" }).click();
+  // 新しく積まれた要求をすべて却下する
+  api.queue = [item(3, "交差検証")];
+  await page.reload();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "すべて却下（1 件）" }).click();
   await expect(page.getByText("1 件を却下しました（却下 1 件）")).toBeVisible();
-  await expect(page.getByText("承認待ちの要求はありません。")).toBeVisible();
   expect(api.decisions[2]).toEqual({ requestId: "R-000000000003", action: "reject" });
   expect(external).toEqual([]);
 });
