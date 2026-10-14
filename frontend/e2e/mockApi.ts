@@ -110,7 +110,8 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
   );
 }
 
-export async function mockApi(page: Page): Promise<MockApi> {
+/** sample：解析の集計の `sample`（デモかどうか）を差し替える。省くと保存した応答のまま（デモ） */
+export async function mockApi(page: Page, options: { sample?: boolean } = {}): Promise<MockApi> {
   const state: MockApi = {
     labComments: sampleLabComments(),
     rules: sampleRules(),
@@ -139,7 +140,7 @@ export async function mockApi(page: Page): Promise<MockApi> {
     if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(list));
     if (path === "/api/usage/today")
       return route.fulfill(json({ day: "2026-10-13", requests: 120, prompt_tokens: 340000, completion_tokens: 410000 }));
-    if (path === base) return route.fulfill(json(summary));
+    if (path === base) return route.fulfill(json({ ...summary, sample: options.sample ?? summary.sample }));
     if (path === `${base}/findings`)
       return route.fulfill(json(filtered(state.findings, url.searchParams)));
     const patch = path.match(new RegExp(`^${base}/findings/([^/]+)$`));

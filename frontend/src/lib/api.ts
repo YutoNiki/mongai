@@ -1,5 +1,7 @@
 /** core の API（/api）。型は core/api/schemas.py と core/analyze/models.py に対応する。 */
 
+import { applyDemoStatus, demoHiddenFindings } from "./demoStatus";
+
 export interface BBox {
   page: number;
   x0: number;
@@ -284,8 +286,11 @@ export const api = {
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
   diff: (id: string) => request<AnalysisDiff>(`/analyses/${encodeURIComponent(id)}/diff`),
+  // デモの解析は、このタブで変えたステータスを重ねる（サーバーには保存しない。lib/demoStatus.ts）
   findings: (id: string, filters: FindingFilters = {}) =>
-    request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`),
+    request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`).then((list) =>
+      applyDemoStatus(id, list),
+    ),
   updateStatus(id: string, findingId: string, status: Finding["status"], reason?: string) {
     return request<Finding>(
       `/analyses/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}`,
@@ -343,6 +348,11 @@ export const api = {
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
   jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,
   reportUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/report.txt`,
-  annotatedUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/annotated.pdf`,
+  // デモの解析で、このタブの中だけで却下・対応済みにした指摘は書き込まない
+  annotatedUrl: (id: string) => {
+    const hide = demoHiddenFindings(id);
+    const params = hide.length ? `?${new URLSearchParams(hide.map((h) => ["hide", h])).toString()}` : "";
+    return `/api/analyses/${encodeURIComponent(id)}/annotated.pdf${params}`;
+  },
   paperUrl: (docId: string) => `/api/documents/${encodeURIComponent(docId)}/paper.pdf`,
 };

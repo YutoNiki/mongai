@@ -27,8 +27,9 @@ def paper_path(doc_id: str) -> Path:
     return data_dir() / "papers" / f"{doc_id}.pdf"
 
 
-def save_paper(data: bytes) -> str:
-    doc_id = doc_id_for(data)
+def save_paper(data: bytes, doc_id: str | None = None) -> str:
+    """論文を保存して ID を返す。doc_id を省くと内容のハッシュから決める。"""
+    doc_id = doc_id or doc_id_for(data)
     path = paper_path(doc_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():

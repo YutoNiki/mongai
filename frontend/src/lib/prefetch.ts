@@ -5,6 +5,7 @@
  */
 
 import { api, type AnalysisSummary, type Finding } from "./api";
+import { applyDemoStatus } from "./demoStatus";
 import { prefetchDashboard } from "./pages";
 
 export interface AnalysisData {
@@ -36,7 +37,9 @@ export function prefetchAnalysis(analysisId: string): Promise<AnalysisData> {
 /** 先読み済みで新しいデータがあれば返す（無ければ null。画面は通常どおり読み込む） */
 export function prefetched(analysisId: string): AnalysisData | null {
   const entry = ready.get(analysisId);
-  return entry && Date.now() - entry.at < FRESH_MS ? entry.data : null;
+  if (!entry || Date.now() - entry.at >= FRESH_MS) return null;
+  // 先読みの後に、詳細画面でデモの指摘のステータスを変えた場合に備えて重ね直す
+  return { ...entry.data, findings: applyDemoStatus(analysisId, entry.data.findings) };
 }
 
 /** 先読みの完了を少しだけ待つ（遅いときは待たずに進み、画面側で読み込む） */

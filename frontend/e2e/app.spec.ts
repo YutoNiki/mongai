@@ -77,7 +77,7 @@ test("論文の解析結果：総指摘数・グラフの表形式・絞り込�
 });
 
 test("詳細画面：対応済みにする・理由なしでは却下できない・理由を入れて却下する", async ({ page }) => {
-  const api = await mockApi(page);
+  const api = await mockApi(page, { sample: false });
   const finding = api.findings.find((f) => f.status === "open");
   test.skip(!finding, "未対応の指摘がない");
   const id = finding?.finding_id ?? "";
@@ -99,6 +99,35 @@ test("詳細画面：対応済みにする・理由なしでは却下できな�
   await page.getByLabel(/却下する理由/).fill("意図した表現のため");
   await page.getByRole("button", { name: "却下する" }).click();
   await expect.poll(() => api.updates.at(-1)?.body).toEqual({ status: "dismissed", reason: "意図した表現のため" });
+});
+
+test("詳細画面：デモの解析では、指摘への対応をこのタブの中だけで変えられる（保存しない）", async ({ page }) => {
+  const api = await mockApi(page);
+  const finding = api.findings.find((f) => f.status === "open");
+  test.skip(!finding, "未対応の指摘がない");
+  const id = finding?.finding_id ?? "";
+  await page.goto(`/analyses/${analysisId}/findings/${id}`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(id);
+  await expect(page.getByText(/デモの解析のため、変更はこのタブの中だけに反映され/)).toBeVisible();
+
+  await page.getByRole("button", { name: "対応済みにする" }).click();
+  await expect(page.getByText("ステータスを更新しました")).toBeVisible();
+  await expect(page.getByRole("button", { name: "未対応に戻す" })).toBeVisible();
+
+  // 再読み込みしても、このタブの中では変えた状態のまま
+  await page.reload();
+  await expect(page.getByRole("button", { name: "未対応に戻す" })).toBeVisible();
+  expect(api.updates).toEqual([]); // サーバーには送らない
+
+  // 注釈付きPDFには、このタブで対応済みにした指摘を書き込まないよう API に伝える
+  await page.goto(`/analyses/${analysisId}/annotated`);
+  await expect.poll(() => api.requests.some((r) => r.includes(`annotated.pdf?hide=${id}`))).toBe(true);
+
+  // 元に戻すと、保存済みの状態の表示に戻る
+  await page.goto(`/analyses/${analysisId}/findings/${id}`);
+  await page.getByRole("button", { name: "変更をすべて元に戻す" }).click();
+  await expect(page.getByText("このタブでの変更を元に戻しました")).toBeVisible();
+  await expect(page.getByRole("button", { name: "未対応に戻す" })).toHaveCount(0);
 });
 
 test("キーボードだけで本文へ移動できる", async ({ page, isMobile }) => {
