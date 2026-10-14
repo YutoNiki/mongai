@@ -25,6 +25,13 @@ FROM frontend-build AS frontend-check
 USER node
 CMD ["sh", "-c", "npm run typecheck && npm run lint && npm test"]
 
+# ---------------------------------------------------------------- 画面の自動の作り直し（make live。ネットワークなしで実行）
+# ソースはバインドマウントし、成果物は /dist（web と共有するボリューム）に書く
+FROM frontend-build AS frontend-watch
+RUN mkdir /dist && chown node:node /dist
+USER node
+CMD ["node_modules/.bin/vite", "build", "--watch", "--outDir", "/dist", "--emptyOutDir", "false"]
+
 # ---------------------------------------------------------------- E2E テスト（make test-e2e。ネットワークなしで実行）
 # ブラウザはイメージに入っているものを使い、npm からは取得しない
 FROM ${PLAYWRIGHT_IMAGE} AS frontend-e2e

@@ -24,6 +24,7 @@
 - [x] ネットワーク：`internal_net`・`gateway_net`・`egress_net` を `internal: true`、`ui_net`・`oitoma_net`・`outbound_net` を用意
 - [x] `web` のみ `127.0.0.1:8080` で公開
 - [x] `compose.dev.yaml`（バインドマウント・ホットリロード）、`compose.test.yaml`
+- [x] `compose.live.yaml`（運用中のサーバーのホットリロード。`make live`。worker も `watchfiles` でプロセスごと再起動し、実行中の解析は失敗になる）
 - [x] Dockerfile：ベースイメージのダイジェスト固定、マルチステージ、非root、`read_only`・`cap_drop`・`no-new-privileges`（grobid・Squid も非root＋read_only で起動を確認）
 - [x] 全サービスの `healthcheck` と `depends_on: service_healthy`
 - [x] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
