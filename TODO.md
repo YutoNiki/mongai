@@ -226,6 +226,7 @@
 - [x] 設計と既存の不具合の修正（デモ論文の再解析・デモの指摘の変更を 403 にする、デモと同じ PDF のアップロードを別の文書にする）
 - [x] 個人データの分離（ブランチ `feature/personal-data`。データモデルと移行（`make migrate`・`make claim-legacy`）、文書 ID のランダム化、API の認可とゲストの閲覧、ワーカー・ルール・専門知識・gateway の分離、開発用のモック認証 `devauth`。研究室ID の概念は削除）
 - [x] ログインの導入（ブランチ `feature/google-oidc-login`。Google の OIDC の認証サービス `authn`（認可コードフロー＋PKCE、ID トークンの検証、`okayama-u.ac.jp` とサブドメインのメール・`hd` だけを許可、サーバー側のセッション）、認証専用のプロキシ `auth_proxy`、nginx の `auth_request`、`GET /api/me`、ログイン・ログアウト・ゲストの案内の画面、セキュリティテスト、`docs/auth-setup.md`）
+- [ ] デモの前に、同意画面を「内部」から「外部」にして公開し、学生と教職員のアカウントでログインできることを確かめる（現在は「内部」。手順は `docs/auth-setup.md` 第9章）
 - [ ] 実際の Google アカウントでのログインの確認（Google Cloud の OAuth クライアントの作成と `.env` の設定が必要。手順は `docs/auth-setup.md`）。岡山大学のアカウントで `hd` がどう発行されるか（教職員・学生）を確かめる
 - [ ] 監査ログが論文の削除・退会の後も残ることを、画面（外部通信ログ）でも利用者に示す（README には記載済み。`docs/access-control-design.md` L.6）
 - [ ] 運用中の環境（https://si-nsa.eucaly-labs.net/）への導入：`make migrate`、HTTPS のリダイレクト URI の登録、Cloudflare Tunnel の扱いの決定（保留事項）
