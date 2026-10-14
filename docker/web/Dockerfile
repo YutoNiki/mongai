@@ -46,5 +46,6 @@ CMD ["npx", "playwright", "test"]
 # ---------------------------------------------------------------- 配信
 FROM ${NGINX_IMAGE} AS web
 COPY docker/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/web/auth/none/ /etc/nginx/mongai-auth/
 COPY --from=frontend-build /app/dist/ /usr/share/nginx/html/
 EXPOSE 8080

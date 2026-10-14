@@ -52,9 +52,10 @@ COPY --from=deps-core /opt/venv /opt/venv
 COPY shared/ /app/shared/
 COPY core/ /app/core/
 COPY config/models.yaml /app/config/models.yaml
-# 名前付きボリュームの初回作成時に所有者を引き継がせる
+# 名前付きボリュームの初回作成時に所有者を引き継がせる。audit_log は core が読み取り専用で使うが、
+# core が先にマウントするとボリュームが root の所有で作られ、gateway が書き込めなくなるため、同じ所有者にする
 RUN mkdir -p /data/private /data/lancedb /data/db /data/audit \
- && chown -R app:app /data/private /data/lancedb /data/db
+ && chown -R app:app /data/private /data/lancedb /data/db /data/audit
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

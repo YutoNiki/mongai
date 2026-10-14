@@ -1,4 +1,4 @@
-"""専門知識（M8）：保存（研究室ごとの分離）・取り込み・類似箇所の判定・解析への組み込み。"""
+"""専門知識（M8）：保存（利用者ごとの分離）・取り込み・類似箇所の判定・解析への組み込み。"""
 
 import json
 from pathlib import Path
@@ -17,6 +17,7 @@ from core.lab.models import LabComment, LabSource
 from core.lab.store import LabStore
 from core.llm.client import DEFAULT_BASE_URL, OitomaClient
 from core.rules.store import RuleStore
+from tests.unit.auth_factory import make_user
 from tests.unit.doc_factory import make_doc
 from tests.unit.test_rules import chat, config
 
@@ -24,10 +25,9 @@ CHAT_URL = f"{DEFAULT_BASE_URL}/chat/completions"
 EMBED_URL = f"{DEFAULT_BASE_URL}/embeddings"
 
 
-def comment(comment_id: str, text: str, lab_id: str = "lab-a", **kw: Any) -> LabComment:
+def comment(comment_id: str, text: str, **kw: Any) -> LabComment:
     base: dict[str, Any] = {
         "comment_id": comment_id,
-        "lab_id": lab_id,
         "document_id": "LD-000000000001",
         "comment": text,
         "category": "logic",
@@ -43,30 +43,31 @@ def embeddings(*vectors: list[float]) -> httpx.Response:
     )
 
 
-def test_store_separates_labs(tmp_path: Path) -> None:
+def test_store_separates_users(tmp_path: Path) -> None:
     store = LabStore(tmp_path / "db.sqlite3")
-    mine = store.create_document("lab-a", "査読.md", "markdown")
-    other = store.create_document("lab-b", "他の研究室.md", "markdown")
-    store.add_comments(
-        [comment("LC-1", "一般化しすぎ"), comment("LC-2", "他の研究室の指摘", lab_id="lab-b")],
-        [[1.0, 0.0], [0.0, 1.0]],
-    )
-    assert [c.comment_id for c in store.list_comments("lab-a")] == ["LC-1"]
-    assert set(store.comment_vectors("lab-a")) == {"LC-1"}
-    assert [d.document_id for d in store.list_documents("lab-a")] == [mine.document_id]
-    # ほかの研究室の資料・指摘は、取得も削除もできない
-    assert store.get_document("lab-a", other.document_id) is None
-    assert not store.delete_comment("lab-a", "LC-2")
-    assert not store.delete_document("lab-a", other.document_id)
-    assert store.delete_comment("lab-a", "LC-1")
-    assert store.list_comments("lab-a") == []
+    a, b = make_user(store.path, "a"), make_user(store.path, "b")
+    mine = store.create_document(a, "査読.md", "markdown")
+    other = store.create_document(b, "他の人の資料.md", "markdown")
+    store.add_comments(a, [comment("LC-1", "一般化しすぎ")], [[1.0, 0.0]])
+    store.add_comments(b, [comment("LC-2", "他の人の指摘")], [[0.0, 1.0]])
+    assert [c.comment_id for c in store.list_comments(a)] == ["LC-1"]
+    assert set(store.comment_vectors(a)) == {"LC-1"}
+    assert [d.document_id for d in store.list_documents(a)] == [mine.document_id]
+    # ほかの利用者の資料・指摘は、取得も削除もできない
+    assert store.get_document(a, other.document_id) is None
+    assert not store.delete_comment(a, "LC-2")
+    assert not store.delete_document(a, other.document_id)
+    assert store.delete_comment(a, "LC-1")
+    assert store.list_comments(a) == []
+    assert [c.comment_id for c in store.list_comments(b)] == ["LC-2"]
 
 
 async def test_extract_lab_knowledge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     lab = LabStore(tmp_path / "db.sqlite3")
     rules = RuleStore(tmp_path / "db.sqlite3")
-    doc = lab.create_document("lab-a", "2024査読.md", "markdown")
+    owner = make_user(lab.path)
+    doc = lab.create_document(owner, "2024査読.md", "markdown")
     save_document_file(
         doc.document_id,
         "markdown",
@@ -100,10 +101,10 @@ async def test_extract_lab_knowledge(tmp_path: Path, monkeypatch: pytest.MonkeyP
         async with OitomaClient(config_with_lab(), api_key="k") as client:
             counts = await extract_lab_knowledge(client, lab, rules, doc.document_id)
     assert counts == (1, 1)  # 機械判定のルールは組み込みで足りるので加えない
-    (saved,) = lab.list_comments("lab-a")
-    assert saved.lab_id == "lab-a" and saved.example == "手法は常に有効である"
-    assert set(lab.comment_vectors("lab-a")) == {saved.comment_id}
-    (lab_rule,) = [r for r in rules.list_rules() if not r.builtin]
+    (saved,) = lab.list_comments(owner)
+    assert saved.example == "手法は常に有効である"
+    assert set(lab.comment_vectors(owner)) == {saved.comment_id}
+    (lab_rule,) = [r for r in rules.list_rules(owner) if not r.builtin]
     assert lab_rule.status == "pending"
     assert lab_rule.source.doc == f"{LAB_SOURCE_PREFIX}（2024査読.md）"
     assert lab_rule.document_id == doc.document_id
@@ -120,14 +121,15 @@ def config_with_lab() -> Any:
 async def test_lab_job_records_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     lab = LabStore(tmp_path / "db.sqlite3")
-    doc = lab.create_document("lab-a", "memo.txt", "text")
+    owner = make_user(lab.path)
+    doc = lab.create_document(owner, "memo.txt", "text")
     save_document_file(doc.document_id, "text", "添削メモ".encode())
     with respx.mock:
         respx.post(CHAT_URL).mock(return_value=httpx.Response(500))
         async with OitomaClient(config_with_lab(), api_key="k") as client:
             status = await run_lab_extraction({}, doc.document_id, lab_store=lab, client=client)
     assert status == "failed"
-    assert lab.get_document("lab-a", doc.document_id).status == "failed"  # type: ignore[union-attr]
+    assert lab.get_document(owner, doc.document_id).status == "failed"  # type: ignore[union-attr]
 
 
 def test_candidates_by_similarity() -> None:

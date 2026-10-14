@@ -72,7 +72,6 @@ function sampleLabComments(): LabComment[] {
   return [
     {
       comment_id: "LC-0001",
-      lab_id: "default",
       document_id: "LD-000000000001",
       comment: "1つのデータセットの結果から、手法の有効性を一般化して述べている",
       example: "提案手法はあらゆる場面で有効である",
@@ -110,7 +109,8 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
   );
 }
 
-export async function mockApi(page: Page): Promise<MockApi> {
+/** sample：解析の集計の `sample`（デモかどうか）を差し替える。省くと保存した応答のまま（デモ） */
+export async function mockApi(page: Page, options: { sample?: boolean } = {}): Promise<MockApi> {
   const state: MockApi = {
     labComments: sampleLabComments(),
     rules: sampleRules(),
@@ -139,7 +139,7 @@ export async function mockApi(page: Page): Promise<MockApi> {
     if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(list));
     if (path === "/api/usage/today")
       return route.fulfill(json({ day: "2026-10-13", requests: 120, prompt_tokens: 340000, completion_tokens: 410000 }));
-    if (path === base) return route.fulfill(json(summary));
+    if (path === base) return route.fulfill(json({ ...summary, sample: options.sample ?? summary.sample }));
     if (path === `${base}/findings`)
       return route.fulfill(json(filtered(state.findings, url.searchParams)));
     const patch = path.match(new RegExp(`^${base}/findings/([^/]+)$`));
@@ -190,7 +190,6 @@ export async function mockApi(page: Page): Promise<MockApi> {
         json([
           {
             document_id: "LD-000000000001",
-            lab_id: "default",
             filename: "2024年度_査読コメント.docx",
             kind: "docx",
             status: "completed",

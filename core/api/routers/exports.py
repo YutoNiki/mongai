@@ -10,15 +10,15 @@ from fastapi.responses import Response
 
 from core.annotate.labels import category_label, severity_label, subcategory_label
 from core.annotate.pdf import annotate_pdf
-from core.api.dependencies import StoreDep
+from core.api.dependencies import PrincipalDep, StoreDep
 from core.api.queries import (
     Category,
     Confidence,
     Severity,
     Status,
-    analysis_or_404,
     filtered_findings,
     previous_and_diff,
+    readable_analysis,
 )
 from core.api.summary import count_findings
 from core.report.text import text_report
@@ -31,15 +31,15 @@ router = APIRouter()
 def findings_csv(
     analysis_id: str,
     store: StoreDep,
+    principal: PrincipalDep,
     category: Category | None = None,
     severity: Severity | None = None,
     section_id: str | None = None,
     confidence: Confidence | None = None,
     status: Status | None = None,
 ) -> Response:
-    findings = filtered_findings(
-        store, analysis_id, category, severity, section_id, confidence, status
-    )
+    record = readable_analysis(store, principal, analysis_id)
+    findings = filtered_findings(store, record, category, severity, section_id, confidence, status)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
@@ -85,9 +85,9 @@ def findings_csv(
 
 
 @router.get("/analyses/{analysis_id}/findings.json")
-def findings_json(analysis_id: str, store: StoreDep) -> Response:
+def findings_json(analysis_id: str, store: StoreDep, principal: PrincipalDep) -> Response:
     """指摘の一覧の JSON（SPEC 3.4 の形式。却下したものも含め、ステータスと却下の理由を付ける）。"""
-    record = analysis_or_404(store, analysis_id)
+    record = readable_analysis(store, principal, analysis_id)
     doc = store.get_document(record.doc_id)
     paper = store.get_paper(record.doc_id)
     body = {
@@ -108,13 +108,13 @@ def findings_json(analysis_id: str, store: StoreDep) -> Response:
 
 
 @router.get("/analyses/{analysis_id}/report.txt")
-def report_text(analysis_id: str, store: StoreDep) -> Response:
+def report_text(analysis_id: str, store: StoreDep, principal: PrincipalDep) -> Response:
     """主要な問題と件数をまとめたテキストの要約（SPEC 3.5・6.6）。"""
-    record = analysis_or_404(store, analysis_id)
+    record = readable_analysis(store, principal, analysis_id)
     doc = store.get_document(record.doc_id)
     paper = store.get_paper(record.doc_id)
     findings = store.get_findings(analysis_id)
-    previous, diff = previous_and_diff(store, analysis_id)
+    previous, diff = previous_and_diff(store, record)
     text = text_report(
         title=doc.title if doc else None,
         filename=paper.filename if paper else None,
@@ -136,10 +136,15 @@ def report_text(analysis_id: str, store: StoreDep) -> Response:
 def annotated_pdf(
     analysis_id: str,
     store: StoreDep,
+    principal: PrincipalDep,
     include_accepted: Annotated[bool, Query(description="対応済みの指摘も書き込む")] = False,
+    hide: Annotated[
+        list[str] | None,
+        Query(description="書き込まない指摘の ID（デモの画面の中だけで変えたステータスの反映）"),
+    ] = None,
 ) -> Response:
     """注釈付きPDF。未対応の指摘（と、指定すれば対応済みの指摘）を書き込む。却下した指摘は書き込まない。"""
-    analysis = analysis_or_404(store, analysis_id)
+    analysis = readable_analysis(store, principal, analysis_id)
     try:
         paper = load_paper(analysis.doc_id)
     except ValueError:
@@ -147,7 +152,9 @@ def annotated_pdf(
     if paper is None:
         raise HTTPException(status_code=404, detail="論文のファイルが見つかりません")
     statuses = frozenset({"open", "accepted"} if include_accepted else {"open"})
-    pdf = annotate_pdf(paper, store.get_findings(analysis_id), statuses=statuses)
+    hidden = set(hide or [])
+    findings = [f for f in store.get_findings(analysis_id) if f.finding_id not in hidden]
+    pdf = annotate_pdf(paper, findings, statuses=statuses)
     return Response(
         content=pdf,
         media_type="application/pdf",

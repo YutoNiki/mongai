@@ -81,6 +81,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       GROBID_URL: http://grobid:8070
       GATEWAY_URL: http://gateway:8000
+      # 本番相当の構成。開発用の鍵（dev- で始まる）を設定すると起動しない
+      MONGAI_ENV: production
+      # 認証サービス（authn）の公開鍵。導入するまでは未設定で、主張はすべて無効（利用者は共通デモの閲覧だけ）
+      MONGAI_AUTH_PUBLIC_KEY_FILE: ${MONGAI_AUTH_PUBLIC_KEY_FILE:-}
+      # 初回のログインで自動で登録する利用者のメールのドメイン（カンマ区切り。未設定なら登録しない）
+      MONGAI_ALLOWED_EMAIL_DOMAINS: ${MONGAI_ALLOWED_EMAIL_DOMAINS:-}
     volumes:
       - ./config/models.yaml:/app/config/models.yaml:ro
       - data_private:/data/private

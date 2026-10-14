@@ -2,10 +2,11 @@
 
 import logging
 import os
+import re
 from typing import Annotated, Any
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from pydantic import TypeAdapter, ValidationError
 
 from gateway.audit import AuditEntry, AuditStore, QueueItem, new_request_id
@@ -13,6 +14,7 @@ from gateway.config import GatewayConfig, get_config
 from gateway.manuscripts import EmbeddingClient, ManuscriptGuard, ManuscriptRegistry
 from gateway.policy import check
 from shared.schemas import (
+    OWNER_ID_PATTERN,
     ExternalRequest,
     GatewayRequest,
     GatewayResponse,
@@ -56,6 +58,8 @@ async def send_to_searcher(request: dict[str, Any]) -> SearchResponse:
 StoreDep = Annotated[AuditStore, Depends(get_store)]
 RegistryDep = Annotated[ManuscriptRegistry, Depends(get_registry)]
 ConfigDep = Annotated[GatewayConfig, Depends(get_config)]
+OwnerId = Annotated[str, Query(pattern=OWNER_ID_PATTERN)]
+_OWNER_ID = re.compile(OWNER_ID_PATTERN)
 
 
 @app.get("/healthz")
@@ -96,6 +100,7 @@ async def _send(
     except httpx.HTTPError as exc:
         store.record(
             request_id=request_id,
+            owner_id=envelope.owner_id,
             analysis_id=envelope.analysis_id,
             doc_id=envelope.doc_id,
             kind=request["kind"],
@@ -111,6 +116,7 @@ async def _send(
         store.store_cache(request, response.model_dump_json())
     store.record(
         request_id=request_id,
+        owner_id=envelope.owner_id,
         analysis_id=envelope.analysis_id,
         doc_id=envelope.doc_id,
         kind=request["kind"],
@@ -131,12 +137,15 @@ async def submit(
         body = None
     analysis_id = body.get("analysis_id") if isinstance(body, dict) else None
     doc_id = body.get("doc_id") if isinstance(body, dict) else None
+    owner = body.get("owner_id") if isinstance(body, dict) else None
     try:
         envelope = GatewayRequest.model_validate(body)
     except ValidationError as exc:
         reason = f"スキーマ違反（{_error_kind(exc)}）"
         store.record(
             request_id=request_id,
+            # 形式の正しい利用者IDだけを記録する（本人の外部通信ログに、拒否された要求も出すため）
+            owner_id=owner if isinstance(owner, str) and _OWNER_ID.fullmatch(owner) else None,
             analysis_id=str(analysis_id)[:20] if analysis_id else None,
             doc_id=str(doc_id)[:20] if doc_id else None,
             kind=None,
@@ -154,6 +163,7 @@ async def submit(
     request = envelope.request.model_dump()
     common = {
         "request_id": request_id,
+        "owner_id": envelope.owner_id,
         "analysis_id": envelope.analysis_id,
         "doc_id": envelope.doc_id,
         "kind": request["kind"],
@@ -186,9 +196,11 @@ async def submit(
 
     needs_approval = config.mode == "strict" or request["kind"] == "term_lookup"
     if needs_approval:
-        existing = store.pending_for(request)
+        existing = store.pending_for(request, envelope.owner_id)
         if existing is None:
-            store.enqueue(request_id, envelope.analysis_id, envelope.doc_id, request)
+            store.enqueue(
+                request_id, envelope.owner_id, envelope.analysis_id, envelope.doc_id, request
+            )
         store.record(**common, decision="pending", reason="承認待ち")
         return GatewayResponse(
             request_id=existing or request_id, decision="pending", reason="承認待ち"
@@ -197,33 +209,45 @@ async def submit(
     return await _send(store, request_id, envelope, request, "sent")
 
 
+def _pending_item(store: AuditStore, request_id: str, owner_id: str) -> QueueItem:
+    """その利用者が積んだ承認待ちの要求（他人の要求・決定済みの要求は 404）。"""
+    item = store.get_queue_item(request_id)
+    if item is None or item.status != "pending" or item.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="承認待ちの要求が見つかりません")
+    return item
+
+
 @app.get("/queue")
-def queue(store: StoreDep, status: str | None = "pending") -> list[QueueItem]:
-    return store.queue(status or None)
+def queue(store: StoreDep, owner_id: OwnerId, status: str | None = "pending") -> list[QueueItem]:
+    return store.queue(owner_id=owner_id, status=status or None)
 
 
 @app.post("/queue/{request_id}/approve")
-async def approve(request_id: str, store: StoreDep, config: ConfigDep) -> GatewayResponse:
-    item = store.get_queue_item(request_id)
-    if item is None or item.status != "pending":
-        raise HTTPException(status_code=404, detail="承認待ちの要求が見つかりません")
+async def approve(
+    request_id: str, store: StoreDep, config: ConfigDep, owner_id: OwnerId
+) -> GatewayResponse:
+    item = _pending_item(store, request_id, owner_id)
     if config.mode == "offline":
         raise HTTPException(status_code=409, detail="offline モードでは送信できません")
     store.decide(request_id, "approved")
     envelope = GatewayRequest.model_validate(
-        {"analysis_id": item.analysis_id, "doc_id": item.doc_id, "request": item.request}
+        {
+            "owner_id": owner_id,
+            "analysis_id": item.analysis_id,
+            "doc_id": item.doc_id,
+            "request": item.request,
+        }
     )
     return await _send(store, request_id, envelope, item.request, "approved")
 
 
 @app.post("/queue/{request_id}/reject")
-def reject(request_id: str, store: StoreDep) -> GatewayResponse:
-    item = store.get_queue_item(request_id)
-    if item is None or item.status != "pending":
-        raise HTTPException(status_code=404, detail="承認待ちの要求が見つかりません")
+def reject(request_id: str, store: StoreDep, owner_id: OwnerId) -> GatewayResponse:
+    item = _pending_item(store, request_id, owner_id)
     store.decide(request_id, "rejected")
     store.record(
         request_id=request_id,
+        owner_id=owner_id,
         analysis_id=item.analysis_id,
         doc_id=item.doc_id,
         kind=item.kind,
@@ -235,10 +259,22 @@ def reject(request_id: str, store: StoreDep) -> GatewayResponse:
 
 
 @app.get("/audit")
-def audit(store: StoreDep, analysis_id: str | None = None, limit: int = 500) -> list[AuditEntry]:
-    return store.entries(analysis_id=analysis_id, limit=min(limit, 5000))
+def audit(
+    store: StoreDep,
+    owner_id: Annotated[str | None, Query(pattern=OWNER_ID_PATTERN)] = None,
+    analysis_id: str | None = None,
+    limit: int = 500,
+) -> list[AuditEntry]:
+    """利用者の記録（owner_id）か、共通デモの解析の記録（owner_id を省いて analysis_id）。"""
+    if owner_id is None and analysis_id is None:
+        raise HTTPException(status_code=422, detail="owner_id か analysis_id を指定してください")
+    return store.entries(owner_id=owner_id, analysis_id=analysis_id, limit=min(limit, 5000))
 
 
 @app.get("/audit/count")
-def audit_count(store: StoreDep, analysis_id: str) -> dict[str, int]:
-    return {"count": store.external_count(analysis_id)}
+def audit_count(
+    store: StoreDep,
+    analysis_id: str,
+    owner_id: Annotated[str | None, Query(pattern=OWNER_ID_PATTERN)] = None,
+) -> dict[str, int]:
+    return {"count": store.external_count(analysis_id, owner_id=owner_id)}

@@ -92,9 +92,16 @@ class TermLookup(_Strict):
 ExternalRequest = Annotated[BibLookup | OATextFetch | TermLookup, Field(discriminator="kind")]
 
 
-class GatewayRequest(_Strict):
-    """core → gateway の要求。どの解析・論文の要求かを付けて送る（監査と件数制限のため）。"""
+OWNER_ID_PATTERN = r"^U-[0-9a-f]{32}$"
 
+
+class GatewayRequest(_Strict):
+    """core → gateway の要求。どの利用者・解析・論文の要求かを付けて送る（監査・承認・件数制限のため）。
+
+    owner_id は内部ユーザーID（学内の gateway だけが使い、searcher には渡さない）。
+    """
+
+    owner_id: str = Field(pattern=OWNER_ID_PATTERN)
     analysis_id: str = Field(pattern=r"^A-[0-9a-f]{12}$")
     doc_id: str = Field(pattern=r"^[0-9a-f]{16}$")
     request: ExternalRequest

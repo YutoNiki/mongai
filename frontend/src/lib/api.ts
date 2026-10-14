@@ -1,5 +1,7 @@
 /** core の API（/api）。型は core/api/schemas.py と core/analyze/models.py に対応する。 */
 
+import { applyDemoStatus, demoHiddenFindings } from "./demoStatus";
+
 export interface BBox {
   page: number;
   x0: number;
@@ -215,7 +217,6 @@ export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section"
 /** 専門知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
 export interface LabDocument {
   document_id: string;
-  lab_id: string;
   filename: string;
   kind: "pdf" | "docx" | "markdown" | "text";
   status: "queued" | "running" | "completed" | "failed";
@@ -228,7 +229,6 @@ export interface LabDocument {
 
 export interface LabComment {
   comment_id: string;
-  lab_id: string;
   document_id: string;
   comment: string;
   example: string | null;
@@ -239,13 +239,19 @@ export interface LabComment {
 
 export class ApiError extends Error {}
 
+// 401 の理由（core/api/dependencies.py）。ログインの画面は認証の導入時に加える
+const AUTH_MESSAGES: Record<string, string> = {
+  login_required: "ログインが必要です（ログインしていない場合は、共通デモの閲覧だけができます）",
+  invalid_session: "ログインの有効期限が切れたか、ログインの情報が正しくありません。もう一度ログインしてください",
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
   if (!response.ok) {
     let detail = `${response.status}`;
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === "string") detail = body.detail;
+      if (typeof body.detail === "string") detail = AUTH_MESSAGES[body.detail] ?? body.detail;
     } catch {
       // 本文が JSON でない場合はステータスコードだけを表示する
     }
@@ -284,8 +290,11 @@ export const api = {
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
   diff: (id: string) => request<AnalysisDiff>(`/analyses/${encodeURIComponent(id)}/diff`),
+  // デモの解析は、このタブで変えたステータスを重ねる（サーバーには保存しない。lib/demoStatus.ts）
   findings: (id: string, filters: FindingFilters = {}) =>
-    request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`),
+    request<Finding[]>(`/analyses/${encodeURIComponent(id)}/findings${query(filters)}`).then((list) =>
+      applyDemoStatus(id, list),
+    ),
   updateStatus(id: string, findingId: string, status: Finding["status"], reason?: string) {
     return request<Finding>(
       `/analyses/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}`,
@@ -343,6 +352,11 @@ export const api = {
     `/api/analyses/${encodeURIComponent(id)}/findings.csv${query(filters)}`,
   jsonUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/findings.json`,
   reportUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/report.txt`,
-  annotatedUrl: (id: string) => `/api/analyses/${encodeURIComponent(id)}/annotated.pdf`,
+  // デモの解析で、このタブの中だけで却下・対応済みにした指摘は書き込まない
+  annotatedUrl: (id: string) => {
+    const hide = demoHiddenFindings(id);
+    const params = hide.length ? `?${new URLSearchParams(hide.map((h) => ["hide", h])).toString()}` : "";
+    return `/api/analyses/${encodeURIComponent(id)}/annotated.pdf${params}`;
+  },
   paperUrl: (docId: string) => `/api/documents/${encodeURIComponent(docId)}/paper.pdf`,
 };

@@ -6,6 +6,7 @@
 import hashlib
 import os
 import re
+import secrets
 from pathlib import Path
 
 DEFAULT_DATA_DIR = "/data/private"
@@ -17,8 +18,17 @@ def data_dir() -> Path:
 
 
 def doc_id_for(data: bytes) -> str:
-    """論文の ID（内容の SHA-256 の先頭16桁。core.ingest.pipeline と同じ）。"""
+    """内容の SHA-256 の先頭16桁（共通デモの PDF が解析結果と一致するかの確認に使う）。"""
     return hashlib.sha256(data).hexdigest()[:16]
+
+
+def content_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def new_doc_id() -> str:
+    """アップロードごとの論文の ID（64ビットの乱数。同じ PDF でも利用者・アップロードごとに別の ID）。"""
+    return secrets.token_hex(8)
 
 
 def paper_path(doc_id: str) -> Path:
@@ -27,8 +37,8 @@ def paper_path(doc_id: str) -> Path:
     return data_dir() / "papers" / f"{doc_id}.pdf"
 
 
-def save_paper(data: bytes) -> str:
-    doc_id = doc_id_for(data)
+def save_paper(data: bytes, doc_id: str) -> str:
+    """論文を保存して ID を返す（同じ ID のファイルが既にあれば上書きしない）。"""
     path = paper_path(doc_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():

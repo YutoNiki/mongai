@@ -18,6 +18,7 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | redis | 5.3.1 | worker | なし。arq 0.28 が `redis<6` を要求するため 5 系に固定 |
 | pymupdf | 1.28.2 | core / worker | なし。**ライセンスは AGPL-3.0**（または Artifex の商用ライセンス）。学内サービスとしてネットワーク越しに提供する場合、AGPL によりソースコードを利用者に提供する義務がある（本リポジトリを公開していれば満たせる）。SPEC 7 で指定されたライブラリ |
 | pysbd | 0.3.4 | core / worker | なし（MIT）。Python 3.12 で正規表現リテラルの SyntaxWarning が出るが動作に影響しない（pytest では抑制） |
+| cryptography | 50.0.2 | core / worker / devauth（開発のみ） | なし（Apache-2.0 / BSD）。認証サービスが付けた主張の署名（Ed25519）の検証と、開発用のモック認証サービスの署名に使う。依存の cffi も通信しない |
 | pytest / pytest-asyncio / respx | 9.1.1 / 1.4.0 / 0.23.1 | テストのみ | なし。テストは `network_mode: none` のコンテナで実行 |
 | ruff / mypy / types-PyYAML | 0.17.0 / 2.4.0 / 6.0.12.20260906 | lint のみ | なし |
 
