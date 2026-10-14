@@ -27,6 +27,7 @@
 | 外部検索 | 論文データを持たない別コンテナが、許可された書誌API（Crossref、OpenAlex、PubMed、arXiv、CiNii Research、J-STAGE など）にだけアクセス |
 | 検索ゲートウェイ | 外に出せるのは「引用文献の書誌情報」と「単独の一般用語」だけ。原稿の内容に近い検索語は自動で拒否 |
 | 監査 | 外部への通信はすべて記録され、画面で確認できる |
+| ログイン | 岡山大学の Google アカウントでログイン。Google には本人確認（メールアドレス）だけを依頼し、論文・解析結果は送らない。認証のコンテナは論文データを持たず、Google のログインのエンドポイントにだけ出られる |
 
 外部検索のモードは3種類から選べます。
 
@@ -39,9 +40,10 @@
 ```
             ブラウザ（SSHポートフォワード経由）
                      │ 127.0.0.1:8080
-                  ┌──┴──┐
-                  │ web │ nginx
-                  └──┬──┘
+                  ┌──┴──┐       /auth/
+                  │ web │ nginx ──────→ authn（ログイン・セッション。論文データなし）
+                  └──┬──┘                  │
+                     │               auth_proxy ──→ Google のログインのみ
  ─────────── 学内閉域（internal: true）───────────
    core / worker ── redis / grobid / LanceDB
         │                      │
@@ -60,6 +62,7 @@
 - Docker Engine と Docker Compose v2（ホストに Python や Node.js は不要）
 - 岡山大学の学内ネットワーク（おいとまAPIに到達できること）
 - おいとまAPIの APIキー
+- ログインに使う Google Cloud の OAuth クライアント（無料。手順は [docs/auth-setup.md](docs/auth-setup.md)。未設定でもゲストとして共通デモを閲覧できます）
 - GPU は不要（推論はすべて おいとま側で行います）
 
 ## セットアップ
@@ -69,7 +72,8 @@ git clone <このリポジトリ>
 cd si-nsa
 
 cp .env.example .env
-# .env を編集し、OITOMA_API_KEY を設定する
+# .env を編集し、OITOMA_API_KEY と、Google のログインの
+# GOOGLE_OAUTH_CLIENT_ID・GOOGLE_OAUTH_CLIENT_SECRET を設定する（docs/auth-setup.md）
 
 make setup       # git フックの設定（AIを共同著者とするコミットを拒否）
 make build
@@ -87,7 +91,7 @@ make up
 ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 ```
 
-その後、手元のブラウザで http://localhost:8080 を開きます。
+その後、手元のブラウザで http://localhost:8080 を開きます（Google のログインのリダイレクト URI に合わせ、`127.0.0.1` ではなく `localhost` を使います）。
 
 ### 運用中のアクセス先
 
@@ -95,11 +99,13 @@ ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 
 > この経路では Cloudflare のエッジで TLS が終端されるため、アップロードする論文・解析結果・注釈付きPDFが学外（Cloudflare）を通過します。扱いは TODO.md の「保留事項・質問」で検討中です。
 
-### 利用者とデータの所有（認証の導入中）
+### ログインと利用者のデータ
 
-論文・解析結果・ルール・専門知識は、アップロードした利用者個人のデータで、本人だけが閲覧・操作できます。ログインしていない利用者（ゲスト）は、共通デモの閲覧だけができます（設計は `docs/access-control-design.md`）。
+論文・解析結果・ルール・専門知識は、アップロードした利用者個人のデータで、本人だけが閲覧・操作できます（設計は `docs/access-control-design.md`）。
 
-- ログインの仕組み（認証サービス）はまだ導入していません。本番相当の構成（`make up`）では、全員がゲストとして共通デモだけを閲覧できます。手元で論文を解析するには、開発用の構成（`make dev`）のモック認証を使ってください（下の「開発」）
+- **ログイン**：画面右上の「Googleでログイン」から、岡山大学の Google アカウント（`okayama-u.ac.jp` と、そのサブドメインのメールアドレス）でログインします。学生・教職員の区別はありません。Google Cloud での設定、ログインできないときの調べ方、Cookie・鍵・セッションの扱いは [docs/auth-setup.md](docs/auth-setup.md) にまとめています
+- **ゲスト**：ログインしていなくても、共通デモの解析結果・PDF を閲覧できます。論文のアップロード・解析、ルール・専門知識の登録にはログインが必要です
+- **ログアウト**：画面右上の「ログアウト」。サーバー側でセッションを消すので、ログアウト後は同じ Cookie を使えません
 - 認証の導入前に作ったデータベースは、そのままでは使えません（`core`・`worker` が起動しません）。`make down` で止めてから `make migrate` で移行してください。移行の前にバックアップを `app_db` ボリューム内（`/data/db/backups/`）に作ります
 - 移行すると、それまでのデータは所有者が分からないため隔離され、誰からも見えなくなります（共通デモを除く）。持ち主に戻すには、その人が一度ログインして利用者として登録されてから、`make claim-legacy ARGS="--user <内部ユーザーID> --doc <論文のID> --rule-document <ルール資料のID> --lab-document <専門知識の資料のID>"` を実行します
 - 移行を元に戻すには、`make down` で止め、バックアップのファイルを元の場所（`/data/db/mongai.sqlite3`）に戻し、移行前の版で起動します
@@ -132,6 +138,7 @@ ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 - 実際の未発表論文で使うときは、**Claude Code などの外部AIツールを起動していない状態**で操作してください。開発に使うAIツールは、読んだファイルの内容を外部に送信します
 - アップロードしたデータは Docker ボリューム `data_private` にだけ保存されます。削除は `make clean-data` で行います（確認が求められます）
 - 外部への通信は画面の「外部通信ログ」で確認できます。厳密に管理したい場合は `strict` または `offline` モードを使ってください
+- 外部通信の監査ログ（照会した用語・引用文献の書誌情報・内部ユーザーID・日時）は、追記専用のため、論文を削除した後も残ります
 
 ## 開発
 
@@ -146,7 +153,9 @@ make logs
 make down
 ```
 
-- 開発用の構成（`make dev`）には、開発用のモック認証サービス（`devauth`）が加わります。http://127.0.0.1:8080/auth/dev-login?user=alice を開くと、利用者 alice としてログインした状態になります（パスワードは無く、開発専用です。ログアウトは `/auth/dev-logout`）。本番相当の構成（`MONGAI_ENV=production`）の `core` は、開発用の鍵を受け付けません
+- 開発用の構成（`make dev`）には、開発用のモック認証サービス（`devauth`）が加わります。http://127.0.0.1:8080/auth/dev-login?user=alice を開くと、利用者 alice としてログインした状態になります（パスワードは無く、開発専用です。ログアウトは `/auth/dev-logout`）。画面の「Googleでログイン」は alice でのログイン、「ログアウト」は devauth のログアウトになります。本番相当の構成（`MONGAI_ENV=production`）の `core` は、開発用の鍵を受け付けず、`devauth` も含みません。Google のログイン（`authn`）とは鍵・Cookie・セッションが別です
+- Google のログインのテストは、偽の Google（`tests/unit/fake_google.py`）を使い、外部と通信せずに行います（`make test`）
+- 認証の運用：`make authn-rotate-key`（署名の鍵の更新）、`make authn-revoke-sessions`（全員のログインを無効にする）
 - 開発・テストには、公開済みのオープンアクセス論文か合成データだけを使ってください
 - `make live` では、`core`・`gateway`・`searcher`・`worker` は Python のファイルを保存するとそのサービスだけ再起動し、画面は自動で作り直されます（ブラウザを再読み込みすると反映）。**`core/` のファイルを保存すると `worker` も再起動し、実行中の解析・抽出は失敗になります**（もう一度解析してください）。`frontend/index.html`・`vite.config.ts`・依存関係・Dockerfile を変えたときは、もう一度 `make live` を実行します。作業ツリーがそのまま公開されるので、ブランチの切り替えにも注意してください
 - ネットワーク構成・ゲートウェイ・`searcher` を変更したら、必ず `make test-security` を通してください
@@ -200,6 +209,7 @@ UIはデジタル庁「[ダッシュボードデザインの実践ガイドブ�
 ├── core/          解析（PDF構造化、ルール、チェック、注釈、レポート）
 ├── gateway/       検索ゲートウェイ
 ├── searcher/      検索エージェント
+├── authn/         認証サービス（Google でのログイン・セッション）
 ├── frontend/      ダッシュボードとPDFビューア
 ├── eval/          モデル評価ハーネス（合成の評価データ、比較ページ）
 ├── demo/          デモ用の合成論文

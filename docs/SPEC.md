@@ -38,13 +38,15 @@
 | `gateway`（検索ゲートウェイ） | 検索要求のみ | なし |
 | `searcher`（検索エージェント） | **なし** | あり（許可ドメインのみ） |
 | `web`（nginx。フロントエンドの静的ファイル配信と `/api` の中継） | 表示のみ | なし（`127.0.0.1` へのポート公開のみ） |
+| `authn`（認証サービス。Google の OpenID Connect によるログインとセッション） | **なし** | 認証専用（`auth_proxy` 経由で Google の OIDC のエンドポイントのみ） |
 
 - Docker Compose でネットワークを分ける（詳細は 7.1）。
   - `internal_net`：`internal: true`。`core`、`worker`、`gateway`、`web`、Redis、GROBID が所属。
   - `ui_net`：`web` だけが所属。`internal: true` のネットワークではポートを公開できないため、利用者のブラウザからの入口として使う。
   - `oitoma_proxy`：`core` から おいとまAPI（`ironical.okayama-u.ac.jp`）**だけ**に出られるフォワードプロキシ（Squid等）。それ以外のホストは拒否。
   - `egress_net`：`searcher` と `egress_proxy` のみが所属。`egress_proxy` は 2.4 の許可ドメインのみ通す。
-- `searcher` のコンテナには、論文・研究室データのボリュームを**マウントしない**。
+  - `auth_net`（`web` と `authn`）・`auth_egress_net`（`authn` と `auth_proxy`）：`internal: true`。`auth_proxy` は Google の OIDC のエンドポイント（`accounts.google.com`・`oauth2.googleapis.com`・`www.googleapis.com`）だけを通す。ログインを成り立たせるための**認証専用の例外**で、論文・研究室知識・解析結果はこの経路を通らない（`authn` にはそれらのボリュームをマウントせず、`web` は `authn` に要求の本文を渡さない）。詳細は `docs/access-control-design.md` 第I章。
+- `searcher` と `authn` のコンテナには、論文・研究室データのボリュームを**マウントしない**。
 - `core` と `searcher` は直接通信させない。必ず `gateway` を経由する。
 
 ### 2.3 検索ゲートウェイ（`gateway`）
@@ -121,6 +123,7 @@ class BibResult(BaseModel):
 - `searcher` コンテナに `data/private` がマウントされていないことを確認するテスト
 - ゲートウェイが、原稿の文を含む `term_lookup`、複数語の `term_lookup`、未定義フィールドを持つ要求を拒否する単体テスト
 - 外部取得テキストに「Ignore previous instructions...」を含めても、指摘結果が汚染されないことを確認するテスト
+- `authn` に論文・DB・監査ログのボリュームが無いこと、`auth_proxy` が Google の OIDC のエンドポイント以外を拒否すること、`core`・`worker` から `authn`・`auth_proxy` に到達できないこと、ブラウザが送った認証のヘッダー（`X-MongAI-Assertion`）を `web` が捨てることを確認するテスト
 
 ---
 
@@ -364,7 +367,7 @@ embeddings:
 
 | サービス | 役割 | 所属ネットワーク | ポート公開 |
 |---|---|---|---|
-| `web` | nginx。フロントのビルド成果物を配信し、`/api` を `core` に中継 | `ui_net`, `internal_net` | `127.0.0.1:8080` のみ |
+| `web` | nginx。フロントのビルド成果物を配信し、`/api` を `core` に中継。`/auth/` を `authn` に中継し、`/api` の要求ごとに `authn` でセッションを確かめる | `ui_net`, `internal_net`, `auth_net` | `127.0.0.1:8080` のみ |
 | `core` | FastAPI | `internal_net` | なし |
 | `worker` | 解析ジョブ（`core` と同じイメージ、起動コマンドだけ変える） | `internal_net` | なし |
 | `gateway` | 検索ゲートウェイ・承認キュー・監査ログ | `internal_net`, `gateway_net` | なし |
@@ -373,8 +376,10 @@ embeddings:
 | `grobid` | PDF構造化（CRFのみの軽量版を優先、バージョン固定） | `internal_net` | なし |
 | `oitoma_proxy` | Squid。おいとまAPIのホストだけ許可 | `internal_net`, `oitoma_net` | なし |
 | `egress_proxy` | Squid。2.4 の許可ドメインだけ許可 | `egress_net`, `outbound_net` | なし |
+| `authn` | 認証サービス（Google の OIDC。ログイン・セッション・`core` に渡す署名つきの主張） | `auth_net`, `auth_egress_net` | なし |
+| `auth_proxy` | Squid。Google の OIDC のエンドポイントだけ許可（認証専用） | `auth_egress_net`, `auth_outbound_net` | なし |
 
-- `internal_net`、`gateway_net`、`egress_net` は `internal: true`。外に出られるのは `oitoma_net` と `outbound_net` に繋がったプロキシだけ
+- `internal_net`、`gateway_net`、`egress_net`、`auth_net`、`auth_egress_net` は `internal: true`。外に出られるのは `oitoma_net`・`outbound_net`・`auth_outbound_net` に繋がったプロキシだけ
 - `searcher` が おいとまAPI（高速モデル）を使う場合は、`egress_proxy` の allowlist に おいとまのホストを加えるのではなく、`gateway` 経由で `core` 側に照合を依頼するか、`oitoma_proxy` を `gateway_net` にも繋ぐ。どちらにするかは実装前に提案して確認を取ること
 - `searcher` には `data_private` ボリュームをマウントしない（2.7 のテストで検証）
 
@@ -399,9 +404,12 @@ embeddings:
 - `lancedb`：ベクタDB（`core`、`worker` のみ）
 - `app_db`：SQLite（メタデータ）
 - `audit_log`：外部通信の監査ログ（`gateway` のみ書き込み、`core` は読み取り専用）
+- `authn_data`：ログインのセッションと、主張に署名する秘密鍵（`authn` のみ）
+- `authn_public`：主張を検証する公開鍵（`authn` が書き込み、`core` は読み取り専用）
 
 **秘密情報**
 - `OITOMA_API_KEY` は `.env` から読み込み、必要なサービスにだけ渡す。`.env.example` を用意し、`.env` は `.gitignore` に入れる
+- Google の OAuth クライアントのシークレット（`GOOGLE_OAUTH_CLIENT_SECRET`）も `.env` から読み込み、`authn` にだけ渡す
 
 **Makefile**（共通操作はすべて Makefile 経由にする）
 - `make build` / `make up` / `make down` / `make dev` / `make logs`
@@ -434,6 +442,7 @@ embeddings:
 │   ├── rag/                   # LanceDB、名前空間
 │   ├── annotate/              # PDF注釈
 │   └── report/                # CSV/JSON/テキスト要約、差分
+├── authn/                     # 認証サービス（Google の OIDC、セッション、主張の署名）
 ├── gateway/                   # スキーマ検証、漏えい検査、承認キュー、監査ログ
 ├── searcher/                  # 書誌API、OA取得、(任意)Playwright
 ├── frontend/
