@@ -410,6 +410,12 @@ blockquote {
   margin-top: 8px;
   justify-content: space-between;
 }
+.queue-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
 .definitions dt {
   font-weight: 700;
   margin-top: 8px;

@@ -92,6 +92,8 @@ export interface MockApi {
   requests: string[];
   /** 承認キュー（既定は空。通知のテストで積む） */
   queue: QueueItem[];
+  /** 承認キューで承認・却下した要求 */
+  decisions: { requestId: string; action: string }[];
   /** この解析で照会した用語 */
   terms: TermLookup[];
   /** アップロードされたファイルの数と、解析を始めた論文の ID */
@@ -118,6 +120,7 @@ export async function mockApi(page: Page, options: { sample?: boolean } = {}): P
     updates: [],
     requests: [],
     queue: [],
+    decisions: [],
     terms: [],
     uploads: 0,
     started: [],
@@ -218,6 +221,14 @@ export async function mockApi(page: Page, options: { sample?: boolean } = {}): P
       return route.fulfill(json({ ...summary, analysis: { ...summary.analysis, status: "queued" } }, 201));
     }
     if (path === "/api/gateway/queue") return route.fulfill(json(state.queue));
+    const decide = path.match(/^\/api\/gateway\/queue\/([^/]+)\/(approve|reject)$/);
+    if (decide && request.method() === "POST") {
+      const [, requestId = "", action = ""] = decide;
+      state.queue = state.queue.filter((item) => item.request_id !== requestId);
+      state.decisions.push({ requestId, action });
+      const decision = action === "approve" ? "sent" : "rejected";
+      return route.fulfill(json({ request_id: requestId, decision, reason: null }));
+    }
     if (path === `${base}/terms`) return route.fulfill(json(state.terms));
     if (path === "/api/audit-log") return route.fulfill(json({ available: true, mode: "standard", entries: [] }));
     if (path === "/api/gateway/queue") return route.fulfill(json([]));
