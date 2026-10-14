@@ -41,3 +41,11 @@ def test_devauth_issues_assertions_core_accepts(
         client.cookies.clear()
         assert client.get("/auth/verify").headers.get("X-MongAI-Assertion") is None
         assert client.get("/auth/dev-login", params={"user": "Bad User"}).status_code == 422
+        # 画面のログイン・ログアウトの入口（本物の authn と同じパス）
+        r = client.get("/auth/login", follow_redirects=False)
+        assert r.headers["location"] == "/auth/dev-login?user=alice"
+        client.get(r.headers["location"], follow_redirects=False)
+        assert client.get("/auth/verify").headers.get("X-MongAI-Assertion") is not None
+        assert client.post("/auth/logout").status_code == 204
+        client.cookies.clear()
+        assert client.get("/auth/verify").headers.get("X-MongAI-Assertion") is None
