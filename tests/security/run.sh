@@ -227,12 +227,21 @@ print(status, body.decode(errors="replace"), location)
 web_req() {
     $COMPOSE exec -T core python -c "$WEBPROBE" "$@" 2>&1
 }
+# 動いている authn の設定（リダイレクト URI）から、設定したオリジンのホストと Cookie の名前を決める。
+# 既定は http://localhost:8080（Cookie は mongai_session）。HTTPS で公開する構成では __Host- が付く
+redirect_uri=$($COMPOSE exec -T authn printenv GOOGLE_OAUTH_REDIRECT_URI 2>/dev/null | tr -d '\r')
+redirect_uri=${redirect_uri:-http://localhost:8080/auth/callback}
+origin_host=$(printf '%s' "$redirect_uri" | sed -E 's#^[a-z]+://([^/]+).*#\1#')
+case "$redirect_uri" in
+    https://*) session_cookie="__Host-mongai_session" ;;
+    *) session_cookie="mongai_session" ;;
+esac
 out=$(web_req GET /api/me "X-MongAI-Assertion=forged.forged.forged")
 case "$out" in
     "200 "*'"authenticated":false'*) pass "ブラウザが送った X-MongAI-Assertion は捨てられ、ゲストとして扱われる" ;;
     *) fail "ブラウザが送った X-MongAI-Assertion は捨てられ、ゲストとして扱われる" "$out" ;;
 esac
-out=$(web_req GET /api/analyses "Cookie=mongai_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+out=$(web_req GET /api/analyses "Cookie=$session_cookie=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 case "$out" in
     "401 "*invalid_session*) pass "無効なセッションの Cookie は 401（invalid_session）で、ゲストにならない" ;;
     *) fail "無効なセッションの Cookie は 401（invalid_session）で、ゲストにならない" "$out" ;;
@@ -265,7 +274,7 @@ case "$out" in
     *) fail "/auth/login は authn に中継され、設定したオリジンにだけ移す" "$out" ;;
 esac
 # 設定したオリジン（既定は localhost:8080）で開くと、Google の画面へ移るか、未設定のエラーで画面に戻る（ループしない）
-out=$(web_req GET /auth/login "Host=localhost:8080")
+out=$(web_req GET /auth/login "Host=$origin_host")
 case "$out" in
     "303 "*"https://accounts.google.com/"*|"303 "*"/?auth_error=not_configured") pass "設定したオリジンの /auth/login はリダイレクトのループにならない" ;;
     *) fail "設定したオリジンの /auth/login はリダイレクトのループにならない" "$out" ;;
