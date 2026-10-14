@@ -6,7 +6,8 @@
   1.8 で非推奨になったため使わない
 - 許可するのは、確認済みのメールアドレス（email_verified が true）と、組織のドメイン（hd）の両方が、
   許可したドメインかそのサブドメインに含まれる利用者だけ。両者が同じであることまでは求めない
-- 認可の要求に付ける hd はアカウントの選択の補助で、許可の判定には使わない（ID トークンの hd で判定する）
+- 認可の要求に付ける hd（* ＝ Google Workspace のアカウント全般）はアカウントの選択の補助で、許可の判定には
+  使わない（ID トークンの hd で判定する）
 - ID トークン・認可コード・アクセストークンはログに出さない。拒否したときは、理由と、安全な属性
   （クレームの名前、hd の値、メールのドメイン部、email_verified）だけをログに出す
 """
@@ -165,18 +166,16 @@ class GoogleOIDC:
         state = generate_token(43)
         nonce = generate_token(43)
         code_verifier = generate_token(64)
-        # hd：大学のアカウントを選びやすくするための補助（許可の判定には使わない）
-        hint = (
-            min(self.settings.allowed_domains, key=len) if self.settings.allowed_domains else None
-        )
         extra: dict[str, str] = {
             "nonce": nonce,
             "code_challenge": create_s256_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "prompt": "select_account",
+            # Google Workspace のアカウントを選びやすくする補助（許可の判定には使わない）。
+            # 特定のドメイン（例：okayama-u.ac.jp）を指定すると、Google の画面がメールアドレスの末尾を
+            # そのドメインに固定し、別の組織のサブドメイン（s.okayama-u.ac.jp の学生など）を入力できなくなる
+            "hd": "*",
         }
-        if hint:
-            extra["hd"] = hint
         url = prepare_grant_uri(
             endpoint,
             client_id=self.settings.client_id,

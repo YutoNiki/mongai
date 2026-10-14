@@ -104,7 +104,9 @@ def test_login_redirects_to_google_with_state_nonce_and_pkce(client: TestClient)
     assert query["redirect_uri"] == f"{ORIGIN}/auth/callback"  # 要求の Host ではなく設定値
     assert query["code_challenge_method"] == "S256" and query["code_challenge"]
     assert len(query["state"]) >= 40 and len(query["nonce"]) >= 40
-    assert query["hd"] == "okayama-u.ac.jp"  # アカウント選択の補助（判定には使わない）
+    # アカウント選択の補助（判定には使わない）。特定のドメインにすると、Google の画面が
+    # メールの末尾をそのドメインに固定し、s.okayama-u.ac.jp の学生が入力できなくなる
+    assert query["hd"] == "*"
     cookie = r.headers["set-cookie"]
     assert cookie.startswith(f"{FLOW}=") and "HttpOnly" in cookie and "SameSite=lax" in cookie
     assert "client_secret" not in r.headers["location"]

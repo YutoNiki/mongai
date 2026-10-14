@@ -203,6 +203,7 @@ WARNING authn.oidc ログインを拒否：組織のドメイン（hd）が無�
 | 認証サービスに接続できませんでした（`unavailable`） | Google と通信できない | サーバーから Google に出られない。`make test-security` の「authn から auth_proxy 経由で Google の OIDC の設定に到達できる」を確かめる |
 | ログインが設定されていません（`not_configured`） | — | `.env` の `GOOGLE_OAUTH_CLIENT_ID`・`GOOGLE_OAUTH_CLIENT_SECRET` が未設定 |
 | （Google の画面で）`redirect_uri_mismatch` | — | Google に登録したリダイレクト URI と `GOOGLE_OAUTH_REDIRECT_URI` が違う |
+| （Google の画面で）メールアドレスの欄の末尾が `@okayama-u.ac.jp` などに固定され、別のドメインを入力できない | — | 認可の要求の `hd` に特定のドメインを指定したときに起きる。SI-NSA は `hd=*` を付けるので通常は起きない。古い `authn` のイメージで動いていないか確かめる（`docker compose up -d --build authn`） |
 | （Google の画面で）組織外のため使えない | — | 同意画面の対象が「内部」で、別の組織のアカウント。2.2 を参照 |
 
 ## 6. 認証が止まったときの動き
