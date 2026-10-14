@@ -66,7 +66,7 @@
 
 ```bash
 git clone <このリポジトリ>
-cd mongai
+cd si-nsa
 
 cp .env.example .env
 # .env を編集し、OITOMA_API_KEY を設定する
