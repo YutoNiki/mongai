@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { Layout } from "./components/Layout";
+import { AuthProvider } from "./lib/auth";
 import { AnnotatedPage, DashboardPage, DetailPage } from "./lib/pages";
 import { matchRoute, usePath } from "./lib/router";
 import { AuditPage } from "./pages/AuditPage";
@@ -29,10 +30,12 @@ function Route({ path }: { path: string }) {
 export function App() {
   const path = usePath();
   return (
-    <Layout>
-      <Suspense fallback={<p className="page">読み込み中…</p>}>
-        <Route path={path} />
-      </Suspense>
-    </Layout>
+    <AuthProvider>
+      <Layout>
+        <Suspense fallback={<p className="page">読み込み中…</p>}>
+          <Route path={path} />
+        </Suspense>
+      </Layout>
+    </AuthProvider>
   );
 }

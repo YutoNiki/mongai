@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
-import type { AnalysisListItem, AnalysisSummary, Finding, LabComment, QueueItem, Rule, TermLookup } from "../src/lib/api";
+import type { AnalysisListItem, AnalysisSummary, Finding, LabComment, Me, QueueItem, Rule, TermLookup } from "../src/lib/api";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
@@ -99,7 +99,15 @@ export interface MockApi {
   /** アップロードされたファイルの数と、解析を始めた論文の ID */
   uploads: number;
   started: string[];
+  /** ログインの状態（GET /api/me の応答。"expired" は 401 invalid_session） */
+  me: Me | "expired";
+  /** POST /auth/logout の回数 */
+  logouts: number;
 }
+
+/** 合成の利用者（ログインした状態） */
+export const SIGNED_IN: Me = { authenticated: true, email: "taro@s.okayama-u.ac.jp", display_name: null };
+export const GUEST: Me = { authenticated: false, email: null, display_name: null };
 
 /** core の GET /findings と同じ絞り込み（指定がなければ却下済みも含めてすべて返す） */
 function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
@@ -111,8 +119,15 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
   );
 }
 
-/** sample：解析の集計の `sample`（デモかどうか）を差し替える。省くと保存した応答のまま（デモ） */
-export async function mockApi(page: Page, options: { sample?: boolean } = {}): Promise<MockApi> {
+/**
+ * sample：解析の集計の `sample`（デモかどうか）を差し替える。省くと保存した応答のまま（デモ）
+ * me：ログインの状態。省くとログインした利用者
+ * logoutStatus：POST /auth/logout の応答のステータス（省くと 204）
+ */
+export async function mockApi(
+  page: Page,
+  options: { sample?: boolean; me?: Me | "expired"; logoutStatus?: number } = {},
+): Promise<MockApi> {
   const state: MockApi = {
     labComments: sampleLabComments(),
     rules: sampleRules(),
@@ -124,11 +139,22 @@ export async function mockApi(page: Page, options: { sample?: boolean } = {}): P
     terms: [],
     uploads: 0,
     started: [],
+    me: options.me ?? SIGNED_IN,
+    logouts: 0,
   };
   const json = (body: unknown, status = 200) => ({
     status,
     contentType: "application/json",
     body: JSON.stringify(body),
+  });
+
+  // ログアウト（authn）。同じオリジンからの POST だけを受け付ける
+  await page.context().route("**/auth/logout", async (route) => {
+    if (route.request().method() !== "POST") return route.fulfill({ status: 405 });
+    state.logouts += 1;
+    const status = options.logoutStatus ?? 204;
+    if (status === 204) state.me = GUEST;
+    return route.fulfill({ status });
   });
 
   // pdf.js は Web Worker から PDF を読むので、ページではなくコンテキスト全体で差し替える
@@ -139,6 +165,8 @@ export async function mockApi(page: Page, options: { sample?: boolean } = {}): P
     const path = url.pathname;
     const base = `/api/analyses/${analysisId}`;
 
+    if (path === "/api/me")
+      return route.fulfill(state.me === "expired" ? json({ detail: "invalid_session" }, 401) : json(state.me));
     if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(list));
     if (path === "/api/usage/today")
       return route.fulfill(json({ day: "2026-10-13", requests: 120, prompt_tokens: 340000, completion_tokens: 410000 }));

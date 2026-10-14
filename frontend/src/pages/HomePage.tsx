@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } fro
 
 import { ProgressBar } from "../components/ProgressBar";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
+import { loginUrl, useAuth } from "../lib/auth";
 import { elapsedText } from "../lib/progress";
 import { prefetchDashboard } from "../lib/pages";
 import { prefetchAnalysis, waitForAnalysis } from "../lib/prefetch";
@@ -57,6 +58,8 @@ function openAnalysis(event: MouseEvent<HTMLAnchorElement>, analysisId: string):
 }
 
 export function HomePage() {
+  const { state: auth } = useAuth();
+  const signedIn = auth.kind === "user";
   // トップページが表示されたあと、手が空いたときに解析結果の画面の部品（グラフのライブラリ）を読み込んでおく
   useEffect(() => {
     const timer = window.setTimeout(prefetchDashboard, 1500);
@@ -75,8 +78,10 @@ export function HomePage() {
 
   const load = useCallback(() => {
     api.listAnalyses().then(setItems, () => setError("解析の一覧を読み込めませんでした"));
-    api.usageToday().then(setUsage, () => setUsage(null));
-  }, []);
+    // 利用回数は利用者ごと（ゲストは 401 になるので問い合わせない）
+    if (signedIn) api.usageToday().then(setUsage, () => setUsage(null));
+    else setUsage(null);
+  }, [signedIn]);
   useEffect(load, [load]);
   const active = items?.some((i) => ACTIVE.has(i.status)) ?? false;
   // 経過時間の表示を進めるための時計（解析中だけ動かす）
@@ -151,7 +156,9 @@ export function HomePage() {
           <h2 id="usage-title" className="panel-title">
             今日のAPIリクエスト
           </h2>
-          {usage === null ? (
+          {!signedIn ? (
+            <p className="note">ログインすると、自分の利用回数が表示されます</p>
+          ) : usage === null ? (
             <p>読み込めませんでした</p>
           ) : (
             <>
@@ -179,32 +186,48 @@ export function HomePage() {
           <p className="note">
             アップロードした論文は学内のサーバーにだけ保存され、学外には送信されません。
           </p>
-          <form key={formKey} onSubmit={submit} className="upload-form">
-            <label>
-              論文のPDF（複数選べます）
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                multiple
-                required
-                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-              />
-            </label>
-            <label>
-              指摘を書く言語
-              <select value={outputLang} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
-                <option value="paper">論文と同じ言語</option>
-                <option value="ja">日本語</option>
-              </select>
-            </label>
-            <button type="submit" disabled={files.length === 0 || busy}>
-              {busy
-                ? "アップロード中…"
-                : files.length > 1
-                  ? `${files.length}件をアップロードして解析を始める`
-                  : "アップロードして解析を始める"}
-            </button>
-          </form>
+          {auth.kind === "loading" ? (
+            <p className="note">ログインの状態を確認しています…</p>
+          ) : !signedIn ? (
+            <div className="login-guide">
+              <p>
+                論文を解析するには、岡山大学のGoogleアカウントでのログインが必要です。ログインしなくても、下の一覧の「（デモ）」の解析結果を閲覧できます。
+              </p>
+              <a className="button-primary-link" href={loginUrl("/")}>
+                Googleでログイン
+              </a>
+              <p className="note">
+                Googleには本人確認（メールアドレスの確認）だけを依頼し、論文や解析結果は送りません。
+              </p>
+            </div>
+          ) : (
+            <form key={formKey} onSubmit={submit} className="upload-form">
+              <label>
+                論文のPDF（複数選べます）
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  required
+                  onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                />
+              </label>
+              <label>
+                指摘を書く言語
+                <select value={outputLang} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
+                  <option value="paper">論文と同じ言語</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </label>
+              <button type="submit" disabled={files.length === 0 || busy}>
+                {busy
+                  ? "アップロード中…"
+                  : files.length > 1
+                    ? `${files.length}件をアップロードして解析を始める`
+                    : "アップロードして解析を始める"}
+              </button>
+            </form>
+          )}
           {notice && (
             <p className="note" aria-live="polite">
               {notice}
@@ -225,7 +248,7 @@ export function HomePage() {
         {items === null ? (
           <p>読み込み中…</p>
         ) : items.length === 0 ? (
-          <p>まだ解析はありません。</p>
+          <p>{signedIn ? "まだ解析はありません。" : "閲覧できる解析はありません。"}</p>
         ) : (
           <div className="table-scroll">
             <table className="data-table responsive">

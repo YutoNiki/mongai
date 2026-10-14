@@ -237,25 +237,49 @@ export interface LabComment {
   created_at: string;
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null = null,
+  ) {
+    super(message);
+  }
+}
 
-// 401 の理由（core/api/dependencies.py）。ログインの画面は認証の導入時に加える
+/** ログインの状態（GET /api/me。表示に要る最小限の情報だけ） */
+export interface Me {
+  authenticated: boolean;
+  email: string | null;
+  display_name: string | null;
+}
+
+/** API がセッションの失効（invalid_session）を返したときに window に送るイベント（lib/auth.tsx が受け取る） */
+export const SESSION_INVALID_EVENT = "mongai:session-invalid";
+
+// 401・503 の理由（core/api/dependencies.py と docker/web/auth/*/server.conf）
 const AUTH_MESSAGES: Record<string, string> = {
-  login_required: "ログインが必要です（ログインしていない場合は、共通デモの閲覧だけができます）",
+  login_required: "ログインが必要です（ログインしていない場合は、共通デモの閲覧だけができます）。画面右上の「Googleでログイン」からログインしてください",
   invalid_session: "ログインの有効期限が切れたか、ログインの情報が正しくありません。もう一度ログインしてください",
+  auth_unavailable: "認証サービスに接続できません。しばらくしてからお試しください",
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, init);
+  const response = await fetch(`/api${path}`, { credentials: "same-origin", ...init });
   if (!response.ok) {
     let detail = `${response.status}`;
+    let code: string | null = null;
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === "string") detail = AUTH_MESSAGES[body.detail] ?? body.detail;
+      if (typeof body.detail === "string") {
+        code = body.detail;
+        detail = AUTH_MESSAGES[body.detail] ?? body.detail;
+      }
     } catch {
       // 本文が JSON でない場合はステータスコードだけを表示する
     }
-    throw new ApiError(detail);
+    if (response.status === 401 && code === "invalid_session") window.dispatchEvent(new Event(SESSION_INVALID_EVENT));
+    throw new ApiError(detail, response.status, code);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -269,6 +293,15 @@ function query(filters: FindingFilters): string {
 }
 
 export const api = {
+  me: () => request<Me>("/me"),
+  async logout(): Promise<void> {
+    // 同じオリジンからの POST だけを受け付ける（authn が Origin を確かめる）
+    const response = await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    // 503：サーバー側でセッションを消せなかった（Cookie だけ消えても、写しの Cookie が使えるままになる）
+    if (response.status === 503)
+      throw new ApiError("ログアウトを確定できませんでした。もう一度お試しください", response.status);
+    if (!response.ok) throw new ApiError(`ログアウトできませんでした（${response.status}）`, response.status);
+  },
   upload(file: File) {
     const body = new FormData();
     body.append("file", file);

@@ -879,3 +879,76 @@ button.icon-button {
     height: 44px;
   }
 }
+
+/* ---- ログインの状態（ヘッダーの右側）と、ログインの知らせ ---- */
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: auto;
+  font-size: 14px;
+}
+.account-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.account-email {
+  overflow-wrap: anywhere;
+}
+/* ページ遷移のリンク（Google のログイン画面へ移る）を、主ボタンの形で示す */
+.button-primary-link {
+  display: inline-block;
+  font-size: 15px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-on-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+.button-primary-link:hover {
+  text-decoration: underline;
+}
+.auth-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  max-width: 1600px;
+  margin: 12px auto 0;
+  padding: 12px 20px;
+  border: 2px solid var(--color-error);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.auth-banner p {
+  margin: 0;
+  flex: 1 1 320px;
+}
+.login-guide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .account {
+    margin-left: 0;
+    padding-bottom: 8px;
+  }
+  .button-primary-link {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 16px;
+  }
+  .auth-banner {
+    margin: 8px 12px 0;
+    padding: 12px;
+  }
+}
