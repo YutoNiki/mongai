@@ -4,6 +4,8 @@
 - 指摘のステータス（対応済み・却下と理由）は列を正とする
 - 1つの解析ごとに、おいとまAPIの利用回数（エンドポイント・モデル・役割別）を保存する
 - 日ごと（日本時間）の利用回数は解析とは別に持つ（論文を削除しても、その日の回数は減らさない）
+- 論文と解析は所有者（owner_user_id）と公開範囲（visibility）を持つ。API から読むときは `*_for` で、
+  主体（viewer。ゲストは None）が読めるものだけを SQL の条件で絞る（スキーマは core.store.schema）
 """
 
 import json
@@ -21,108 +23,16 @@ from pydantic import BaseModel
 from core.analyze.models import Finding, ParagraphStructure
 from core.ingest.models import Document
 from core.llm.usage import UsageRow
+from core.store.schema import connect, ensure_schema
 
 DEFAULT_DB_PATH = "/data/db/mongai.sqlite3"
 
 AnalysisStatus = Literal["queued", "running", "completed", "failed"]
+Visibility = Literal["private", "public_demo", "quarantined"]
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS papers (
-    doc_id TEXT PRIMARY KEY,
-    filename TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    uploaded_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS documents (
-    doc_id TEXT PRIMARY KEY,
-    title TEXT,
-    lang TEXT NOT NULL,
-    page_count INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    data TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS analyses (
-    analysis_id TEXT PRIMARY KEY,
-    doc_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    status TEXT NOT NULL,
-    settings TEXT NOT NULL,
-    progress TEXT NOT NULL DEFAULT '{}',
-    warnings TEXT NOT NULL DEFAULT '[]',
-    error TEXT,
-    created_at TEXT NOT NULL,
-    finished_at TEXT
-);
-CREATE TABLE IF NOT EXISTS paragraph_structures (
-    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
-    paragraph_id TEXT NOT NULL,
-    data TEXT NOT NULL,
-    PRIMARY KEY (analysis_id, paragraph_id)
-);
-CREATE TABLE IF NOT EXISTS findings (
-    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
-    finding_id TEXT NOT NULL,
-    doc_id TEXT NOT NULL,
-    category TEXT NOT NULL,
-    subcategory TEXT NOT NULL,
-    severity TEXT NOT NULL,
-    confidence TEXT NOT NULL,
-    section_id TEXT,
-    page INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'open',
-    dismiss_reason TEXT,
-    data TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (analysis_id, finding_id)
-);
-CREATE INDEX IF NOT EXISTS findings_by_doc ON findings(doc_id);
-CREATE TABLE IF NOT EXISTS api_usage (
-    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
-    endpoint TEXT NOT NULL,
-    model TEXT NOT NULL,
-    role TEXT NOT NULL,
-    calls INTEGER NOT NULL,
-    requests INTEGER NOT NULL,
-    retries INTEGER NOT NULL,
-    failures INTEGER NOT NULL,
-    prompt_tokens INTEGER NOT NULL,
-    completion_tokens INTEGER NOT NULL,
-    latency_s REAL NOT NULL,
-    PRIMARY KEY (analysis_id, endpoint, model, role)
-);
-CREATE TABLE IF NOT EXISTS term_lookups (
-    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id),
-    term TEXT NOT NULL,
-    query TEXT,
-    request_id TEXT,
-    status TEXT NOT NULL,
-    matched TEXT,
-    description TEXT,
-    source TEXT,
-    reason TEXT,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (analysis_id, term)
-);
-CREATE INDEX IF NOT EXISTS term_lookups_by_request ON term_lookups(request_id);
--- 承認キューでの承認・却下の結果（要求ごと）。解析の途中で承認しても失われないよう、解析の記録とは分けて持つ
-CREATE TABLE IF NOT EXISTS term_decisions (
-    request_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    matched TEXT,
-    description TEXT,
-    source TEXT,
-    decided_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS api_usage_daily (
-    day TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    model TEXT NOT NULL,
-    requests INTEGER NOT NULL,
-    prompt_tokens INTEGER NOT NULL,
-    completion_tokens INTEGER NOT NULL,
-    PRIMARY KEY (day, endpoint, model)
-);
-"""
+# 主体（viewer）が読める行の条件。ゲスト（None）は共通デモだけ
+_READABLE = "(visibility = 'public_demo' OR (visibility = 'private' AND owner_user_id = ?))"
+
 
 JST = timezone(timedelta(hours=9))
 
@@ -133,6 +43,10 @@ class FindingNotFoundError(KeyError):
 
 class PaperBusyError(RuntimeError):
     """解析が順番待ち・実行中の論文は削除できない。"""
+
+
+class PaperNotFoundError(KeyError):
+    """主体が所有する論文が見つからない（他人の論文・共通デモ・隔離された論文を含む）。"""
 
 
 class DailyUsage(BaseModel):
@@ -180,6 +94,9 @@ class PaperRecord(BaseModel):
     filename: str
     size: int
     uploaded_at: str
+    content_sha256: str | None = None
+    owner_user_id: str | None = None
+    visibility: Visibility = "private"
 
 
 class AnalysisRecord(BaseModel):
@@ -193,6 +110,8 @@ class AnalysisRecord(BaseModel):
     error: str | None
     created_at: str
     finished_at: str | None
+    owner_user_id: str | None = None
+    visibility: Visibility = "private"
 
 
 def _now() -> str:
@@ -202,23 +121,11 @@ def _now() -> str:
 class Store:
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path or os.environ.get("MONGAI_DB_PATH") or DEFAULT_DB_PATH)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.executescript(SCHEMA)
-            columns = {r["name"] for r in conn.execute("PRAGMA table_info(analyses)")}
-            if "progress" not in columns:  # M3 で作ったデータベースへの列の追加
-                conn.execute("ALTER TABLE analyses ADD COLUMN progress TEXT NOT NULL DEFAULT '{}'")
-            term_columns = {r["name"] for r in conn.execute("PRAGMA table_info(term_lookups)")}
-            for column in ("query", "matched"):  # 英語での照会を加える前の表への列の追加
-                if column not in term_columns:
-                    conn.execute(f"ALTER TABLE term_lookups ADD COLUMN {column} TEXT")
+        ensure_schema(self.path)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
+        conn = connect(self.path)
         try:
             with conn:
                 yield conn
@@ -228,18 +135,44 @@ class Store:
     # ------------------------------------------------------------ アップロードされた論文
 
     def save_paper(
-        self, doc_id: str, *, filename: str, size: int, uploaded_at: str | None = None
+        self,
+        doc_id: str,
+        *,
+        owner_user_id: str | None,
+        filename: str,
+        size: int,
+        content_sha256: str | None = None,
+        uploaded_at: str | None = None,
+        visibility: Visibility = "private",
     ) -> None:
+        """論文を登録する。同じ ID があれば sqlite3.IntegrityError（ID を作り直して再試行する）。"""
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO papers (doc_id, filename, size, uploaded_at) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(doc_id) DO UPDATE SET filename=excluded.filename",
-                (doc_id, filename, size, uploaded_at or _now()),
+                "INSERT INTO papers (doc_id, filename, size, uploaded_at, content_sha256, "
+                "owner_user_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    doc_id,
+                    filename,
+                    size,
+                    uploaded_at or _now(),
+                    content_sha256,
+                    owner_user_id,
+                    visibility,
+                ),
             )
 
     def get_paper(self, doc_id: str) -> PaperRecord | None:
+        """所有者を問わずに引く（ワーカー・内部の処理用。API からは get_paper_for を使う）。"""
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM papers WHERE doc_id = ?", (doc_id,)).fetchone()
+        return PaperRecord(**dict(row)) if row else None
+
+    def get_paper_for(self, doc_id: str, viewer: str | None) -> PaperRecord | None:
+        """主体が読める論文（自分の論文か共通デモ）。ゲストは viewer=None。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM papers WHERE doc_id = ? AND {_READABLE}", (doc_id, viewer)
+            ).fetchone()
         return PaperRecord(**dict(row)) if row else None
 
     # ------------------------------------------------------------ 文書
@@ -264,27 +197,38 @@ class Store:
         self,
         doc_id: str,
         *,
+        owner_user_id: str,
         kind: str,
         settings: BaseModel,
         status: AnalysisStatus = "running",
     ) -> str:
+        """所有者の解析を作る（所有者は論文の所有者と同じにする。呼び出し側で論文の所有権を確かめる）。"""
         analysis_id = f"A-{uuid.uuid4().hex[:12]}"
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (analysis_id, doc_id, kind, status, settings.model_dump_json(), _now()),
+                "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, created_at, "
+                "owner_user_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, 'private')",
+                (
+                    analysis_id,
+                    doc_id,
+                    kind,
+                    status,
+                    settings.model_dump_json(),
+                    _now(),
+                    owner_user_id,
+                ),
             )
         return analysis_id
 
     def import_analysis(
         self, record: AnalysisRecord, findings: list[Finding], api_usage: list[UsageRow]
     ) -> None:
-        """保存済みの解析結果（ID・日時を含む）をそのまま取り込む（デモの解析に使う）。"""
+        """保存済みの解析結果（ID・日時を含む）を、共通デモ（所有者なし）として取り込む。"""
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO analyses (analysis_id, doc_id, kind, status, settings, progress, "
-                "warnings, error, created_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "warnings, error, created_at, finished_at, owner_user_id, visibility) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'public_demo')",
                 (
                     record.analysis_id,
                     record.doc_id,
@@ -341,7 +285,8 @@ class Store:
             queued = [
                 r["analysis_id"]
                 for r in conn.execute(
-                    "SELECT analysis_id FROM analyses WHERE status = 'queued' ORDER BY created_at"
+                    "SELECT analysis_id FROM analyses WHERE status = 'queued' "
+                    "AND visibility = 'private' ORDER BY created_at"
                 )
             ]
             conn.execute(
@@ -352,13 +297,21 @@ class Store:
             )
         return running, queued
 
-    def delete_paper(self, doc_id: str) -> list[str]:
-        """論文と、その論文のすべての解析結果を削除し、削除した解析の ID を返す。
+    def delete_paper(self, doc_id: str, *, owner_user_id: str) -> list[str]:
+        """所有者の論文と、その論文のすべての解析結果を削除し、削除した解析の ID を返す。
 
-        解析が順番待ち・実行中なら PaperBusyError。PDF ファイルは呼び出し側で消す。
+        所有者の論文（private）でなければ PaperNotFoundError、解析が順番待ち・実行中なら
+        PaperBusyError。PDF ファイルは、削除が確定してから呼び出し側で消す。
         """
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")  # 確認から削除までの間に解析が始まらないようにする
+            owned = conn.execute(
+                "SELECT 1 FROM papers WHERE doc_id = ? AND owner_user_id = ? "
+                "AND visibility = 'private'",
+                (doc_id, owner_user_id),
+            ).fetchone()
+            if owned is None:
+                raise PaperNotFoundError(doc_id)
             rows = conn.execute(
                 "SELECT analysis_id, status FROM analyses WHERE doc_id = ?", (doc_id,)
             ).fetchall()
@@ -375,17 +328,23 @@ class Store:
             conn.execute("DELETE FROM papers WHERE doc_id = ?", (doc_id,))
         return ids
 
-    def list_analyses(self, limit: int = 100) -> list[AnalysisRecord]:
+    def list_analyses(self, viewer: str | None, limit: int = 100) -> list[AnalysisRecord]:
+        """主体が読める解析（自分の解析と共通デモ）。件数の上限は絞り込みの後にかける。"""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM analyses ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+                f"SELECT * FROM analyses WHERE {_READABLE} "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (viewer, limit),
             ).fetchall()
         return [self._analysis(r) for r in rows]
 
     def find_previous(self, analysis_id: str) -> AnalysisRecord | None:
-        """同じ論文（同じ ID、または同じタイトル・ファイル名）の、これより前の完了した解析。"""
+        """同じ論文（同じ ID、または同じタイトル・ファイル名）の、これより前の完了した解析。
+
+        候補は同じ所有者の解析だけ（他人の解析・共通デモは前回にしない）。共通デモには前回が無い。
+        """
         current = self.get_analysis(analysis_id)
-        if current is None:
+        if current is None or current.visibility != "private" or current.owner_user_id is None:
             return None
         with self._connect() as conn:
             rows = conn.execute(
@@ -393,8 +352,9 @@ class Store:
                 "LEFT JOIN documents d ON d.doc_id = a.doc_id "
                 "LEFT JOIN papers p ON p.doc_id = a.doc_id "
                 "WHERE a.status = 'completed' AND a.analysis_id != ? AND a.created_at <= ? "
+                "AND a.owner_user_id = ? AND a.visibility = 'private' "
                 "ORDER BY a.created_at DESC, a.rowid DESC",
-                (analysis_id, current.created_at),
+                (analysis_id, current.created_at, current.owner_user_id),
             ).fetchall()
             mine = conn.execute(
                 "SELECT d.title AS title, p.filename AS filename FROM analyses a "
@@ -423,6 +383,8 @@ class Store:
             error=row["error"],
             created_at=row["created_at"],
             finished_at=row["finished_at"],
+            owner_user_id=row["owner_user_id"],
+            visibility=row["visibility"],
         )
 
     def finish_analysis(
@@ -450,9 +412,19 @@ class Store:
                 self._save_usage(conn, analysis_id, api_usage)
 
     def get_analysis(self, analysis_id: str) -> AnalysisRecord | None:
+        """所有者を問わずに引く（ワーカー・内部の処理用。API からは get_analysis_for を使う）。"""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM analyses WHERE analysis_id = ?", (analysis_id,)
+            ).fetchone()
+        return self._analysis(row) if row is not None else None
+
+    def get_analysis_for(self, analysis_id: str, viewer: str | None) -> AnalysisRecord | None:
+        """主体が読める解析（自分の解析か共通デモ）。ゲストは viewer=None。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM analyses WHERE analysis_id = ? AND {_READABLE}",
+                (analysis_id, viewer),
             ).fetchone()
         return self._analysis(row) if row is not None else None
 
@@ -499,7 +471,10 @@ class Store:
             )
 
     def get_term_lookups(self, analysis_id: str) -> list[TermLookupRecord]:
-        """解析の照会の記録に、承認キューでの決定（あれば）を重ねて返す。"""
+        """解析の照会の記録に、承認キューでの決定（あれば）を重ねて返す。
+
+        重ねるのは、解析の所有者が決定した結果だけ（共通デモには重ねず、保存済みの状態を表示する）。
+        """
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT t.term, t.query, t.request_id, "
@@ -509,7 +484,9 @@ class Store:
                 "AS description, "
                 "CASE WHEN d.request_id IS NULL THEN t.source ELSE d.source END AS source, "
                 "t.reason, COALESCE(d.decided_at, t.updated_at) AS updated_at "
-                "FROM term_lookups t LEFT JOIN term_decisions d ON d.request_id = t.request_id "
+                "FROM term_lookups t JOIN analyses a ON a.analysis_id = t.analysis_id "
+                "LEFT JOIN term_decisions d ON d.request_id = t.request_id "
+                "AND d.owner_user_id = a.owner_user_id "
                 "WHERE t.analysis_id = ? ORDER BY t.rowid",
                 (analysis_id,),
             ).fetchall()
@@ -520,6 +497,7 @@ class Store:
         request_id: str,
         status: TermStatus,
         *,
+        owner_user_id: str,
         matched: str | None = None,
         description: str | None = None,
         source: str | None = None,
@@ -531,9 +509,9 @@ class Store:
         """
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO term_decisions (request_id, status, matched, description, "
-                "source, decided_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (request_id, status, matched, description, source, _now()),
+                "INSERT OR REPLACE INTO term_decisions (request_id, owner_user_id, status, matched, "
+                "description, source, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (request_id, owner_user_id, status, matched, description, source, _now()),
             )
 
     # ------------------------------------------------------------ 指摘
@@ -650,9 +628,31 @@ class Store:
             ],
         )
 
-    def add_daily_usage(self, day: str, rows: list[UsageRow]) -> None:
-        """その日の利用回数に rows（前回からの増分）を足す。"""
+    def add_daily_usage(self, day: str, rows: list[UsageRow], *, user_id: str | None) -> None:
+        """その日の利用回数に rows（前回からの増分）を足す（全体と、user_id があればその利用者の分）。"""
+        rows = [r for r in rows if r.requests or r.prompt_tokens or r.completion_tokens]
         with self._connect() as conn:
+            if user_id is not None:
+                conn.executemany(
+                    "INSERT INTO api_usage_daily_by_user (day, user_id, endpoint, model, requests, "
+                    "prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(day, user_id, endpoint, model) DO UPDATE SET "
+                    "requests = requests + excluded.requests, "
+                    "prompt_tokens = prompt_tokens + excluded.prompt_tokens, "
+                    "completion_tokens = completion_tokens + excluded.completion_tokens",
+                    [
+                        (
+                            day,
+                            user_id,
+                            r.endpoint,
+                            r.model,
+                            r.requests,
+                            r.prompt_tokens,
+                            r.completion_tokens,
+                        )
+                        for r in rows
+                    ],
+                )
             conn.executemany(
                 "INSERT INTO api_usage_daily (day, endpoint, model, requests, prompt_tokens, "
                 "completion_tokens) VALUES (?, ?, ?, ?, ?, ?) "
@@ -663,18 +663,18 @@ class Store:
                 [
                     (day, r.endpoint, r.model, r.requests, r.prompt_tokens, r.completion_tokens)
                     for r in rows
-                    if r.requests or r.prompt_tokens or r.completion_tokens
                 ],
             )
 
-    def get_daily_usage(self, day: str) -> DailyUsage:
+    def get_daily_usage(self, day: str, *, user_id: str) -> DailyUsage:
+        """その利用者の、その日の利用回数（全体の合計は一般の利用者には見せない）。"""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(requests), 0) AS requests, "
                 "COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
                 "COALESCE(SUM(completion_tokens), 0) AS completion_tokens "
-                "FROM api_usage_daily WHERE day = ?",
-                (day,),
+                "FROM api_usage_daily_by_user WHERE day = ? AND user_id = ?",
+                (day, user_id),
             ).fetchone()
         return DailyUsage(day=day, **dict(row))
 

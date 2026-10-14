@@ -1,6 +1,7 @@
 """API のルート表（ルーターに分けても URL・メソッド・ステータス・依存性が変わらないこと）。"""
 
 import re
+from typing import Any
 
 from fastapi.routing import APIRoute, iter_route_contexts
 
@@ -73,7 +74,17 @@ def test_routes_do_not_depend_on_registration_order() -> None:
 
 def test_dependencies_are_shared_with_main() -> None:
     """テストが core.api.main から取る関数と、ルーターが使う関数が同じ（dependency_overrides が効く）。"""
-    for name in ("get_store", "get_rule_store", "get_lab_store", "get_queue", "get_gateway"):
+    names = (
+        "get_store",
+        "get_rule_store",
+        "get_lab_store",
+        "get_queue",
+        "get_gateway",
+        "get_principal",
+        "get_verifier",
+        "get_user_directory",
+    )
+    for name in names:
         assert getattr(main, name) is getattr(dependencies, name)
     used = {dep.call for _, _, route in _routes() for dep in route.dependant.dependencies}
     assert used == {
@@ -82,4 +93,20 @@ def test_dependencies_are_shared_with_main() -> None:
         dependencies.get_lab_store,
         dependencies.get_queue,
         dependencies.get_gateway,
+        dependencies.get_principal,
+        dependencies.require_user,
     }
+
+
+def _depends_on(dependant: Any, target: Any) -> bool:
+    return any(d.call is target or _depends_on(d, target) for d in dependant.dependencies)
+
+
+def test_every_route_checks_the_principal() -> None:
+    """/api/healthz 以外のすべてのルートが主体（get_principal）を確かめる（付け忘れの検出）。"""
+    missing = [
+        f"{method} {path}"
+        for method, path, route in _routes()
+        if path != "/api/healthz" and not _depends_on(route.dependant, dependencies.get_principal)
+    ]
+    assert missing == []

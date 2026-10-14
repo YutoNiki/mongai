@@ -8,7 +8,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.main import app, get_gateway, get_lab_store, get_queue, get_rule_store, get_store
+from core.api.main import (
+    app,
+    get_gateway,
+    get_lab_store,
+    get_principal,
+    get_queue,
+    get_rule_store,
+    get_store,
+)
+from core.auth.principal import AuthenticatedUser
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox
 from core.lab.models import LabComment, LabSource
@@ -18,6 +27,7 @@ from core.rules.store import RuleStore
 from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DIR, SAMPLE_DOC_ID, install_sample
 from core.store import Store, TermLookupRecord, today_jst
 from shared.schemas import GatewayResponse, SearchResponse, TermResult
+from tests.unit.auth_factory import make_user
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
 from tests.unit.test_annotate import finding
@@ -51,6 +61,10 @@ def ctx(
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     store = Store(tmp_path / "db.sqlite3")
     queue = FakeQueue()
+    user = make_user(
+        store.path, "alice"
+    )  # 既定の主体（ゲスト・ほかの利用者は test_access_control.py）
+    app.dependency_overrides[get_principal] = lambda: AuthenticatedUser(user)
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_queue] = lambda: queue
     app.dependency_overrides[get_gateway] = lambda: OfflineGateway()
@@ -61,6 +75,13 @@ def ctx(
     pdf = make_pdf(tmp_path / "p.pdf", [[Text(72, 120, "A synthetic paper.")]]).read_bytes()
     yield TestClient(app), store, queue, pdf
     app.dependency_overrides.clear()
+
+
+def current_user() -> str:
+    """ctx が主体にした利用者の内部ユーザーID。"""
+    principal = app.dependency_overrides[get_principal]()
+    assert isinstance(principal, AuthenticatedUser)
+    return principal.user_id
 
 
 def upload(client: TestClient, pdf: bytes, name: str = "論文.pdf") -> str:
@@ -106,7 +127,11 @@ def seed(store: Store, doc_id: str) -> str:
         ]
     ).model_copy(update={"doc_id": doc_id})
     store.save_document(doc)
-    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings())
+    paper = store.get_paper(doc_id)
+    assert paper is not None and paper.owner_user_id is not None
+    aid = store.create_analysis(
+        doc_id, owner_user_id=paper.owner_user_id, kind="logic", settings=AnalysisSettings()
+    )
     box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
     store.save_findings(
         aid,
@@ -185,7 +210,9 @@ def test_single_judgement_has_no_confidence(
     doc_id = upload(client, pdf)
     doc = make_doc([("1 はじめに", "introduction", [["文．"]])])
     store.save_document(doc.model_copy(update={"doc_id": doc_id}))
-    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings())
+    aid = store.create_analysis(
+        doc_id, owner_user_id=current_user(), kind="logic", settings=AnalysisSettings()
+    )
     box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
     store.save_findings(
         aid,
@@ -215,28 +242,40 @@ def test_audit_log_when_gateway_unavailable(
 
 
 class RecordingGateway(GatewayClient):
-    def __init__(self) -> None:
+    def __init__(self, pending: dict[str, str] | None = None) -> None:
         super().__init__("http://gateway.test")
         self.decided: list[tuple[str, str]] = []
+        self.audited: list[tuple[str | None, str | None]] = []
+        self.queried: list[str] = []
+        # 承認待ちの要求 → 積んだ利用者（"*" はどの利用者の一覧にも出る）
+        self.pending = pending if pending is not None else {"R-1": "*", "R-2": "*"}
 
     async def mode(self) -> str:
         return "standard"
 
-    async def audit(self, analysis_id: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    async def audit(
+        self, *, analysis_id: str | None = None, owner_id: str | None, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        self.audited.append((analysis_id, owner_id))
         return [{"seq": 1, "decision": "sent", "kind": "bib_lookup", "analysis_id": analysis_id}]
 
-    async def queue(self) -> list[dict[str, Any]]:
-        return [{"request_id": "R-1", "kind": "term_lookup", "request": {"term": "BERT"}}]
+    async def queue(self, *, owner_id: str) -> list[dict[str, Any]]:
+        self.queried.append(owner_id)
+        return [
+            {"request_id": rid, "kind": "term_lookup", "request": {"term": "BERT"}}
+            for rid, owner in self.pending.items()
+            if owner in (owner_id, "*")
+        ]
 
-    async def approve(self, request_id: str) -> GatewayResponse:
+    async def approve(self, request_id: str, *, owner_id: str) -> GatewayResponse:
         self.decided.append((request_id, "approve"))
         return GatewayResponse(request_id=request_id, decision="sent")
 
-    async def reject(self, request_id: str) -> GatewayResponse:
+    async def reject(self, request_id: str, *, owner_id: str) -> GatewayResponse:
         self.decided.append((request_id, "reject"))
         return GatewayResponse(request_id=request_id, decision="rejected")
 
-    async def external_count(self, analysis_id: str) -> int:
+    async def external_count(self, analysis_id: str, *, owner_id: str | None) -> int:
         return 7
 
 
@@ -244,16 +283,20 @@ def test_audit_log_and_queue_via_gateway(ctx: tuple[TestClient, Store, FakeQueue
     client, store, _, pdf = ctx
     gateway = RecordingGateway()
     app.dependency_overrides[get_gateway] = lambda: gateway
-    log = client.get("/api/audit-log", params={"analysis_id": "A-1"}).json()
+    aid = seed(store, upload(client, pdf))
+    owner = store.get_analysis(aid).owner_user_id  # type: ignore[union-attr]
+    log = client.get("/api/audit-log", params={"analysis_id": aid}).json()
     assert (
-        log["available"] and log["mode"] == "standard" and log["entries"][0]["analysis_id"] == "A-1"
+        log["available"] and log["mode"] == "standard" and log["entries"][0]["analysis_id"] == aid
     )
+    assert gateway.audited == [(aid, owner)]  # 本人の記録として gateway に問い合わせる
+    assert client.get("/api/audit-log", params={"analysis_id": "A-000000000000"}).status_code == 404
     assert client.get("/api/gateway/queue").json()[0]["request"]["term"] == "BERT"
+    assert gateway.queried == [owner]
     assert client.post("/api/gateway/queue/R-1/approve").json()["decision"] == "sent"
     assert client.post("/api/gateway/queue/R-1/reject").json()["decision"] == "rejected"
     assert client.post("/api/gateway/queue/R-1/delete").status_code == 422
     assert gateway.decided == [("R-1", "approve"), ("R-1", "reject")]
-    aid = seed(store, upload(client, pdf))
     assert client.get(f"/api/analyses/{aid}").json()["external_requests"] == 7
 
 
@@ -265,7 +308,8 @@ def test_delete_document_removes_paper_and_analyses(
     aid = seed(store, doc_id)
     other = upload(client, pdf + b"\n% other")
     other_aid = seed(store, other)
-    store.add_daily_usage(today_jst(), [_usage(3)])
+    owner = store.get_analysis(aid).owner_user_id  # type: ignore[union-attr]
+    store.add_daily_usage(today_jst(), [_usage(3)], user_id=owner)
 
     assert client.delete(f"/api/documents/{doc_id}").status_code == 204
     assert store.get_paper(doc_id) is None and store.get_document(doc_id) is None
@@ -283,7 +327,13 @@ def test_delete_document_refuses_while_analysis_runs(
 ) -> None:
     client, store, _, pdf = ctx
     doc_id = upload(client, pdf)
-    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings(), status="queued")
+    aid = store.create_analysis(
+        doc_id,
+        owner_user_id=current_user(),
+        kind="logic",
+        settings=AnalysisSettings(),
+        status="queued",
+    )
     assert client.delete(f"/api/documents/{doc_id}").status_code == 409
     store.set_status(aid, "running")
     assert client.delete(f"/api/documents/{doc_id}").status_code == 409
@@ -307,15 +357,19 @@ def _usage(requests: int, prompt: int = 100, completion: int = 50) -> UsageRow:
 
 
 def test_usage_today(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
-    client, store, *_ = ctx
+    client, store, _, pdf = ctx
+    owner = store.get_paper(upload(client, pdf)).owner_user_id  # type: ignore[union-attr]
     assert client.get("/api/usage/today").json() == {
         "day": today_jst(),
         "requests": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
     }
-    store.add_daily_usage(today_jst(), [_usage(2), _usage(3, 10, 5)])
-    store.add_daily_usage("2000-01-01", [_usage(99)])  # ほかの日は数えない
+    store.add_daily_usage(today_jst(), [_usage(2), _usage(3, 10, 5)], user_id=owner)
+    store.add_daily_usage("2000-01-01", [_usage(99)], user_id=owner)  # ほかの日は数えない
+    store.add_daily_usage(
+        today_jst(), [_usage(7)], user_id=None
+    )  # 全体だけの分（本人の分ではない）
     body = client.get("/api/usage/today").json()
     assert (body["requests"], body["prompt_tokens"], body["completion_tokens"]) == (5, 110, 55)
 
@@ -418,10 +472,9 @@ def test_rule_documents_and_rules(ctx: tuple[TestClient, Store, FakeQueue, bytes
 
 
 def test_lab_documents_and_comments(
-    ctx: tuple[TestClient, Store, FakeQueue, bytes], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ctx: tuple[TestClient, Store, FakeQueue, bytes], tmp_path: Path
 ) -> None:
-    client, _, queue, pdf = ctx
-    monkeypatch.setenv("MONGAI_LAB_ID", "lab-a")
+    client, store, queue, pdf = ctx
     assert (
         client.post(
             "/api/lab/documents", files={"file": ("x.exe", b"MZ", "application/octet-stream")}
@@ -438,33 +491,40 @@ def test_lab_documents_and_comments(
     r = client.post("/api/lab/documents", files={"file": ("2024査読.pdf", pdf, "application/pdf")})
     assert r.status_code == 201
     doc = r.json()
-    assert doc["lab_id"] == "lab-a" and queue.enqueued == [doc["document_id"]]
+    assert "lab_id" not in doc and queue.enqueued == [doc["document_id"]]
     assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 409
 
     lab = LabStore(tmp_path / "db.sqlite3")
+    owner = current_user()
+    assert [d.document_id for d in lab.list_documents(owner)] == [doc["document_id"]]
     lab.add_comments(
+        owner,
         [
             LabComment(
                 comment_id="LC-1",
-                lab_id="lab-a",
                 document_id=doc["document_id"],
                 comment="一般化しすぎ",
                 source=LabSource(doc="2024査読.pdf"),
-            ),
+            )
+        ],
+        [None],
+    )
+    lab.add_comments(
+        make_user(store.path, "bob"),
+        [
             LabComment(
                 comment_id="LC-9",
-                lab_id="lab-b",
                 document_id="LD-000000000009",
-                comment="ほかの研究室",
+                comment="ほかの利用者の指摘",
                 source=LabSource(doc="x.pdf"),
-            ),
+            )
         ],
-        [None, None],
+        [None],
     )
     assert [c["comment_id"] for c in client.get("/api/lab/comments").json()] == ["LC-1"]
     assert (
         client.delete("/api/lab/comments/LC-9").status_code == 404
-    )  # ほかの研究室のものは消せない
+    )  # ほかの利用者のものは消せない
     assert client.delete("/api/lab/comments/LC-1").status_code == 204
     lab.set_document_status(doc["document_id"], "completed")
     assert client.delete(f"/api/lab/documents/{doc['document_id']}").status_code == 204
@@ -503,7 +563,7 @@ def test_sample_cannot_be_reanalyzed_or_changed(
     r = client.post("/api/analyses", json={"doc_id": SAMPLE_DOC_ID})
     assert r.status_code == 403
     assert queue.enqueued == []
-    assert [a.analysis_id for a in store.list_analyses()] == [SAMPLE_ANALYSIS_ID]
+    assert [a.analysis_id for a in store.list_analyses(current_user())] == [SAMPLE_ANALYSIS_ID]
 
     finding_id = next(iter(before))
     base = f"/api/analyses/{SAMPLE_ANALYSIS_ID}/findings/{finding_id}"
@@ -540,7 +600,7 @@ def test_uploading_sample_pdf_creates_separate_document(
 class TermGateway(RecordingGateway):
     """承認すると、用語の説明（学外の辞書の結果）を返す gateway。"""
 
-    async def approve(self, request_id: str) -> GatewayResponse:
+    async def approve(self, request_id: str, *, owner_id: str) -> GatewayResponse:
         self.decided.append((request_id, "approve"))
         term = TermResult(term="Isochrone", description="等時間で到達できる範囲", source="openalex")
         return GatewayResponse(

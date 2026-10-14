@@ -1,8 +1,13 @@
 """core の FastAPI アプリ。`web`（nginx）から `/api` 以下が中継される。
 
-認証は無い（web は 127.0.0.1 にだけ公開し、SSH のポートフォワード等で利用する前提）。
+リクエストの主体は、web が認証サービスに問い合わせて付ける署名つきの主張で決まる（無ければゲスト）。
 エンドポイントは `core.api.routers` にリソースごとに分け、依存性は `core.api.dependencies` にまとめる。
 """
+
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -11,12 +16,17 @@ from core.api.dependencies import (
     JobQueue,
     get_gateway,
     get_lab_store,
+    get_principal,
     get_queue,
     get_rule_store,
     get_store,
+    get_user_directory,
+    get_verifier,
 )
 from core.api.routers import analyses, documents, exports, findings, gateway, lab, rules, usage
 from core.logging_config import configure_logging
+from core.store.db import DEFAULT_DB_PATH
+from core.store.schema import ensure_schema
 
 # テスト・既存のコードが `core.api.main` から参照する名前（dependency_overrides のキーと同じ関数）
 __all__ = [
@@ -25,14 +35,29 @@ __all__ = [
     "app",
     "get_gateway",
     "get_lab_store",
+    "get_principal",
     "get_queue",
     "get_rule_store",
     "get_store",
+    "get_user_directory",
+    "get_verifier",
 ]
 
 configure_logging()
 
-app = FastAPI(title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # データベースが古い版（移行前）なら起動しない。所有者の無いデータを誤って見せないため
+    ensure_schema(Path(os.environ.get("MONGAI_DB_PATH") or DEFAULT_DB_PATH))
+    # 本番の構成で開発用の鍵が設定されていたら起動しない
+    get_verifier().check_configuration()
+    yield
+
+
+app = FastAPI(
+    title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
+)
 
 
 @app.get("/api/healthz")

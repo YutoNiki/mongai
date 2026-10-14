@@ -1,12 +1,22 @@
 """認証：署名つきの主張の検証、外部の識別から内部ユーザーIDへの変換、無効な主張の扱い。"""
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
-from core.auth.assertion import AssertionVerifier, ExternalIdentity, InvalidAssertion
+from core.api.main import app, get_store, get_user_directory, get_verifier
+from core.auth.assertion import (
+    ASSERTION_HEADER,
+    AssertionVerifier,
+    ExternalIdentity,
+    InvalidAssertion,
+)
 from core.auth.directory import UserDirectory
+from core.sample import SAMPLE_ANALYSIS_ID, install_sample
+from core.store import Store
 from core.store.users import UserStore
 from tests.unit.auth_factory import Signer
 
@@ -145,3 +155,51 @@ def test_disabled_user_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     users.set_status(user_id, "disabled")
     with pytest.raises(InvalidAssertion):
         directory.resolve(identity())
+
+
+# ---------------------------------------------------------------- API での扱い
+
+
+@pytest.fixture
+def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signer: Signer) -> Iterator[TestClient]:
+    monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
+    monkeypatch.setenv("MONGAI_ALLOWED_EMAIL_DOMAINS", "example.ac.jp")
+    store = Store(tmp_path / "db.sqlite3")
+    install_sample(store)
+    verifier = AssertionVerifier(signer.key_file)
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_verifier] = lambda: verifier
+    app.dependency_overrides[get_user_directory] = lambda: UserDirectory(UserStore(store.path))
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_invalid_assertion_does_not_fall_back_to_guest(
+    api: TestClient, signer: Signer, tmp_path: Path
+) -> None:
+    """J.2 #22：無効な主張では、ゲストにも開いている API でも 401（ゲストとしての 200 にならない）。"""
+    assert api.get("/api/analyses").status_code == 200  # 主張なし＝ゲスト
+    disabled_user = signer.token("mallory")
+    api.get("/api/analyses", headers={ASSERTION_HEADER: disabled_user})
+    users = UserStore(tmp_path / "db.sqlite3")
+    found = users.find_by_identity("https://idp.example", "mallory")
+    assert found is not None
+    users.set_status(found.user_id, "disabled")
+    for token in (
+        signer.token(exp=1),
+        signer.token(aud="other"),
+        Signer(tmp_path / "x.json", kid=signer.kid).token(),
+        signer.token("eve", email="eve@evil.example"),
+        disabled_user,
+        "garbage",
+    ):
+        for path in ("/api/analyses", f"/api/analyses/{SAMPLE_ANALYSIS_ID}"):
+            r = api.get(path, headers={ASSERTION_HEADER: token})
+            assert r.status_code == 401 and r.json()["detail"] == "invalid_session"
+
+
+def test_valid_assertion_identifies_the_user(api: TestClient, signer: Signer) -> None:
+    headers = {ASSERTION_HEADER: signer.token("alice")}
+    assert api.get("/api/usage/today", headers=headers).status_code == 200
+    assert api.get("/api/usage/today").status_code == 401  # 主張なしはゲスト
+    assert api.get("/api/healthz", headers={ASSERTION_HEADER: "garbage"}).status_code == 200

@@ -1,6 +1,8 @@
 """監査ログ・承認キュー・結果のキャッシュ（SQLite、audit_log ボリューム）。
 
 監査ログ（audit）は追記専用。更新・削除はトリガーで禁止する。
+監査ログと承認キューには、要求を出した利用者の内部ユーザーID（owner_id）を記録し、一覧・承認は本人の分に限る
+（認証の導入前の記録は owner_id が無く、利用者の一覧には出ない。共通デモの解析の記録は analysis_id で読む）。
 原稿の本文はここに保存しない（照合に使う情報はメモリ上だけに持つ。gateway/manuscripts.py）。
 """
 
@@ -64,6 +66,7 @@ class AuditEntry(BaseModel):
     seq: int
     ts: str
     request_id: str
+    owner_id: str | None = None
     analysis_id: str | None
     doc_id: str | None
     kind: str | None
@@ -74,6 +77,7 @@ class AuditEntry(BaseModel):
 
 class QueueItem(BaseModel):
     request_id: str
+    owner_id: str | None = None
     analysis_id: str
     doc_id: str
     kind: str
@@ -103,6 +107,12 @@ class AuditStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            # 利用者の区別を加える前の表への列の追加（既存の行は変えない。追記専用のまま）
+            for table in ("audit", "queue"):
+                columns = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if "owner_id" not in columns:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS audit_by_owner ON audit(owner_id)")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -121,6 +131,7 @@ class AuditStore:
         self,
         *,
         request_id: str,
+        owner_id: str | None,
         analysis_id: str | None,
         doc_id: str | None,
         kind: str | None,
@@ -131,18 +142,37 @@ class AuditStore:
         text = request if isinstance(request, str) else json.dumps(request, ensure_ascii=False)
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO audit (ts, request_id, analysis_id, doc_id, kind, request, decision, "
-                "reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (_now(), request_id, analysis_id, doc_id, kind, text[:2000], decision, reason),
+                "INSERT INTO audit (ts, request_id, owner_id, analysis_id, doc_id, kind, request, "
+                "decision, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _now(),
+                    request_id,
+                    owner_id,
+                    analysis_id,
+                    doc_id,
+                    kind,
+                    text[:2000],
+                    decision,
+                    reason,
+                ),
             )
 
-    def entries(self, *, analysis_id: str | None = None, limit: int = 500) -> list[AuditEntry]:
-        query = "SELECT * FROM audit"
-        params: list[Any] = []
+    @staticmethod
+    def _scope(owner_id: str | None, analysis_id: str | None) -> tuple[str, list[Any]]:
+        """利用者の記録（owner_id）か、共通デモの解析の記録（owner_id なし・analysis_id）の条件。"""
+        if owner_id:
+            if analysis_id:
+                return "owner_id = ? AND analysis_id = ?", [owner_id, analysis_id]
+            return "owner_id = ?", [owner_id]
         if analysis_id:
-            query += " WHERE analysis_id = ?"
-            params.append(analysis_id)
-        query += " ORDER BY seq DESC LIMIT ?"
+            return "owner_id IS NULL AND analysis_id = ?", [analysis_id]
+        raise ValueError("owner_id か analysis_id のどちらかが必要")
+
+    def entries(
+        self, *, owner_id: str | None, analysis_id: str | None = None, limit: int = 500
+    ) -> list[AuditEntry]:
+        where, params = self._scope(owner_id, analysis_id)
+        query = f"SELECT * FROM audit WHERE {where} ORDER BY seq DESC LIMIT ?"
         params.append(limit)
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -163,25 +193,32 @@ class AuditStore:
             ).fetchone()
         return int(row[0])
 
-    def external_count(self, analysis_id: str) -> int:
+    def external_count(self, analysis_id: str, *, owner_id: str | None) -> int:
+        where, params = self._scope(owner_id, analysis_id)
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM audit WHERE analysis_id = ? AND decision IN ('sent', 'approved')",
-                (analysis_id,),
+                f"SELECT COUNT(*) FROM audit WHERE {where} AND decision IN ('sent', 'approved')",
+                params,
             ).fetchone()
         return int(row[0])
 
     # ------------------------------------------------------------ 承認キュー
 
     def enqueue(
-        self, request_id: str, analysis_id: str, doc_id: str, request: dict[str, Any]
+        self,
+        request_id: str,
+        owner_id: str,
+        analysis_id: str,
+        doc_id: str,
+        request: dict[str, Any],
     ) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO queue (request_id, analysis_id, doc_id, kind, request, request_hash, "
-                "status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                "INSERT INTO queue (request_id, owner_id, analysis_id, doc_id, kind, request, "
+                "request_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
                 (
                     request_id,
+                    owner_id,
                     analysis_id,
                     doc_id,
                     request["kind"],
@@ -191,20 +228,24 @@ class AuditStore:
                 ),
             )
 
-    def pending_for(self, request: dict[str, Any]) -> str | None:
-        """同じ内容の承認待ちの要求があれば、その ID を返す（二重に積まない）。"""
+    def pending_for(self, request: dict[str, Any], owner_id: str) -> str | None:
+        """同じ利用者の、同じ内容の承認待ちの要求があれば、その ID を返す（二重に積まない）。
+
+        別の利用者の要求とはまとめない（一方の承認で、もう一方の要求が送られないように）。
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT request_id FROM queue WHERE request_hash = ? AND status = 'pending'",
-                (request_hash(request),),
+                "SELECT request_id FROM queue WHERE request_hash = ? AND owner_id = ? "
+                "AND status = 'pending'",
+                (request_hash(request), owner_id),
             ).fetchone()
         return str(row[0]) if row else None
 
-    def queue(self, status: str | None = "pending") -> list[QueueItem]:
-        query = "SELECT * FROM queue"
-        params: list[Any] = []
+    def queue(self, *, owner_id: str, status: str | None = "pending") -> list[QueueItem]:
+        query = "SELECT * FROM queue WHERE owner_id = ?"
+        params: list[Any] = [owner_id]
         if status:
-            query += " WHERE status = ?"
+            query += " AND status = ?"
             params.append(status)
         query += " ORDER BY created_at"
         with self._connect() as conn:

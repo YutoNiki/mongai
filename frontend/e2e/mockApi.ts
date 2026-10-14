@@ -72,7 +72,6 @@ function sampleLabComments(): LabComment[] {
   return [
     {
       comment_id: "LC-0001",
-      lab_id: "default",
       document_id: "LD-000000000001",
       comment: "1つのデータセットの結果から、手法の有効性を一般化して述べている",
       example: "提案手法はあらゆる場面で有効である",
@@ -191,7 +190,6 @@ export async function mockApi(page: Page, options: { sample?: boolean } = {}): P
         json([
           {
             document_id: "LD-000000000001",
-            lab_id: "default",
             filename: "2024年度_査読コメント.docx",
             kind: "docx",
             status: "completed",

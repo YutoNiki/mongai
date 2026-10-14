@@ -1,6 +1,9 @@
 """解析ジョブ（worker で実行する）：構造化 → 論理・読みやすさの解析 → 保存。
 
 進捗と、確定した指摘を順に保存するので、画面は解析中でも結果を表示できる。
+
+ジョブの引数は ID だけで、所有者はデータベースの記録から決める（Redis の内容は信用しない）。
+解析の材料（ルール・過去の指摘）と外部への要求・利用回数は、すべてその所有者のものにする。
 """
 
 import contextlib
@@ -14,7 +17,6 @@ from core.annotate.locate import relocate_findings, summary
 from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.pipeline import ingest_pdf
 from core.lab.extract import extract_lab_knowledge
-from core.lab.models import current_lab_id
 from core.lab.store import LabStore
 from core.llm.client import OitomaClient
 from core.rules.extract import extract_rules
@@ -45,10 +47,15 @@ async def run_analysis(
     record = store.get_analysis(analysis_id)
     if record is None:
         raise ValueError(f"解析 {analysis_id} が見つかりません")
+    owner = record.owner_user_id
+    if record.visibility != "private" or owner is None:
+        # 共通デモ・所有者の分からない解析は実行せず、記録も変えない（API でも積まないが、二重に防ぐ）
+        logger.warning("解析 %s は所有者のいる解析ではないため、実行しません", analysis_id)
+        return "failed"
     settings = AnalysisSettings.model_validate(record.settings)
     own_client = client is None
     llm = client or OitomaClient()
-    gw = gateway or GatewayClient()
+    gw = (gateway or GatewayClient()).for_owner(owner)
     store.set_status(analysis_id, "running")
     flushed_at = time.monotonic()
 
@@ -57,7 +64,7 @@ async def run_analysis(
         if not force and time.monotonic() - flushed_at < DAILY_USAGE_INTERVAL_S:
             return
         flushed_at = time.monotonic()
-        store.add_daily_usage(today_jst(), llm.usage.unreported())
+        store.add_daily_usage(today_jst(), llm.usage.unreported(), user_id=owner)
 
     try:
         store.set_progress(analysis_id, "ingest", 0, 1)
@@ -72,9 +79,9 @@ async def run_analysis(
         def on_findings(findings: list[Finding]) -> None:
             store.save_findings(analysis_id, findings)
 
-        # 承認済みのルール（解析の開始時点のもの）を使い、その件数と更新日時を記録する
-        rules = rule_store.list_rules(status="approved")
-        approved, updated_at = rule_store.ruleset_version()
+        # 所有者の承認済みのルール（解析の開始時点のもの）を使い、その件数と更新日時を記録する
+        rules = rule_store.list_rules(owner, status="approved")
+        approved, updated_at = rule_store.ruleset_version(owner)
         store.update_settings(
             analysis_id, {"ruleset": {"approved": approved, "updated_at": updated_at}}
         )
@@ -87,10 +94,10 @@ async def run_analysis(
             gateway=gw,
             analysis_id=analysis_id,
             rules=rules,
-            rule_vectors=rule_store.embeddings(status="approved"),
-            # この研究室の過去の指摘だけを使う（ほかの研究室のものは参照しない）
-            lab_comments=lab_store.list_comments(current_lab_id()),
-            lab_vectors=lab_store.comment_vectors(current_lab_id()),
+            rule_vectors=rule_store.embeddings(owner, status="approved"),
+            # 所有者の過去の指摘だけを使う（ほかの利用者のものは参照しない）
+            lab_comments=lab_store.list_comments(owner),
+            lab_vectors=lab_store.comment_vectors(owner),
         )
         store.save_structures(analysis_id, result.structures)
         store.save_term_lookups(analysis_id, result.terms)
@@ -138,6 +145,7 @@ async def run_rule_extraction(
 ) -> str:
     """ルール資料からルールを抽出して保存し（保留の状態）、最終的なステータスを返す。"""
     rule_store = rule_store or RuleStore()
+    owner = rule_store.document_owner(document_id)
     own_client = client is None
     llm = client or OitomaClient()
     rule_store.set_document_status(document_id, "running")
@@ -154,7 +162,9 @@ async def run_rule_extraction(
         return "failed"
     finally:
         with contextlib.suppress(Exception):
-            Store(rule_store.path).add_daily_usage(today_jst(), llm.usage.unreported())
+            Store(rule_store.path).add_daily_usage(
+                today_jst(), llm.usage.unreported(), user_id=owner
+            )
         if own_client:
             await llm.aclose()
 
@@ -170,6 +180,8 @@ async def run_lab_extraction(
     """専門知識の資料から過去の指摘と研究室のルールを取り出して保存し、最終的なステータスを返す。"""
     lab_store = lab_store or LabStore()
     rule_store = rule_store or RuleStore(lab_store.path)
+    found = lab_store.find_document(document_id)
+    owner = found[1] if found else None
     own_client = client is None
     llm = client or OitomaClient()
     lab_store.set_document_status(document_id, "running")
@@ -191,6 +203,8 @@ async def run_lab_extraction(
         return "failed"
     finally:
         with contextlib.suppress(Exception):
-            Store(lab_store.path).add_daily_usage(today_jst(), llm.usage.unreported())
+            Store(lab_store.path).add_daily_usage(
+                today_jst(), llm.usage.unreported(), user_id=owner
+            )
         if own_client:
             await llm.aclose()

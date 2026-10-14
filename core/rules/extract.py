@@ -167,9 +167,13 @@ async def extract_rules(
     *,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> int:
-    """資料からルールを抽出して保存し、新しく追加したルールの数を返す。"""
-    doc = store.get_document(document_id)
-    if doc is None:
+    """資料からルールを抽出して保存し、新しく追加したルールの数を返す。
+
+    ルールは資料の所有者のものにし、統合の判定にも所有者のルール（と組み込みのルール）だけを使う。
+    """
+    owner = store.document_owner(document_id)
+    doc = store.get_document(owner, document_id) if owner else None
+    if owner is None or doc is None:
         raise ValueError(f"ルール資料 {document_id} が見つかりません")
     pages = read_pages(document_path(document_id, doc.kind), doc.kind)
     lang = guess_lang("\n".join(text for _, text in pages))
@@ -215,9 +219,9 @@ async def extract_rules(
             "ルールの埋め込みに失敗しました（%s）。文面の一致だけで統合します", type(exc).__name__
         )
         vectors = [None] * len(new)
-    existing = {r.rule_id: r for r in store.list_rules()}
-    kept, updated = merge_rules(new, vectors, existing, store.embeddings())
+    existing = {r.rule_id: r for r in store.list_rules(owner)}
+    kept, updated = merge_rules(new, vectors, existing, store.embeddings(owner))
     for rule in updated.values():
-        store.replace_rule(rule)
-    store.add_rules([r for r, _ in kept], [v for _, v in kept])
+        store.replace_rule(owner, rule)
+    store.add_rules(owner, [r for r, _ in kept], [v for _, v in kept])
     return len(kept)
