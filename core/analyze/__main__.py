@@ -32,7 +32,13 @@ async def _run(args: argparse.Namespace) -> None:
         analysis_id = None
         if store is not None:
             store.save_document(doc)
-            analysis_id = store.create_analysis(doc.doc_id, kind="logic", settings=settings)
+            if not args.owner:
+                raise SystemExit(
+                    "--db に保存するときは --owner（内部ユーザーID）を指定してください"
+                )
+            analysis_id = store.create_analysis(
+                doc.doc_id, owner_user_id=args.owner, kind="logic", settings=settings
+            )
 
         def progress(stage: str, done: int, total: int) -> None:
             if done == total or done % 10 == 0:
@@ -96,6 +102,9 @@ def main() -> None:
     parser.add_argument("--no-flow", action="store_true", help="段落間のチェックを省く")
     parser.add_argument("--no-suggestions", action="store_true", help="改善案を省く")
     parser.add_argument("--db", help="結果を保存する SQLite のパス")
+    parser.add_argument(
+        "--owner", help="--db に保存する解析の所有者（内部ユーザーID。--db と一緒に指定する）"
+    )
     parser.add_argument("--annotate", metavar="OUT.pdf", help="注釈付きPDFを書き出す")
     parser.add_argument("--json", action="store_true")
     asyncio.run(_run(parser.parse_args()))

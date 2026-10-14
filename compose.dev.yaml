@@ -3,12 +3,57 @@
 # ネットワーク・ポート公開は compose.yaml のまま変えない（web だけが 127.0.0.1:8080）。
 # M5 で Vite dev server を追加する際も、web 経由で公開し 127.0.0.1 以外にバインドしない。
 
+#
+# 開発用のモック認証サービス（devauth）を加える。本番の構成（compose.yaml）とイメージには含めない。
+# devauth は internal_net だけに所属し（学外と通信しない）、論文・データベース・監査ログのボリュームを
+# マウントしない。ログインは http://127.0.0.1:8080/auth/dev-login?user=alice（ログアウトは /auth/dev-logout）。
+
 services:
   core:
     command: ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/core"]
+    environment:
+      MONGAI_ENV: development
+      MONGAI_AUTH_PUBLIC_KEY_FILE: /keys/devauth.json
+      MONGAI_ALLOWED_EMAIL_DOMAINS: example.ac.jp
     volumes:
       - ./core:/app/core:ro
       - ./shared:/app/shared:ro
+      - devauth_keys:/keys:ro
+    depends_on:
+      devauth: {condition: service_healthy}
+
+  devauth:
+    image: mongai/core:dev
+    command: ["uvicorn", "devauth.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # 公開鍵を書く名前付きボリュームは root の所有で作られるため、開発用のこのサービスだけ root で動かす
+    # （権限はすべて落としている）
+    user: "0:0"
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: ""
+    volumes:
+      - ./devauth:/app/devauth:ro
+      - devauth_keys:/keys
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [internal_net]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   worker:
     volumes:
@@ -26,4 +71,13 @@ services:
       - ./searcher:/app/searcher:ro
       - ./shared:/app/shared:ro
 
-  # web はビルド済みのフロントエンドを配信する（変更後は make dev で再ビルドされる）
+  # web はビルド済みのフロントエンドを配信する（変更後は make dev で再ビルドされる）。
+  # 認証の設定を devauth に問い合わせるものに差し替える
+  web:
+    volumes:
+      - ./docker/web/auth/dev:/etc/nginx/mongai-auth:ro
+    depends_on:
+      devauth: {condition: service_healthy}
+
+volumes:
+  devauth_keys: {}

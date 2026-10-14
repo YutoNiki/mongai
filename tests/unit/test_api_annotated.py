@@ -1,5 +1,6 @@
 """注釈付きPDFのダウンロード（GET /api/analyses/{id}/annotated.pdf）。"""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pymupdf
@@ -7,25 +8,31 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.main import app, get_store
+from core.api.main import app, get_principal, get_store
+from core.auth.principal import AuthenticatedUser
 from core.ingest.models import BBox
 from core.store import Store
-from core.store.files import paper_path, save_paper
+from core.store.files import new_doc_id, paper_path, save_paper
+from tests.unit.auth_factory import make_user
 from tests.unit.doc_factory import make_doc
 from tests.unit.pdf_factory import Text, make_pdf
 from tests.unit.test_annotate import finding
 
 
 @pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Store, str]:
+def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, Store, str]]:
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     store = Store(tmp_path / "db.sqlite3")
+    owner = make_user(store.path)
     app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_principal] = lambda: AuthenticatedUser(owner)
     pdf = make_pdf(
         tmp_path / "p.pdf", [[Text(72, 120, "The method clearly outperforms all baselines.")]]
     )
-    doc_id = save_paper(pdf.read_bytes())
-    return TestClient(app), store, doc_id
+    doc_id = save_paper(pdf.read_bytes(), new_doc_id())
+    store.save_paper(doc_id, owner_user_id=owner, filename="p.pdf", size=1)
+    yield TestClient(app), store, doc_id
+    app.dependency_overrides.clear()
 
 
 def make_analysis(store: Store, doc_id: str) -> str:
@@ -33,7 +40,11 @@ def make_analysis(store: Store, doc_id: str) -> str:
         update={"doc_id": doc_id}
     )
     store.save_document(doc)
-    aid = store.create_analysis(doc_id, kind="logic", settings=AnalysisSettings())
+    paper = store.get_paper(doc_id)
+    assert paper is not None and paper.owner_user_id is not None
+    aid = store.create_analysis(
+        doc_id, owner_user_id=paper.owner_user_id, kind="logic", settings=AnalysisSettings()
+    )
     box = BBox(page=1, x0=72, y0=110, x1=330, y1=123)
     store.save_findings(
         aid,

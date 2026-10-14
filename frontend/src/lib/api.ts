@@ -217,7 +217,6 @@ export type RuleUpdate = Partial<Pick<Rule, "status" | "rule" | "target_section"
 /** 専門知識（SPEC 3.1〜3.3）。型は core/lab/models.py に対応する。 */
 export interface LabDocument {
   document_id: string;
-  lab_id: string;
   filename: string;
   kind: "pdf" | "docx" | "markdown" | "text";
   status: "queued" | "running" | "completed" | "failed";
@@ -230,7 +229,6 @@ export interface LabDocument {
 
 export interface LabComment {
   comment_id: string;
-  lab_id: string;
   document_id: string;
   comment: string;
   example: string | null;
@@ -241,13 +239,19 @@ export interface LabComment {
 
 export class ApiError extends Error {}
 
+// 401 の理由（core/api/dependencies.py）。ログインの画面は認証の導入時に加える
+const AUTH_MESSAGES: Record<string, string> = {
+  login_required: "ログインが必要です（ログインしていない場合は、共通デモの閲覧だけができます）",
+  invalid_session: "ログインの有効期限が切れたか、ログインの情報が正しくありません。もう一度ログインしてください",
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
   if (!response.ok) {
     let detail = `${response.status}`;
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === "string") detail = body.detail;
+      if (typeof body.detail === "string") detail = AUTH_MESSAGES[body.detail] ?? body.detail;
     } catch {
       // 本文が JSON でない場合はステータスコードだけを表示する
     }

@@ -24,7 +24,8 @@ from core.rules.extract import (
 )
 from core.rules.mechanical import check_abbreviations, check_figure_references, check_units
 from core.rules.models import BUILTIN_RULES, Rule, RuleSource, RuleUpdate
-from core.rules.store import RuleStore
+from core.rules.store import RuleNotFoundError, RuleStore
+from tests.unit.auth_factory import make_user
 from tests.unit.doc_factory import make_doc
 
 CHAT_URL = f"{DEFAULT_BASE_URL}/chat/completions"
@@ -80,39 +81,52 @@ def rule(rule_id: str, text: str, **kw: Any) -> Rule:
 
 def test_store_seeds_builtins_and_protects_them(tmp_path: Path) -> None:
     store = RuleStore(tmp_path / "db.sqlite3")
-    ids = {r.rule_id for r in store.list_rules()}
+    a, b = make_user(store.path, "a"), make_user(store.path, "b")
+    ids = {r.rule_id for r in store.list_rules(a)}
     assert {"B-ABBR", "B-FIGREF", "B-UNIT"} <= ids
     # 組み込みのルールは文面を変えられず、有効・無効だけを切り替えられる
-    updated = store.update_rule("B-UNIT", RuleUpdate(status="disabled", rule="書き換え"))
+    updated = store.update_rule(a, "B-UNIT", RuleUpdate(status="disabled", rule="書き換え"))
     assert updated.status == "disabled" and updated.rule != "書き換え"
     # 再起動（作り直し）しても、無効にした状態は残る
-    assert RuleStore(tmp_path / "db.sqlite3").get_rule("B-UNIT").status == "disabled"  # type: ignore[union-attr]
+    assert RuleStore(tmp_path / "db.sqlite3").get_rule(a, "B-UNIT").status == "disabled"  # type: ignore[union-attr]
+    # 無効にしたのは a の設定だけで、b には効かない
+    assert store.get_rule(b, "B-UNIT").status == "approved"  # type: ignore[union-attr]
 
 
 def test_store_rules_documents_and_ruleset(tmp_path: Path) -> None:
     store = RuleStore(tmp_path / "db.sqlite3")
-    doc = store.create_document("規定.md", "markdown")
+    owner, other = make_user(store.path, "a"), make_user(store.path, "b")
+    doc = store.create_document(owner, "規定.md", "markdown")
     r = rule("R-1", "要旨に目的を書く", status="pending", document_id=doc.document_id)
-    store.add_rules([r], [[1.0, 0.0]])
-    assert store.embeddings() == {"R-1": [1.0, 0.0]}
+    store.add_rules(owner, [r], [[1.0, 0.0]])
+    assert store.embeddings(owner) == {"R-1": [1.0, 0.0]}
     store.set_document_status(doc.document_id, "completed")
-    assert store.get_document(doc.document_id).rule_count == 1  # type: ignore[union-attr]
+    assert store.get_document(owner, doc.document_id).rule_count == 1  # type: ignore[union-attr]
+    # ほかの利用者からは、ルールも資料も見えず、変えられない
+    assert store.get_rule(other, "R-1") is None and store.embeddings(other) == {}
+    assert store.get_document(other, doc.document_id) is None
+    assert store.list_documents(other) == []
+    with pytest.raises(RuleNotFoundError):
+        store.update_rule(other, "R-1", RuleUpdate(status="approved"))
+    assert not store.delete_document(other, doc.document_id)
     # 文面を変えると古い埋め込みは消える
-    store.update_rule("R-1", RuleUpdate(rule="要旨に研究の目的を書く", status="approved"))
-    assert store.embeddings() == {}
-    approved, updated_at = store.ruleset_version()
+    store.update_rule(owner, "R-1", RuleUpdate(rule="要旨に研究の目的を書く", status="approved"))
+    assert store.embeddings(owner) == {}
+    approved, updated_at = store.ruleset_version(owner)
     assert approved == 4 and updated_at  # 組み込み3件＋承認した1件
-    assert store.delete_document(doc.document_id)
-    assert store.get_rule("R-1") is None
+    assert store.ruleset_version(other)[0] == 3
+    assert store.delete_document(owner, doc.document_id)
+    assert store.get_rule(owner, "R-1") is None
 
 
 def test_store_recovers_interrupted_documents(tmp_path: Path) -> None:
     store = RuleStore(tmp_path / "db.sqlite3")
-    running = store.create_document("a.md", "markdown")
-    queued = store.create_document("b.md", "markdown")
+    owner = make_user(store.path)
+    running = store.create_document(owner, "a.md", "markdown")
+    queued = store.create_document(owner, "b.md", "markdown")
     store.set_document_status(running.document_id, "running")
     assert store.recover_interrupted() == [queued.document_id]
-    assert store.get_document(running.document_id).status == "failed"  # type: ignore[union-attr]
+    assert store.get_document(owner, running.document_id).status == "failed"  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------- 抽出と統合
@@ -164,7 +178,10 @@ async def test_extract_rules_saves_pending_rules(
 ) -> None:
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     store = RuleStore(tmp_path / "db.sqlite3")
-    doc = store.create_document("guide.md", "markdown")
+    owner, other = make_user(store.path, "a"), make_user(store.path, "b")
+    # ほかの利用者の、同じ文面のルール（統合の対象にしない）
+    store.add_rules(other, [rule("R-other", "要旨に目的を書く")], [[1.0, 0.0]])
+    doc = store.create_document(owner, "guide.md", "markdown")
     save_document_file(
         doc.document_id, "markdown", "# 投稿規定\n要旨には目的を書くこと。\n".encode()
     )
@@ -200,8 +217,11 @@ async def test_extract_rules_saves_pending_rules(
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert added == 1  # 同じ文面の2件は1件にまとめる
     assert "要旨には目的を書くこと" in sent and "guide.md" in sent
-    (made,) = [r for r in store.list_rules() if not r.builtin]
+    (made,) = [r for r in store.list_rules(owner) if not r.builtin]
     assert made.status == "pending" and made.source.doc == "guide.md"
+    # ほかの利用者のルールには統合されず、出典も足されない
+    (theirs,) = [r for r in store.list_rules(other) if not r.builtin]
+    assert theirs.rule_id == "R-other" and theirs.merged_sources == []
 
 
 async def test_rule_extraction_job_records_status(
@@ -209,14 +229,15 @@ async def test_rule_extraction_job_records_status(
 ) -> None:
     monkeypatch.setenv("MONGAI_DATA_DIR", str(tmp_path / "private"))
     store = RuleStore(tmp_path / "db.sqlite3")
-    doc = store.create_document("guide.txt", "text")
+    owner = make_user(store.path)
+    doc = store.create_document(owner, "guide.txt", "text")
     save_document_file(doc.document_id, "text", "図表は本文で参照すること。".encode())
     with respx.mock:
         respx.post(CHAT_URL).mock(return_value=httpx.Response(500))
         async with OitomaClient(config(), api_key="k") as client:
             status = await run_rule_extraction({}, doc.document_id, rule_store=store, client=client)
     assert status == "failed"
-    failed = store.get_document(doc.document_id)
+    failed = store.get_document(owner, doc.document_id)
     assert failed is not None and failed.status == "failed" and "失敗" in (failed.error or "")
 
 

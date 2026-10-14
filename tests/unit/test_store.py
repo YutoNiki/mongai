@@ -9,6 +9,7 @@ from core.analyze.pipeline import AnalysisSettings
 from core.ingest.models import BBox
 from core.llm.usage import UsageRow
 from core.store import FindingNotFoundError, Store, TermLookupRecord
+from tests.unit.auth_factory import make_user
 from tests.unit.doc_factory import make_doc
 
 
@@ -36,11 +37,14 @@ def finding(fid: str, **kw: object) -> Finding:
 
 def test_store_roundtrip(tmp_path: Path) -> None:
     store = Store(tmp_path / "db" / "mongai.sqlite3")
+    owner = make_user(store.path)
     doc = make_doc([("1 はじめに", "introduction", [["文です．"]])])
     store.save_document(doc)
     assert store.get_document("doc-test") == doc
 
-    aid = store.create_analysis(doc.doc_id, kind="logic", settings=AnalysisSettings())
+    aid = store.create_analysis(
+        doc.doc_id, owner_user_id=owner, kind="logic", settings=AnalysisSettings()
+    )
     store.save_findings(
         aid, [finding("F-0001"), finding("F-0002", category="readability", severity="suggestion")]
     )
@@ -90,11 +94,13 @@ def test_store_roundtrip(tmp_path: Path) -> None:
 
 def test_recover_interrupted(tmp_path: Path) -> None:
     store = Store(tmp_path / "db.sqlite3")
-    running = store.create_analysis(
-        "d", kind="logic", settings=AnalysisSettings(), status="running"
+    owner = make_user(store.path)
+    s = AnalysisSettings()
+    running = store.create_analysis("d", owner_user_id=owner, kind="logic", settings=s)
+    queued = store.create_analysis(
+        "d", owner_user_id=owner, kind="logic", settings=s, status="queued"
     )
-    queued = store.create_analysis("d", kind="logic", settings=AnalysisSettings(), status="queued")
-    done = store.create_analysis("d", kind="logic", settings=AnalysisSettings(), status="running")
+    done = store.create_analysis("d", owner_user_id=owner, kind="logic", settings=s)
     store.finish_analysis(done, status="completed")
     assert store.recover_interrupted() == ([running], [queued])
     record = store.get_analysis(running)
@@ -106,17 +112,23 @@ def test_recover_interrupted(tmp_path: Path) -> None:
 def test_term_decision_survives_analysis_saving_later(tmp_path: Path) -> None:
     """解析の途中で承認キューの用語を承認しても、解析の終わりに保存される記録で上書きされない。"""
     store = Store(tmp_path / "db.sqlite3")
+    owner = make_user(store.path)
     store.save_document(make_doc([("1 はじめに", "introduction", [["文．"]])]))
-    aid = store.create_analysis("doc-test", kind="logic", settings=AnalysisSettings())
+    aid = store.create_analysis(
+        "doc-test", owner_user_id=owner, kind="logic", settings=AnalysisSettings()
+    )
     # 解析の途中：利用者が承認・却下する（この時点では、解析の照会の記録はまだ無い）
     store.decide_term_lookup(
         "R-1",
         "approved",
+        owner_user_id=owner,
         matched="Isochrone",
         description="等時間で到達できる範囲",
         source="openalex",
     )
-    store.decide_term_lookup("R-2", "rejected")
+    store.decide_term_lookup("R-2", "rejected", owner_user_id=owner)
+    # 別の利用者の決定は重ねない
+    store.decide_term_lookup("R-3", "approved", owner_user_id=make_user(store.path, "other"))
     # 解析の終わり：照会したときの状態（承認待ち）で記録を保存する
     store.save_term_lookups(
         aid,

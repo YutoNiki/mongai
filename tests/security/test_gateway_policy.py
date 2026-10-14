@@ -3,6 +3,8 @@
 - 原稿の文を含む term_lookup・複数語の term_lookup・未定義フィールドを持つ要求を拒否する
 - 原稿の新規性の主張に近い用語・原稿で定義された造語・原稿自身のタイトルを拒否する
 - 運用モード（strict / standard / offline）、件数制限、監査ログ（追記専用）
+- 利用者（owner_id）ごとの分離：承認キュー・監査ログは本人の分だけ、承認待ちを別の利用者とまとめない、
+  owner_id は searcher に渡さない
 """
 
 import sqlite3
@@ -21,6 +23,8 @@ from shared.schemas import SearchResponse, TermResult
 
 DOC = "6b5fa18bce71e989"
 AID = "A-0123456789ab"
+OWNER = "U-" + "a" * 32
+OTHER = "U-" + "b" * 32
 CLAIM = "抽出と言い換えを組み合わせて疑似データを安価に構築する新しい手法を提案する"
 MANUSCRIPT = {
     "doc_id": DOC,
@@ -40,10 +44,15 @@ class Env:
         self.store = store
         self.sent = sent
 
-    def submit(self, request: dict[str, Any], **extra: Any) -> Any:
-        return self.client.post(
-            "/requests", json={"analysis_id": AID, "doc_id": DOC, "request": request, **extra}
-        )
+    def submit(self, request: dict[str, Any], owner: str = OWNER, **extra: Any) -> Any:
+        body = {"owner_id": owner, "analysis_id": AID, "doc_id": DOC, "request": request, **extra}
+        return self.client.post("/requests", json=body)
+
+    def queue(self, owner: str = OWNER) -> Any:
+        return self.client.get("/queue", params={"owner_id": owner}).json()
+
+    def decide(self, request_id: str, action: str, owner: str = OWNER) -> Any:
+        return self.client.post(f"/queue/{request_id}/{action}", params={"owner_id": owner})
 
 
 def make_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: GatewayConfig) -> Env:
@@ -76,7 +85,14 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Env]:
 
 
 def last_audit(env: Env) -> Any:
-    return env.store.entries(limit=1)[0]
+    """監査ログの最後の記録（利用者を問わない。拒否された要求には owner_id が無いことがある）。"""
+    conn = sqlite3.connect(env.store.path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM audit ORDER BY seq DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    return type("Entry", (), dict(row))
 
 
 # ---------------------------------------------------------------- term_lookup の拒否（SPEC 2.7）
@@ -123,7 +139,9 @@ def test_multi_word_term_lookup_is_rejected(env: Env, term: str) -> None:
     ],
 )
 def test_undefined_fields_are_rejected(env: Env, payload: dict[str, Any]) -> None:
-    r = env.client.post("/requests", json={"analysis_id": AID, "doc_id": DOC, **payload})
+    r = env.client.post(
+        "/requests", json={"owner_id": OWNER, "analysis_id": AID, "doc_id": DOC, **payload}
+    )
     assert r.status_code == 422
     assert last_audit(env).decision == "blocked"
     assert env.sent == []
@@ -166,6 +184,7 @@ def test_unregistered_manuscript_is_rejected(env: Env) -> None:
     r = env.client.post(
         "/requests",
         json={
+            "owner_id": OWNER,
             "analysis_id": AID,
             "doc_id": "0" * 16,
             "request": {"kind": "oa_fetch", "doi": "10.1000/x"},
@@ -190,21 +209,22 @@ def test_standard_mode(env: Env) -> None:
     assert len(env.sent) == 1
     term = env.submit({"kind": "term_lookup", "term": "BERT", "lang": "en"}).json()
     assert term["decision"] == "pending"  # 用語の照会は承認制
-    queue = env.client.get("/queue").json()
+    queue = env.queue()
     assert [q["request"]["term"] for q in queue] == ["BERT"]
-    r = env.client.post(f"/queue/{queue[0]['request_id']}/approve").json()
+    r = env.decide(queue[0]["request_id"], "approve").json()
     assert r["decision"] == "sent" and env.sent[-1]["term"] == "BERT"
-    assert env.client.get("/queue").json() == []
-    decisions = [e.decision for e in env.store.entries()]
+    assert env.queue() == []
+    decisions = [e.decision for e in env.store.entries(owner_id=OWNER)]
     assert decisions == ["approved", "pending", "cached", "sent"]
-    assert env.client.get("/audit/count", params={"analysis_id": AID}).json() == {"count": 2}
+    count = env.client.get("/audit/count", params={"analysis_id": AID, "owner_id": OWNER})
+    assert count.json() == {"count": 2}
 
 
 def test_strict_mode_queues_everything(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = make_env(tmp_path, monkeypatch, GatewayConfig(mode="strict"))
     r = env.submit({"kind": "oa_fetch", "doi": "10.1000/abc"}).json()
     assert r["decision"] == "pending" and env.sent == []
-    rejected = env.client.post(f"/queue/{r['request_id']}/reject").json()
+    rejected = env.decide(r["request_id"], "reject").json()
     assert rejected["decision"] == "rejected" and env.sent == []
     gw.app.dependency_overrides.clear()
 
@@ -239,8 +259,8 @@ def test_term_not_found_is_not_cached(env: Env, monkeypatch: pytest.MonkeyPatch)
     """見つからなかった用語は、承認して送っても結果をキャッシュしない（次の照会で改めて承認を求める）。"""
     term = {"kind": "term_lookup", "term": "Isochrone", "lang": "en"}
     assert env.submit(term).json()["decision"] == "pending"
-    (item,) = env.client.get("/queue").json()
-    assert env.client.post(f"/queue/{item['request_id']}/approve").json()["decision"] == "sent"
+    (item,) = env.queue()
+    assert env.decide(item["request_id"], "approve").json()["decision"] == "sent"
     assert env.store.cached(term) is None
     assert env.submit(term).json()["decision"] == "pending"
 
@@ -250,6 +270,63 @@ def test_term_not_found_is_not_cached(env: Env, monkeypatch: pytest.MonkeyPatch)
         return SearchResponse(term=TermResult(term="Isochrone map", source="openalex"))
 
     monkeypatch.setattr(gw, "send_to_searcher", found)
-    (item,) = env.client.get("/queue").json()
-    env.client.post(f"/queue/{item['request_id']}/approve")
+    (item,) = env.queue()
+    env.decide(item["request_id"], "approve")
     assert env.submit(term).json()["decision"] == "cached"
+
+
+# ---------------------------------------------------------------- 利用者ごとの分離
+
+
+def test_request_without_owner_is_rejected(env: Env) -> None:
+    r = env.client.post(
+        "/requests",
+        json={"analysis_id": AID, "doc_id": DOC, "request": {"kind": "oa_fetch", "doi": "10.1/x"}},
+    )
+    assert r.status_code == 422 and r.json()["detail"]["decision"] == "blocked"
+    assert (
+        env.client.post(
+            "/requests",
+            json={
+                "owner_id": "alice@example.ac.jp",  # メールアドレスなど、内部ユーザーID以外は受け付けない
+                "analysis_id": AID,
+                "doc_id": DOC,
+                "request": {"kind": "oa_fetch", "doi": "10.1/x"},
+            },
+        ).status_code
+        == 422
+    )
+    assert env.sent == []
+
+
+def test_queue_and_approval_are_per_owner(env: Env) -> None:
+    term = {"kind": "term_lookup", "term": "BERT", "lang": "en"}
+    mine = env.submit(term).json()["request_id"]
+    theirs = env.submit(term, owner=OTHER).json()["request_id"]
+    assert mine != theirs  # 別の利用者の同じ要求とはまとめない
+    assert [q["request_id"] for q in env.queue()] == [mine]
+    assert [q["request_id"] for q in env.queue(OTHER)] == [theirs]
+    assert env.client.get("/queue").status_code == 422  # 利用者の指定が無い一覧は返さない
+    # ほかの利用者の要求は承認・却下できない
+    assert env.decide(theirs, "approve").status_code == 404
+    assert env.decide(theirs, "reject").status_code == 404
+    assert env.sent == []
+    # 自分の要求を承認しても、ほかの利用者の要求は送られない
+    assert env.decide(mine, "approve").json()["decision"] == "sent"
+    assert len(env.sent) == 1 and [q["request_id"] for q in env.queue(OTHER)] == [theirs]
+
+
+def test_audit_is_per_owner(env: Env) -> None:
+    env.submit({"kind": "oa_fetch", "doi": "10.1000/mine"})
+    env.submit({"kind": "oa_fetch", "doi": "10.1000/theirs"}, owner=OTHER)
+    mine = env.client.get("/audit", params={"owner_id": OWNER}).json()
+    assert [e["request"]["doi"] for e in mine] == ["10.1000/mine"]
+    assert env.client.get("/audit").status_code == 422  # 全員の記録は返さない
+    # owner_id を省くと、利用者のいない記録（共通デモ・認証の導入前）だけ
+    assert env.client.get("/audit", params={"analysis_id": AID}).json() == []
+    assert env.client.get("/audit/count", params={"analysis_id": AID}).json() == {"count": 0}
+
+
+def test_owner_id_is_not_sent_to_searcher(env: Env) -> None:
+    env.submit({"kind": "oa_fetch", "doi": "10.1000/abc"})
+    assert env.sent and all("owner_id" not in r for r in env.sent)
