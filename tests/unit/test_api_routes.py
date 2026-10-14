@@ -11,6 +11,7 @@ from core.api.main import app
 # (メソッド, パス, 成功時のステータス。None は既定の 200)
 EXPECTED = {
     ("GET", "/api/healthz", None),
+    ("GET", "/api/me", None),
     ("POST", "/api/documents", 201),
     ("GET", "/api/documents/{doc_id}/paper.pdf", None),
     ("DELETE", "/api/documents/{doc_id}", 204),
@@ -94,6 +95,7 @@ def test_dependencies_are_shared_with_main() -> None:
         dependencies.get_queue,
         dependencies.get_gateway,
         dependencies.get_principal,
+        dependencies.get_user_directory,
         dependencies.require_user,
     }
 
