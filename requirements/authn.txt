@@ -1,0 +1,8 @@
+# authn（認証サービス。Google の OpenID Connect によるログイン。論文データにはアクセスしない）
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.1
+httpx==0.28.1
+cryptography==50.0.2
+authlib==1.8.0
+joserfc==1.7.5

@@ -32,6 +32,7 @@ services:
       - ./tests:/app/tests:ro
       - ./eval:/app/eval:ro
       - ./devauth:/app/devauth:ro
+      - ./authn:/app/authn:ro
       - ./.githooks:/app/.githooks:ro
       - ./compose.yaml:/app/compose.yaml:ro
       - ./compose.dev.yaml:/app/compose.dev.yaml:ro

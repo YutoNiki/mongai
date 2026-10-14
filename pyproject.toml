@@ -28,10 +28,10 @@ max-line-length = 120
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["core", "gateway", "searcher", "shared", "eval", "devauth", "tests"]
+files = ["core", "gateway", "searcher", "shared", "eval", "devauth", "authn", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*", "pysbd.*"]
+module = ["arq.*", "pysbd.*", "authlib.*"]
 ignore_missing_imports = true
 
 # PyMuPDF は型注釈が不完全なため、呼び出し側でだけ型なしの呼び出しを許す
