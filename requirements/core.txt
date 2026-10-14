@@ -5,6 +5,8 @@ pydantic==2.14.1
 httpx==0.28.1
 pyyaml==6.0.3
 arq==0.28.0
+# make live で worker を自動で再起動する（watchfiles コマンドでプロセスごと再起動）。uvicorn --reload もこれを使う
+watchfiles==1.1.0
 python-multipart==0.0.32
 redis==5.3.1
 pymupdf==1.28.2

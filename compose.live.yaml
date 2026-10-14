@@ -1,0 +1,89 @@
+# 運用中のサーバー向けの上書き：本番相当の構成（compose.yaml）のまま、ソースの変更を自動で反映する。
+# 使い方：make live（docker compose -f compose.yaml -f compose.live.yaml up -d --build --wait）
+# ネットワーク・ポート公開は compose.yaml のまま変えない（web だけが 127.0.0.1:8080）。
+# 開発用の上書き（compose.dev.yaml）と違い、開発専用のサービスは加えない。
+#
+# - core・gateway・searcher：uvicorn --reload（Python のファイルを保存すると、そのサービスだけ再起動する）
+# - worker：watchfiles でプロセスごと再起動する（core・shared のファイルを保存すると再起動し、実行中の解析・抽出は失敗になる）。
+#   arq --watch は同じプロセスの中で作り直すだけで、変更したコードを読み込み直さないため使わない
+# - 画面：frontend_watch が vite build --watch で作り直し、web はその成果物を配信する（ブラウザの再読み込みで反映）。
+#   frontend_watch はネットワークに繋がない
+
+services:
+  core:
+    command: ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/core", "--reload-dir", "/app/shared"]
+    volumes:
+      - ./core:/app/core:ro
+      - ./shared:/app/shared:ro
+
+  worker:
+    command: ["watchfiles", "--filter", "python", "arq core.worker.WorkerSettings", "/app/core", "/app/shared"]
+    volumes:
+      - ./core:/app/core:ro
+      - ./shared:/app/shared:ro
+
+  gateway:
+    command: ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/gateway", "--reload-dir", "/app/shared"]
+    volumes:
+      - ./gateway:/app/gateway:ro
+      - ./shared:/app/shared:ro
+
+  searcher:
+    command: ["uvicorn", "searcher.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/searcher", "--reload-dir", "/app/shared"]
+    volumes:
+      - ./searcher:/app/searcher:ro
+      - ./shared:/app/shared:ro
+
+  frontend_watch:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      target: frontend-watch
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: mongai/frontend-watch:dev
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    network_mode: none
+    environment:
+      VITE_CACHE_DIR: /tmp/vite
+      HOME: /tmp
+      XDG_DATA_HOME: /tmp
+      DO_NOT_TRACK: "1"
+    # 型検査（tsc）は省く。make lint で行う。古いファイルを消さないのは、作り直しの間も配信を途切れさせないため
+    command: ["node_modules/.bin/vite", "build", "--watch", "--outDir", "/dist", "--emptyOutDir", "false"]
+    # node_modules はイメージのものを使うため、frontend/ 全体ではなく必要なものだけをマウントする。
+    # index.html・vite.config.ts を変えたときは make live で起動し直す
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - web_dist:/dist
+    tmpfs:
+      - /tmp:mode=1777
+      # Vite が設定ファイルを一時的に書き出す場所
+      - /app/node_modules/.vite-temp:mode=1777
+    healthcheck:
+      test: ["CMD", "test", "-f", "/dist/index.html"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+  web:
+    volumes:
+      - type: volume
+        source: web_dist
+        target: /usr/share/nginx/html
+        read_only: true
+        volume: {nocopy: true}
+    depends_on:
+      frontend_watch: {condition: service_healthy}
+
+volumes:
+  web_dist: {}       # frontend_watch が作った画面のファイル（論文・解析結果は含まない）

@@ -383,6 +383,7 @@ embeddings:
 **Compose ファイル**
 - `compose.yaml`：本番相当の構成
 - `compose.dev.yaml`：開発用の上書き。ソースのバインドマウント、ホットリロード（uvicorn `--reload`、Vite dev server）。Vite dev server も `web` 経由で公開し、`127.0.0.1` 以外にバインドしない
+- `compose.live.yaml`：運用中のサーバー向けの上書き（`make live`）。本番相当の構成のまま、`core`・`gateway`・`searcher` を uvicorn `--reload`、`worker` を `watchfiles` でプロセスごと再起動（実行中の解析・抽出は失敗になる）、画面を `vite build --watch`（ネットワークなしの `frontend_watch` が成果物をボリュームに書き、`web` が読み取り専用で配信）で自動反映する。開発専用のサービスは加えない
 - `compose.test.yaml`：テスト用。セキュリティテストは実際のネットワーク構成で実行する
 - `docker compose config` がエラーなく通ること
 

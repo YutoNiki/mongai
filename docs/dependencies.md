@@ -15,6 +15,7 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | httpx | 0.28.1 | core / gateway / searcher | なし。環境変数 `HTTPS_PROXY` に従う（compose.yaml で各サービスのプロキシを明示している） |
 | pyyaml | 6.0.3 | core / gateway | なし |
 | arq | 0.28.0 | worker | なし（Redis にだけ接続） |
+| watchfiles | 1.1.0 | core / worker | なし（MIT。ファイルの変更をローカルで監視するだけ）。`make live` で worker をプロセスごと再起動するのに使う |
 | redis | 5.3.1 | worker | なし。arq 0.28 が `redis<6` を要求するため 5 系に固定 |
 | pymupdf | 1.28.2 | core / worker | なし。**ライセンスは AGPL-3.0**（または Artifex の商用ライセンス）。学内サービスとしてネットワーク越しに提供する場合、AGPL によりソースコードを利用者に提供する義務がある（本リポジトリを公開していれば満たせる）。SPEC 7 で指定されたライブラリ |
 | pysbd | 0.3.4 | core / worker | なし（MIT）。Python 3.12 で正規表現リテラルの SyntaxWarning が出るが動作に影響しない（pytest では抑制） |

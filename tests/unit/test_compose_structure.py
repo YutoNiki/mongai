@@ -184,10 +184,26 @@ def test_oitoma_proxy_allows_only_oitoma() -> None:
 
 
 def test_dev_and_test_overrides_do_not_open_network() -> None:
-    for name in ("compose.dev.yaml", "compose.test.yaml"):
+    for name in ("compose.dev.yaml", "compose.test.yaml", "compose.live.yaml"):
         data = load(name)
         for svc_name, svc in data["services"].items():
             assert "ports" not in svc, (name, svc_name)
             nets = set(svc.get("networks", []))
             assert nets <= {"internal_net"}, (name, svc_name, nets)
         assert "networks" not in data, name
+
+
+def test_live_override_keeps_isolation() -> None:
+    data = load("compose.live.yaml")
+    services = data["services"]
+    # 画面の作り直しはネットワークなしで行い、論文・データベースのボリュームをマウントしない
+    watch = services["frontend_watch"]
+    assert watch["network_mode"] == "none"
+    assert watch["read_only"] is True
+    assert not _mounted_volume_names(watch) & PRIVATE_VOLUMES
+    # web と共有するのは画面の成果物だけ（web からは読み取り専用）
+    (web_volume,) = services["web"]["volumes"]
+    assert web_volume["source"] == "web_dist"
+    assert web_volume["read_only"] is True
+    # searcher に論文・データベースのボリュームを加えない
+    assert not _mounted_volume_names(services["searcher"]) & PRIVATE_VOLUMES
