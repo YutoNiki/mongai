@@ -1,6 +1,7 @@
 """論文（PDF）のアップロード・取得・削除。"""
 
 import os
+import secrets
 
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -9,7 +10,7 @@ from core.api.dependencies import StoreDep
 from core.api.schemas import UploadResponse
 from core.sample import is_sample
 from core.store import PaperBusyError
-from core.store.files import delete_paper_file, load_paper, save_paper
+from core.store.files import delete_paper_file, doc_id_for, load_paper, save_paper
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
@@ -23,7 +24,11 @@ async def upload_document(file: UploadFile, store: StoreDep) -> UploadResponse:
         raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 100MB）")
     if not data.startswith(b"%PDF-"):
         raise HTTPException(status_code=415, detail="PDF ファイルを選んでください")
-    doc_id = save_paper(data)
+    doc_id = doc_id_for(data)
+    if is_sample(doc_id):
+        # デモと同じ PDF でも、デモとは別の論文にする（デモの論文に解析が付かないように）
+        doc_id = secrets.token_hex(8)
+    save_paper(data, doc_id)
     filename = os.path.basename(file.filename or "paper.pdf")[:255]
     store.save_paper(doc_id, filename=filename, size=len(data))
     return UploadResponse(doc_id=doc_id, filename=filename, size=len(data))

@@ -15,7 +15,7 @@ from core.lab.models import LabComment, LabSource
 from core.lab.store import LabStore
 from core.llm.usage import UsageRow
 from core.rules.store import RuleStore
-from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DOC_ID, install_sample
+from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DIR, SAMPLE_DOC_ID, install_sample
 from core.store import Store, TermLookupRecord, today_jst
 from shared.schemas import GatewayResponse, SearchResponse, TermResult
 from tests.unit.doc_factory import make_doc
@@ -510,6 +510,31 @@ def test_sample_cannot_be_reanalyzed_or_changed(
     assert client.patch(base, json={"status": "accepted"}).status_code == 403
     assert client.patch(base, json={"status": "dismissed", "reason": "x"}).status_code == 403
     assert {f.finding_id: f.status for f in store.get_findings(SAMPLE_ANALYSIS_ID)} == before
+
+
+def test_uploading_sample_pdf_creates_separate_document(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, queue, _ = ctx
+    install_sample(store)
+    demo = store.get_paper(SAMPLE_DOC_ID)
+    sample_pdf = (SAMPLE_DIR / "paper.pdf").read_bytes()
+
+    doc_id = upload(client, sample_pdf, name="demo_paper_ja.pdf")
+    assert doc_id != SAMPLE_DOC_ID
+    assert upload(client, sample_pdf) not in (SAMPLE_DOC_ID, doc_id)  # アップロードごとに別の論文
+    assert store.get_paper(SAMPLE_DOC_ID) == demo  # デモのファイル名は上書きされない
+    assert client.get(f"/api/documents/{doc_id}/paper.pdf").content == sample_pdf
+
+    r = client.post("/api/analyses", json={"doc_id": doc_id})
+    assert r.status_code == 201
+    assert r.json()["sample"] is False
+    assert queue.enqueued == [r.json()["analysis"]["analysis_id"]]
+
+    store.finish_analysis(queue.enqueued[0], status="completed")
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 204
+    assert client.get(f"/api/documents/{SAMPLE_DOC_ID}/paper.pdf").content == sample_pdf
+    assert store.get_analysis(SAMPLE_ANALYSIS_ID) is not None
 
 
 class TermGateway(RecordingGateway):
