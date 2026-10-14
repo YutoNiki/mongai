@@ -191,3 +191,29 @@ def test_dev_and_test_overrides_do_not_open_network() -> None:
             nets = set(svc.get("networks", []))
             assert nets <= {"internal_net"}, (name, svc_name, nets)
         assert "networks" not in data, name
+
+
+def test_core_runs_as_production_without_dev_auth(compose: dict[str, Any]) -> None:
+    """本番相当の構成では開発用の鍵を受け付けず（MONGAI_ENV=production）、devauth を含めない。"""
+    assert compose["services"]["core"]["environment"]["MONGAI_ENV"] == "production"
+    assert "devauth" not in compose["services"]
+
+
+def test_devauth_is_dev_only_and_isolated() -> None:
+    """開発用のモック認証サービスは internal_net だけに所属し、論文・DB・監査ログをマウントしない。"""
+    dev = load("compose.dev.yaml")["services"]["devauth"]
+    assert dev["networks"] == ["internal_net"] and "ports" not in dev
+    sources = {str(v).split(":")[0] for v in dev.get("volumes", [])}
+    assert not sources & PRIVATE_VOLUMES
+    assert dev["read_only"] is True and dev["cap_drop"] == ["ALL"]
+
+
+def test_nginx_never_forwards_browser_assertions() -> None:
+    """web は /api/ への要求で、ブラウザから来た主張のヘッダーを消すか、認証サービスの値で上書きする。"""
+    conf = (ROOT / "docker" / "web" / "nginx.conf").read_text(encoding="utf-8")
+    api = conf[conf.index("location /api/") :]
+    assert "include /etc/nginx/mongai-auth/api.conf;" in api.split("}")[0]
+    none = (ROOT / "docker" / "web" / "auth" / "none" / "api.conf").read_text(encoding="utf-8")
+    assert 'proxy_set_header X-MongAI-Assertion "";' in none
+    dev = (ROOT / "docker" / "web" / "auth" / "dev" / "api.conf").read_text(encoding="utf-8")
+    assert "proxy_set_header X-MongAI-Assertion $mongai_assertion;" in dev
