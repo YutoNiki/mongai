@@ -71,3 +71,18 @@ def test_not_found(env: tuple[TestClient, Store, str], tmp_path: Path) -> None:
 def test_paper_path_rejects_traversal() -> None:
     with pytest.raises(ValueError):
         paper_path("../../etc/passwd")
+
+
+def test_annotated_pdf_hides_given_findings(env: tuple[TestClient, Store, str]) -> None:
+    client, store, doc_id = env
+    aid = make_analysis(store, doc_id)
+    response = client.get(f"/api/analyses/{aid}/annotated.pdf?hide=F-0001&hide=F-9999")
+    assert response.status_code == 200
+    with pymupdf.open(stream=response.content, filetype="pdf") as doc:
+        titles = [a.info["title"] for a in doc[0].annots()]
+    # 指定した指摘だけ書き込まない（保存したステータスは変えない）
+    assert titles == ["MongAI F-0002"]
+    assert {f.finding_id: f.status for f in store.get_findings(aid)} == {
+        "F-0001": "open",
+        "F-0002": "open",
+    }

@@ -6,6 +6,7 @@ import { CategoryBadge, SeverityBadge, StatusBadge } from "../components/Badges"
 import { sortFindings } from "../components/FindingsTable";
 import { PdfViewer } from "../components/PdfViewer";
 import { api, isVoted, type AnalysisSummary, type Finding } from "../lib/api";
+import { clearDemoStatus, setDemoStatus } from "../lib/demoStatus";
 import { CATEGORY_LABELS, SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link, navigate } from "../lib/router";
 import { annotationColors } from "../theme/palette";
@@ -58,7 +59,11 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
       return;
     }
     try {
-      const updated = await api.updateStatus(analysisId, finding.finding_id, status, status === "dismissed" ? reason : undefined);
+      const reasonOrNone = status === "dismissed" ? reason : undefined;
+      // デモの解析は全員で共有するので保存せず、このタブの中だけで変える
+      const updated = summary.sample
+        ? setDemoStatus(analysisId, finding, status, reasonOrNone)
+        : await api.updateStatus(analysisId, finding.finding_id, status, reasonOrNone);
       setFindings((list) => list.map((f) => (f.finding_id === updated.finding_id ? updated : f)));
       setMessage("ステータスを更新しました");
     } catch (e) {
@@ -148,6 +153,22 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
 
           <fieldset className="status-form">
             <legend>この指摘への対応</legend>
+            {summary.sample && (
+              <p>
+                デモの解析のため、変更はこのタブの中だけに反映され、保存されません（タブを閉じると元に戻ります）。{" "}
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => {
+                    clearDemoStatus(analysisId);
+                    setMessage("このタブでの変更を元に戻しました");
+                    void load();
+                  }}
+                >
+                  変更をすべて元に戻す
+                </button>
+              </p>
+            )}
             <label>
               却下する理由（却下する場合は必須）
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000} />

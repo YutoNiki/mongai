@@ -137,6 +137,10 @@ def annotated_pdf(
     analysis_id: str,
     store: StoreDep,
     include_accepted: Annotated[bool, Query(description="対応済みの指摘も書き込む")] = False,
+    hide: Annotated[
+        list[str] | None,
+        Query(description="書き込まない指摘の ID（デモの画面の中だけで変えたステータスの反映）"),
+    ] = None,
 ) -> Response:
     """注釈付きPDF。未対応の指摘（と、指定すれば対応済みの指摘）を書き込む。却下した指摘は書き込まない。"""
     analysis = analysis_or_404(store, analysis_id)
@@ -147,7 +151,9 @@ def annotated_pdf(
     if paper is None:
         raise HTTPException(status_code=404, detail="論文のファイルが見つかりません")
     statuses = frozenset({"open", "accepted"} if include_accepted else {"open"})
-    pdf = annotate_pdf(paper, store.get_findings(analysis_id), statuses=statuses)
+    hidden = set(hide or [])
+    findings = [f for f in store.get_findings(analysis_id) if f.finding_id not in hidden]
+    pdf = annotate_pdf(paper, findings, statuses=statuses)
     return Response(
         content=pdf,
         media_type="application/pdf",
