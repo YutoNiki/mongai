@@ -217,3 +217,14 @@ def test_nginx_never_forwards_browser_assertions() -> None:
     assert 'proxy_set_header X-MongAI-Assertion "";' in none
     dev = (ROOT / "docker" / "web" / "auth" / "dev" / "api.conf").read_text(encoding="utf-8")
     assert "proxy_set_header X-MongAI-Assertion $mongai_assertion;" in dev
+
+
+def test_volume_owners_do_not_depend_on_start_order() -> None:
+    """audit_log を core と gateway のどちらが先にマウントしても、gateway が書き込める所有者で作られる。"""
+    dockerfile = (ROOT / "docker" / "python" / "Dockerfile").read_text(encoding="utf-8")
+    core = dockerfile[
+        dockerfile.index("FROM runtime AS core") : dockerfile.index("FROM runtime AS gateway")
+    ]
+    gateway = dockerfile[dockerfile.index("FROM runtime AS gateway") :]
+    assert "chown -R app:app /data/private /data/lancedb /data/db /data/audit" in core
+    assert "chown app:app /data/audit" in gateway
