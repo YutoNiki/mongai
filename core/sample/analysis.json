@@ -1,7 +1,7 @@
 {
  "analysis": {
-  "analysis_id": "A-b24e9eb4103f",
-  "doc_id": "67dc154e691a70a2",
+  "analysis_id": "A-198ecfa60c54",
+  "doc_id": "e43feb49a5520009",
   "kind": "logic",
   "status": "completed",
   "settings": {
@@ -22,27 +22,26 @@
    }
   },
   "warnings": [
-   "未知の用語 2 語（アイソクローン→Isochrone、平均絶対誤差）の照会を承認キューに積みました。「承認キュー」の画面で承認すると、その用語だけを学外に送信します",
-   "F-0010 の二重チェックに失敗しました：role=second_opinion：3 回試してもスキーマに合いません"
+   "未知の用語 2 語（アイソクローン→Isochrone、平均絶対誤差）の照会を承認キューに積みました。「承認キュー」の画面で承認すると、その用語だけを学外に送信します"
   ],
   "error": null,
-  "created_at": "2026-10-13T15:26:31+00:00",
-  "finished_at": "2026-10-13T15:43:39+00:00"
+  "created_at": "2026-10-14T04:39:05+00:00",
+  "finished_at": "2026-10-14T05:02:22+00:00"
  },
  "filename": "demo_paper_ja.pdf",
- "uploaded_at": "2026-10-13T11:47:04+00:00",
+ "uploaded_at": "2026-10-14T04:39:02+00:00",
  "api_usage": [
   {
    "endpoint": "chat/completions",
    "model": "Ternary-Bonsai-2-27B",
    "role": "second_opinion",
-   "calls": 12,
-   "requests": 12,
+   "calls": 9,
+   "requests": 9,
    "retries": 0,
    "failures": 0,
-   "prompt_tokens": 10271,
-   "completion_tokens": 21724,
-   "latency_s": 442.921
+   "prompt_tokens": 7629,
+   "completion_tokens": 5897,
+   "latency_s": 155.789
   },
   {
    "endpoint": "chat/completions",
@@ -53,8 +52,8 @@
    "retries": 0,
    "failures": 0,
    "prompt_tokens": 9729,
-   "completion_tokens": 3757,
-   "latency_s": 43.798
+   "completion_tokens": 3686,
+   "latency_s": 49.123
   },
   {
    "endpoint": "chat/completions",
@@ -65,8 +64,8 @@
    "retries": 0,
    "failures": 0,
    "prompt_tokens": 5519,
-   "completion_tokens": 298,
-   "latency_s": 4.413
+   "completion_tokens": 329,
+   "latency_s": 6.579
   },
   {
    "endpoint": "chat/completions",
@@ -77,32 +76,32 @@
    "retries": 0,
    "failures": 0,
    "prompt_tokens": 3517,
-   "completion_tokens": 3527,
-   "latency_s": 103.411
+   "completion_tokens": 2925,
+   "latency_s": 66.5
   },
   {
    "endpoint": "chat/completions",
    "model": "qwen3.8-27b-it",
    "role": "logic_check",
-   "calls": 37,
-   "requests": 37,
-   "retries": 0,
+   "calls": 41,
+   "requests": 43,
+   "retries": 2,
    "failures": 0,
-   "prompt_tokens": 63713,
-   "completion_tokens": 110774,
-   "latency_s": 2784.811
+   "prompt_tokens": 70088,
+   "completion_tokens": 170094,
+   "latency_s": 5445.055
   },
   {
    "endpoint": "chat/completions",
    "model": "qwen3.8-27b-it",
    "role": "suggestion",
-   "calls": 13,
-   "requests": 13,
+   "calls": 14,
+   "requests": 14,
    "retries": 0,
    "failures": 0,
-   "prompt_tokens": 8296,
-   "completion_tokens": 37481,
-   "latency_s": 887.055
+   "prompt_tokens": 8822,
+   "completion_tokens": 36885,
+   "latency_s": 1015.863
   }
  ]
 }
