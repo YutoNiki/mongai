@@ -16,7 +16,7 @@ from core.analyze.models import Finding
 from core.ingest.models import Document
 from core.llm.usage import UsageRow
 from core.store import AnalysisRecord, Store
-from core.store.files import content_sha256, doc_id_for, save_paper
+from core.store.files import content_sha256, delete_paper_file, doc_id_for, save_paper
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,15 @@ def is_sample(doc_id: str) -> bool:
 
 
 def install_sample(store: Store) -> bool:
-    """デモの解析が無ければ取り込み、取り込んだら True を返す。"""
+    """デモの解析が無ければ取り込み、取り込んだら True を返す。
+
+    デモを差し替えた後に残る前のデモ（公開データ）は消す（全員に2つのデモが見えないように）。
+    """
+    for doc_id in store.remove_stale_demos(
+        keep_doc_id=SAMPLE_DOC_ID, keep_analysis_id=SAMPLE_ANALYSIS_ID
+    ):
+        delete_paper_file(doc_id)
+        logger.info("前のデモの論文 %s を消しました", doc_id)
     if store.get_analysis(SAMPLE_ANALYSIS_ID) is not None:
         return False
     existing = store.get_paper(SAMPLE_DOC_ID)
