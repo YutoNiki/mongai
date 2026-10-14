@@ -7,18 +7,20 @@
 # 開発用のモック認証サービス（devauth）を加える。本番の構成（compose.yaml）とイメージには含めない。
 # devauth は internal_net だけに所属し（学外と通信しない）、論文・データベース・監査ログのボリュームを
 # マウントしない。ログインは http://127.0.0.1:8080/auth/dev-login?user=alice（ログアウトは /auth/dev-logout）。
+# web は devauth に問い合わせ、core は devauth の公開鍵（dev- で始まる鍵）だけを受け付ける。
+# compose.yaml の authn（Google のログイン）も起動するが、開発用の構成では使わない（鍵・Cookie・セッションは別）。
 
 services:
   core:
     command: ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/core"]
     environment:
       MONGAI_ENV: development
-      MONGAI_AUTH_PUBLIC_KEY_FILE: /keys/devauth.json
+      MONGAI_AUTH_PUBLIC_KEY_FILE: /keys/dev/devauth.json
       MONGAI_ALLOWED_EMAIL_DOMAINS: example.ac.jp
     volumes:
       - ./core:/app/core:ro
       - ./shared:/app/shared:ro
-      - devauth_keys:/keys:ro
+      - devauth_keys:/keys/dev:ro
     depends_on:
       devauth: {condition: service_healthy}
 

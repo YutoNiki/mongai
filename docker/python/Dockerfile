@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# core / worker / gateway / searcher と、テスト用の dev イメージを作るマルチステージ Dockerfile。
+# core / worker / gateway / searcher / authn と、テスト用の dev イメージを作るマルチステージ Dockerfile。
 # ビルドコンテキストはリポジトリのルート。各サービスのイメージには自分のコードだけを入れる
 # （searcher のイメージには core のコードを含めない）。
 
@@ -34,6 +34,9 @@ RUN pip --python /opt/venv/bin/python install -r /tmp/requirements/gateway.txt
 FROM deps AS deps-searcher
 RUN pip --python /opt/venv/bin/python install -r /tmp/requirements/searcher.txt
 
+FROM deps AS deps-authn
+RUN pip --python /opt/venv/bin/python install -r /tmp/requirements/authn.txt
+
 FROM deps AS deps-dev
 RUN pip --python /opt/venv/bin/python install -r /tmp/requirements/dev.txt
 
@@ -53,9 +56,10 @@ COPY shared/ /app/shared/
 COPY core/ /app/core/
 COPY config/models.yaml /app/config/models.yaml
 # 名前付きボリュームの初回作成時に所有者を引き継がせる。audit_log は core が読み取り専用で使うが、
-# core が先にマウントするとボリュームが root の所有で作られ、gateway が書き込めなくなるため、同じ所有者にする
-RUN mkdir -p /data/private /data/lancedb /data/db /data/audit \
- && chown -R app:app /data/private /data/lancedb /data/db /data/audit
+# core が先にマウントするとボリュームが root の所有で作られ、gateway が書き込めなくなるため、同じ所有者にする。
+# /keys/authn（認証サービスの公開鍵。core は読み取り専用）も同じ理由で、authn が書き込める所有者にする
+RUN mkdir -p /data/private /data/lancedb /data/db /data/audit /keys/authn \
+ && chown -R app:app /data/private /data/lancedb /data/db /data/audit /keys/authn
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "core.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -79,6 +83,20 @@ COPY searcher/ /app/searcher/
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "searcher.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ---------------------------------------------------------------- authn（認証サービス）
+# 論文データ用のディレクトリは作らない。/data/authn（セッション・署名の秘密鍵）は所有者だけが読める
+FROM runtime AS authn
+COPY --from=deps-authn /opt/venv /opt/venv
+COPY shared/__init__.py shared/email_domain.py /app/shared/
+COPY authn/ /app/authn/
+RUN mkdir -p /data/authn /keys \
+ && chown app:app /data/authn /keys \
+ && chmod 700 /data/authn
+USER 10001:10001
+EXPOSE 8000
+# アクセスログを出さない（コールバックの URL に認可コードが含まれるため）
+CMD ["uvicorn", "authn.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
 
 # ---------------------------------------------------------------- テスト・lint（ソースはバインドマウント）
 FROM runtime AS dev

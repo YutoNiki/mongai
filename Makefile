@@ -9,7 +9,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev live logs migrate claim-legacy test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev live logs migrate claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -42,6 +42,14 @@ migrate: ## データベースを今の版に移行（core・worker を止めて
 
 claim-legacy: ## 移行で隔離したデータの持ち主を決める（例：make claim-legacy ARGS="--user U-… --doc <doc_id>"）
 	$(COMPOSE) run --rm --no-deps core python -m core.store.claim $(ARGS)
+
+authn-rotate-key: ## 認証サービスの署名の鍵を新しくする（数秒 API が 503 になる。ログイン中のセッションはそのまま）
+	$(COMPOSE) stop authn
+	$(COMPOSE) run --rm --no-deps authn python -m authn.manage rotate-key
+	$(COMPOSE) start authn
+
+authn-revoke-sessions: ## すべてのログインのセッションを無効にする（全員がゲストに戻る）
+	$(COMPOSE) run --rm --no-deps authn python -m authn.manage revoke-sessions
 
 test: ## 単体テスト（Python・フロントエンド。ネットワークなしのコンテナで実行）
 	$(RUN_TEST) pytest tests/unit

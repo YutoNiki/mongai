@@ -1,7 +1,8 @@
 # SI-NSA本番相当の構成（SPEC 2.2・7.1）
 #
 # 外に出られるのは、oitoma_net に繋がった oitoma_proxy（おいとまAPIのみ）と、
-# outbound_net に繋がった egress_proxy（許可した書誌APIのみ）だけ。
+# outbound_net に繋がった egress_proxy（許可した書誌APIのみ）と、
+# auth_outbound_net に繋がった auth_proxy（Google のログインのエンドポイントのみ。認証専用）だけ。
 # ポートを公開するのは web（127.0.0.1:8080）だけ。
 # ネットワーク構成を変える場合は事前に確認を取り、必ず make test-security を通すこと。
 
@@ -59,9 +60,10 @@ services:
       - /tmp:mode=1777
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [ui_net, internal_net]
+    networks: [ui_net, internal_net, auth_net]
     depends_on:
       core: {condition: service_healthy}
+      authn: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 15s
@@ -83,16 +85,17 @@ services:
       GATEWAY_URL: http://gateway:8000
       # 本番相当の構成。開発用の鍵（dev- で始まる）を設定すると起動しない
       MONGAI_ENV: production
-      # 認証サービス（authn）の公開鍵。導入するまでは未設定で、主張はすべて無効（利用者は共通デモの閲覧だけ）
-      MONGAI_AUTH_PUBLIC_KEY_FILE: ${MONGAI_AUTH_PUBLIC_KEY_FILE:-}
-      # 初回のログインで自動で登録する利用者のメールのドメイン（カンマ区切り。未設定なら登録しない）
-      MONGAI_ALLOWED_EMAIL_DOMAINS: ${MONGAI_ALLOWED_EMAIL_DOMAINS:-}
+      # 認証サービス（authn）の公開鍵（authn が書き、core は読み取り専用。秘密鍵は core に渡さない）
+      MONGAI_AUTH_PUBLIC_KEY_FILE: /keys/authn/authn.json
+      # ログインを許可するメールのドメイン（カンマ区切り。そのサブドメインも含む）。authn と同じ値にする
+      MONGAI_ALLOWED_EMAIL_DOMAINS: ${MONGAI_ALLOWED_EMAIL_DOMAINS:-okayama-u.ac.jp}
     volumes:
       - ./config/models.yaml:/app/config/models.yaml:ro
       - data_private:/data/private
       - lancedb:/data/lancedb
       - app_db:/data/db
       - audit_log:/data/audit:ro
+      - authn_public:/keys/authn:ro
     tmpfs:
       - /tmp:mode=1777
     networks: [internal_net]
@@ -101,6 +104,8 @@ services:
       grobid: {condition: service_healthy}
       gateway: {condition: service_healthy}
       oitoma_proxy: {condition: service_healthy}
+      # 公開鍵のボリュームを authn が先に作る（authn が書き込める所有者にするため）
+      authn: {condition: service_healthy}
     healthcheck:
       test:
         - CMD
@@ -203,6 +208,46 @@ services:
         - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
       <<: *python-healthcheck
 
+  # 認証サービス（Google の OpenID Connect）。論文・データベース・監査ログのボリュームは絶対にマウントしない
+  # （tests/security で検証）。学外への通信は auth_proxy 経由で Google のエンドポイントにだけ行う
+  authn:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+      target: authn
+      args: *build-args
+    image: mongai/authn:dev
+    <<: *hardening
+    environment:
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      # Google Cloud に登録したリダイレクト URI と完全に同じにする（localhost と 127.0.0.1 は別物）
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8080/auth/callback}
+      MONGAI_ALLOWED_EMAIL_DOMAINS: ${MONGAI_ALLOWED_EMAIL_DOMAINS:-okayama-u.ac.jp}
+      MONGAI_SESSION_HOURS: ${MONGAI_SESSION_HOURS:-8}
+      MONGAI_SESSION_IDLE_MINUTES: ${MONGAI_SESSION_IDLE_MINUTES:-120}
+      HTTP_PROXY: http://auth_proxy:3128
+      HTTPS_PROXY: http://auth_proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+      http_proxy: http://auth_proxy:3128
+      https_proxy: http://auth_proxy:3128
+      no_proxy: localhost,127.0.0.1
+    volumes:
+      - authn_data:/data/authn
+      - authn_public:/keys
+    tmpfs:
+      - /tmp:mode=1777
+    networks: [auth_net, auth_egress_net]
+    depends_on:
+      auth_proxy: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
+      <<: *python-healthcheck
+
   redis:
     image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
     <<: *hardening
@@ -281,6 +326,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # 認証専用の外向きプロキシ：authn から、Google の OIDC のエンドポイント（auth_allowlist.txt）にだけ出られる
+  auth_proxy:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    <<: *hardening
+    user: proxy
+    entrypoint: ["squid"]
+    command: ["-f", "/etc/squid/squid.conf", "-NYC"]
+    environment: *no-proxy-env
+    volumes:
+      - ./config/proxy/auth_squid.conf:/etc/squid/squid.conf:ro
+      - ./config/proxy/auth_allowlist.txt:/etc/squid/auth_allowlist.txt:ro
+    tmpfs:
+      - /tmp:mode=1777
+      - /run:mode=1777
+      - /var/spool/squid:mode=1777
+      - /var/log/squid:mode=1777
+    networks: [auth_egress_net, auth_outbound_net]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 networks:
   # 利用者のブラウザからの入口（web だけが所属）。internal では ポートを公開できないため通常のブリッジ
   ui_net: {}
@@ -297,9 +365,19 @@ networks:
     internal: true
   # egress_proxy の外向き（許可した書誌APIへ）
   outbound_net: {}
+  # web ⇔ authn（ログイン・ログアウトの中継と、auth_request によるセッションの確認。本文は渡さない）
+  auth_net:
+    internal: true
+  # authn ⇔ auth_proxy
+  auth_egress_net:
+    internal: true
+  # auth_proxy の外向き（Google の OIDC のエンドポイントへ。認証専用）
+  auth_outbound_net: {}
 
 volumes:
   data_private: {}   # アップロードされた論文・研究室知識・解析結果（core / worker のみ）
   lancedb: {}        # ベクタDB（core / worker のみ）
   app_db: {}         # SQLite（メタデータ）
   audit_log: {}      # 外部通信の監査ログ（gateway のみ書き込み、core は読み取り専用）
+  authn_data: {}     # ログインのセッションと、主張に署名する秘密鍵（authn のみ）
+  authn_public: {}   # 主張を検証する公開鍵（authn が書き込み、core は読み取り専用）

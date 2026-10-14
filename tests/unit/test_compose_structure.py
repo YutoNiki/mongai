@@ -22,10 +22,12 @@ EXPECTED_SERVICES = {
     "grobid",
     "oitoma_proxy",
     "egress_proxy",
+    "authn",
+    "auth_proxy",
 }
 
 EXPECTED_NETWORKS = {
-    "web": {"ui_net", "internal_net"},
+    "web": {"ui_net", "internal_net", "auth_net"},
     "core": {"internal_net"},
     "worker": {"internal_net"},
     "gateway": {"internal_net", "gateway_net"},
@@ -34,9 +36,13 @@ EXPECTED_NETWORKS = {
     "grobid": {"internal_net"},
     "oitoma_proxy": {"internal_net", "oitoma_net"},
     "egress_proxy": {"egress_net", "outbound_net"},
+    "authn": {"auth_net", "auth_egress_net"},
+    "auth_proxy": {"auth_egress_net", "auth_outbound_net"},
 }
 
 PRIVATE_VOLUMES = {"data_private", "lancedb", "app_db", "audit_log"}
+# 認証サービスの秘密鍵・セッション（authn だけがマウントする）
+AUTHN_PRIVATE_VOLUMES = {"authn_data"}
 
 
 def load(name: str) -> dict[str, Any]:
@@ -60,7 +66,7 @@ def test_services(compose: dict[str, Any]) -> None:
 
 def test_internal_networks(compose: dict[str, Any]) -> None:
     networks = compose["networks"]
-    for name in ("internal_net", "gateway_net", "egress_net"):
+    for name in ("internal_net", "gateway_net", "egress_net", "auth_net", "auth_egress_net"):
         assert networks[name].get("internal") is True, name
     assert set(networks) == {
         "ui_net",
@@ -69,6 +75,9 @@ def test_internal_networks(compose: dict[str, Any]) -> None:
         "gateway_net",
         "egress_net",
         "outbound_net",
+        "auth_net",
+        "auth_egress_net",
+        "auth_outbound_net",
     }
 
 
@@ -107,11 +116,79 @@ def test_searcher_has_no_private_volume(compose: dict[str, Any]) -> None:
     assert "volumes" not in searcher
 
 
-@pytest.mark.parametrize("service", ["web", "gateway", "searcher", "redis", "grobid"])
+@pytest.mark.parametrize(
+    "service", ["web", "gateway", "searcher", "redis", "grobid", "authn", "auth_proxy"]
+)
 def test_private_data_only_in_core(compose: dict[str, Any], service: str) -> None:
     allowed = {"gateway": {"audit_log"}}.get(service, set())
     mounted = _mounted_volume_names(compose["services"][service]) & PRIVATE_VOLUMES
     assert mounted <= allowed, (service, mounted)
+
+
+def test_external_access_only_through_dedicated_proxies(compose: dict[str, Any]) -> None:
+    """学外に出られるネットワーク（internal でないもの）に繋がるのは、web の入口と3つのプロキシだけ。"""
+    external = {n for n, cfg in compose["networks"].items() if not (cfg or {}).get("internal")}
+    assert external == {"ui_net", "oitoma_net", "outbound_net", "auth_outbound_net"}
+    for name, svc in compose["services"].items():
+        joined = set(svc["networks"]) & external
+        expected = {
+            "web": {"ui_net"},
+            "oitoma_proxy": {"oitoma_net"},
+            "egress_proxy": {"outbound_net"},
+            "auth_proxy": {"auth_outbound_net"},
+        }.get(name, set())
+        assert joined == expected, (name, joined)
+
+
+def test_authn_is_isolated_from_core_side(compose: dict[str, Any]) -> None:
+    """authn は core・worker・gateway・searcher とネットワークを共有しない（web とだけ話す）。"""
+    services = compose["services"]
+    authn = set(services["authn"]["networks"])
+    for other in ("core", "worker", "gateway", "searcher", "redis", "grobid"):
+        assert not authn & set(services[other]["networks"]), other
+    assert not set(services["auth_proxy"]["networks"]) & set(services["web"]["networks"])
+
+
+def test_auth_secrets_stay_in_authn(compose: dict[str, Any]) -> None:
+    """署名の秘密鍵・セッションのボリュームと、Google のクライアントシークレットは authn にだけ渡す。"""
+    for name, svc in compose["services"].items():
+        mounted = _mounted_volume_names(svc)
+        if name == "authn":
+            assert mounted == {"authn_data", "authn_public"}
+        else:
+            assert not mounted & AUTHN_PRIVATE_VOLUMES, name
+        env = svc.get("environment", {})
+        has_secret = isinstance(env, dict) and "GOOGLE_OAUTH_CLIENT_SECRET" in env
+        assert has_secret == (name == "authn"), name
+    assert "authn_public:/keys/authn:ro" in compose["services"]["core"]["volumes"]
+    assert "authn_public" not in str(compose["services"]["worker"].get("volumes", []))
+    assert "authn_public" not in str(compose["services"]["searcher"].get("volumes", []))
+
+
+def test_authn_uses_auth_proxy_only(compose: dict[str, Any]) -> None:
+    env = compose["services"]["authn"]["environment"]
+    assert env["HTTPS_PROXY"] == env["https_proxy"] == "http://auth_proxy:3128"
+    assert "OITOMA_API_KEY" not in env
+    core_env = compose["services"]["core"]["environment"]
+    assert core_env["MONGAI_AUTH_PUBLIC_KEY_FILE"] == "/keys/authn/authn.json"
+
+
+def test_auth_allowlist_is_google_oidc_only() -> None:
+    hosts = (ROOT / "config/proxy/auth_allowlist.txt").read_text(encoding="utf-8").split()
+    assert set(hosts) == {"accounts.google.com", "oauth2.googleapis.com", "www.googleapis.com"}
+    assert not any(h.startswith(".") or "*" in h for h in hosts)  # ワイルドカードを使わない
+    conf = (ROOT / "config/proxy/auth_squid.conf").read_text(encoding="utf-8")
+    rules = [line for line in conf.splitlines() if line.startswith("http_access")]
+    assert rules == [
+        "http_access deny !localnet",
+        "http_access deny !CONNECT",
+        "http_access deny !SSL_ports",
+        "http_access allow CONNECT allowed_hosts",
+        "http_access deny all",
+    ]
+    assert 'acl allowed_hosts dstdomain "/etc/squid/auth_allowlist.txt"' in conf
+    egress = (ROOT / "config/proxy/egress_allowlist.txt").read_text(encoding="utf-8").split()
+    assert not set(hosts) & set(egress)  # 書誌検索用のプロキシとは分ける
 
 
 def test_audit_log_read_only_in_core(compose: dict[str, Any]) -> None:
@@ -197,6 +274,7 @@ def test_core_runs_as_production_without_dev_auth(compose: dict[str, Any]) -> No
     """本番相当の構成では開発用の鍵を受け付けず（MONGAI_ENV=production）、devauth を含めない。"""
     assert compose["services"]["core"]["environment"]["MONGAI_ENV"] == "production"
     assert "devauth" not in compose["services"]
+    assert "devauth" not in yaml.safe_dump(compose)
 
 
 def test_devauth_is_dev_only_and_isolated() -> None:
@@ -213,10 +291,42 @@ def test_nginx_never_forwards_browser_assertions() -> None:
     conf = (ROOT / "docker" / "web" / "nginx.conf").read_text(encoding="utf-8")
     api = conf[conf.index("location /api/") :]
     assert "include /etc/nginx/mongai-auth/api.conf;" in api.split("}")[0]
-    none = (ROOT / "docker" / "web" / "auth" / "none" / "api.conf").read_text(encoding="utf-8")
-    assert 'proxy_set_header X-MongAI-Assertion "";' in none
-    dev = (ROOT / "docker" / "web" / "auth" / "dev" / "api.conf").read_text(encoding="utf-8")
-    assert "proxy_set_header X-MongAI-Assertion $mongai_assertion;" in dev
+    for kind in ("authn", "dev"):
+        api_conf = (ROOT / "docker" / "web" / "auth" / kind / "api.conf").read_text(
+            encoding="utf-8"
+        )
+        assert "auth_request /_auth;" in api_conf
+        assert "proxy_set_header X-MongAI-Assertion $mongai_assertion;" in api_conf
+        assert "error_page 401 = @mongai_invalid_session;" in api_conf
+        server = (ROOT / "docker" / "web" / "auth" / kind / "server.conf").read_text(
+            encoding="utf-8"
+        )
+        assert "location = /auth/verify {\n    return 404;\n}" in server
+        assert "proxy_pass_request_body off;" in server
+    assert not (ROOT / "docker" / "web" / "auth" / "none").exists()
+    # 401・503 の JSON の応答は、本番と開発用で同じ定義を使う（1か所だけに置く）
+    assert "include /etc/nginx/mongai-auth-errors.conf;" in conf
+    errors = (ROOT / "docker" / "web" / "auth-errors.conf").read_text(encoding="utf-8")
+    assert 'return 401 \'{"detail":"invalid_session"}\';' in errors
+    assert 'return 503 \'{"detail":"auth_unavailable"}\';' in errors
+
+
+def test_production_web_image_uses_authn() -> None:
+    """本番のイメージは authn の設定を使い、devauth の設定を含めない（devauth は compose.dev.yaml だけ）。"""
+    dockerfile = (ROOT / "docker" / "web" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY docker/web/auth/authn/ /etc/nginx/mongai-auth/" in dockerfile
+    assert "auth/dev" not in dockerfile
+    server = (ROOT / "docker" / "web" / "auth" / "authn" / "server.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "devauth" not in server
+    callback = server[server.index("location = /auth/callback") :].split("\n}\n")[0]
+    assert "access_log off;" in callback  # 認可コードをログに残さない
+    auth = server[server.index("location /auth/ {") :].split("\n}\n")[0]
+    assert "client_max_body_size 1k;" in auth  # 論文などの本文を authn に渡さない
+    # authn は Host を設定のオリジン（例：localhost:8080）と比べるので、ポート番号を含む $http_host を渡す
+    assert "proxy_set_header Host $host;" not in server
+    assert server.count("proxy_set_header Host $http_host;") == 2
 
 
 def test_volume_owners_do_not_depend_on_start_order() -> None:
@@ -226,8 +336,13 @@ def test_volume_owners_do_not_depend_on_start_order() -> None:
         dockerfile.index("FROM runtime AS core") : dockerfile.index("FROM runtime AS gateway")
     ]
     gateway = dockerfile[dockerfile.index("FROM runtime AS gateway") :]
-    assert "chown -R app:app /data/private /data/lancedb /data/db /data/audit" in core
+    assert "chown -R app:app /data/private /data/lancedb /data/db /data/audit /keys/authn" in core
+    gateway = gateway[: gateway.index("FROM runtime AS searcher")]
     assert "chown app:app /data/audit" in gateway
+    authn = dockerfile[dockerfile.index("FROM runtime AS authn") :]
+    authn = authn[: authn.index("FROM runtime AS dev")]
+    assert "chown app:app /data/authn /keys" in authn and "chmod 700 /data/authn" in authn
+    assert "COPY core/" not in authn and "/data/private" not in authn
 
 
 def test_live_override_keeps_isolation() -> None:
