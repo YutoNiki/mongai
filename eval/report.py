@@ -120,7 +120,7 @@ def render(rows: list[dict[str, str]]) -> str:
     return f"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>モデル評価の比較 | MongAI</title>
+<title>モデル評価の比較 | SI-NSA</title>
 <style>
 :root {{ --key: {BLUE_900}; --text: {TEXT_BLACK}; --bg: {BACKGROUND_STANDARD}; --label: {LABEL_GRAY};
   --control: {BACKGROUND_CONTROL}; --surface: {WHITE}; }}

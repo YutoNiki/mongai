@@ -1,6 +1,6 @@
 """デモの解析：デモ用の合成論文（demo/demo_paper_ja.pdf）の解析結果を、最初から一覧に表示する。
 
-解析結果は 2026-10-13 に実際に解析したもの（未知の用語の照会を加えた版のデモ論文）。
+解析結果は 2026-10-14 に実際に解析したもの（サービス名を SI-NSA に改めた版のデモ論文）。
 合成データなので未発表の論文は含まない。
 ワーカーの起動時に、無ければ取り込む。デモは特定の利用者に所有させない公開データ（visibility が
 public_demo）で、誰でも閲覧でき、誰も変更・削除できない（画面では「（デモ）」と表示する）。
@@ -16,13 +16,13 @@ from core.analyze.models import Finding
 from core.ingest.models import Document
 from core.llm.usage import UsageRow
 from core.store import AnalysisRecord, Store
-from core.store.files import content_sha256, doc_id_for, save_paper
+from core.store.files import content_sha256, delete_paper_file, doc_id_for, save_paper
 
 logger = logging.getLogger(__name__)
 
 SAMPLE_DIR = Path(__file__).parent
-SAMPLE_DOC_ID = "67dc154e691a70a2"
-SAMPLE_ANALYSIS_ID = "A-b24e9eb4103f"
+SAMPLE_DOC_ID = "e43feb49a5520009"
+SAMPLE_ANALYSIS_ID = "A-198ecfa60c54"
 
 
 class _SampleAnalysis(BaseModel):
@@ -37,7 +37,15 @@ def is_sample(doc_id: str) -> bool:
 
 
 def install_sample(store: Store) -> bool:
-    """デモの解析が無ければ取り込み、取り込んだら True を返す。"""
+    """デモの解析が無ければ取り込み、取り込んだら True を返す。
+
+    デモを差し替えた後に残る前のデモ（公開データ）は消す（全員に2つのデモが見えないように）。
+    """
+    for doc_id in store.remove_stale_demos(
+        keep_doc_id=SAMPLE_DOC_ID, keep_analysis_id=SAMPLE_ANALYSIS_ID
+    ):
+        delete_paper_file(doc_id)
+        logger.info("前のデモの論文 %s を消しました", doc_id)
     if store.get_analysis(SAMPLE_ANALYSIS_ID) is not None:
         return False
     existing = store.get_paper(SAMPLE_DOC_ID)

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Link, usePath } from "../lib/router";
 import { ApprovalNotice } from "./ApprovalNotice";
-import logoUrl from "../assets/header-logo.png";
+import logoUrl from "../assets/brand/logo.svg";
 
 const MENU: [string, string][] = [
   ["/", "ダッシュボード"],
@@ -30,8 +30,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <Link href="/" className="site-logo">
           <img
             src={logoUrl}
-            alt="門外不出（MongAI） 学内ローカルLLM論文セルフレビューシステム"
-            width={252}
+            alt="SI-NSA"
+            width={140}
             height={40}
           />
         </Link>

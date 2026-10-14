@@ -328,6 +328,39 @@ class Store:
             conn.execute("DELETE FROM papers WHERE doc_id = ?", (doc_id,))
         return ids
 
+    def remove_stale_demos(self, *, keep_doc_id: str, keep_analysis_id: str) -> list[str]:
+        """デモを差し替えた後に残る前のデモ（公開データ）を消し、消した論文の ID を返す。
+
+        デモはアプリケーションが管理する合成データなので、新しいデモ以外の公開データは残さない。
+        PDF ファイルは呼び出し側で消す。
+        """
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ids = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT analysis_id FROM analyses WHERE visibility = 'public_demo' "
+                    "AND analysis_id != ?",
+                    (keep_analysis_id,),
+                )
+            ]
+            for table in ("findings", "paragraph_structures", "api_usage", "term_lookups"):
+                conn.executemany(
+                    f"DELETE FROM {table} WHERE analysis_id = ?",  # 表名は固定の4つだけ
+                    [(i,) for i in ids],
+                )
+            conn.executemany("DELETE FROM analyses WHERE analysis_id = ?", [(i,) for i in ids])
+            docs = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT doc_id FROM papers WHERE visibility = 'public_demo' AND doc_id != ?",
+                    (keep_doc_id,),
+                )
+            ]
+            conn.executemany("DELETE FROM documents WHERE doc_id = ?", [(d,) for d in docs])
+            conn.executemany("DELETE FROM papers WHERE doc_id = ?", [(d,) for d in docs])
+        return docs
+
     def list_analyses(self, viewer: str | None, limit: int = 100) -> list[AnalysisRecord]:
         """主体が読める解析（自分の解析と共通デモ）。件数の上限は絞り込みの後にかける。"""
         with self._connect() as conn:

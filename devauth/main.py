@@ -54,7 +54,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="MongAI devauth", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
+    title="SI-NSA devauth", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
 )
 
 

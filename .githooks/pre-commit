@@ -1,5 +1,5 @@
 #!/bin/sh
-# MongAI pre-commit フック：秘密情報のコミットを防ぐ。
+# SI-NSA pre-commit フック：秘密情報のコミットを防ぐ。
 #   - .env をコミットしない
 #   - .env.example の OITOMA_API_KEY 等に値を入れたままコミットしない
 #   - data/private/ 以下をコミットしない

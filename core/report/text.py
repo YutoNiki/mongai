@@ -26,7 +26,7 @@ def text_report(
     previous_total: int | None = None,
     diff: FindingsDiff | None = None,
 ) -> str:
-    lines = ["門外不出（MongAI）解析レポート", ""]
+    lines = ["SI-NSA 解析レポート", ""]
     lines.append(f"論文：{title or '（タイトル不明）'}" + (f"（{filename}）" if filename else ""))
     lines.append(f"解析ID：{analysis_id}")
     lines.append(f"解析日時：{created_at}")

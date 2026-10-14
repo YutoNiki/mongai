@@ -1,4 +1,4 @@
-# MongAI の共通操作。コマンドはすべてコンテナ内で実行する（ホストに必要なのは Docker と make だけ）。
+# SI-NSA の共通操作。コマンドはすべてコンテナ内で実行する（ホストに必要なのは Docker と make だけ）。
 
 COMPOSE      := docker compose -f compose.yaml
 COMPOSE_DEV  := $(COMPOSE) -f compose.dev.yaml

@@ -394,3 +394,27 @@ def test_cross_site_writes_are_rejected(env: Env) -> None:
         headers={"Sec-Fetch-Site": "same-origin", "Origin": "http://testserver"},
     )
     assert ok.status_code == 201
+
+
+def test_replaced_demo_is_removed(env: Env) -> None:
+    """デモを差し替えたら、前のデモ（公開データ）は消え、全員に見えるデモは新しいものだけになる。"""
+    from core.store.files import load_paper, save_paper
+
+    old = env.store.get_analysis(SAMPLE_ANALYSIS_ID)
+    assert old is not None
+    old_doc, old_aid = "0123456789abcdef", "A-0123456789ab"
+    save_paper(b"%PDF-1.4 old demo", old_doc)
+    env.store.save_paper(
+        old_doc, owner_user_id=None, filename="old.pdf", size=1, visibility="public_demo"
+    )
+    env.store.import_analysis(
+        old.model_copy(update={"analysis_id": old_aid, "doc_id": old_doc}), [], []
+    )
+    a_doc = env.upload(env.as_a())  # 利用者のデータは消さない
+    assert len(env.as_guest().get("/api/analyses").json()) == 2
+    assert not install_sample(env.store)  # 新しいデモは取り込み済み。前のデモだけを消す
+    assert [i["analysis_id"] for i in env.as_guest().get("/api/analyses").json()] == [
+        SAMPLE_ANALYSIS_ID
+    ]
+    assert env.store.get_paper(old_doc) is None and load_paper(old_doc) is None
+    assert env.store.get_paper(a_doc) is not None and env.store.get_paper(SAMPLE_DOC_ID) is not None

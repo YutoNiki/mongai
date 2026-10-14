@@ -1,6 +1,6 @@
-# 門外不出（MongAI）
+# SI-NSA
 
-> **門外不出**：論文データを、門の外（学外）に出さない。
+> 論文データを、学外に出さない。
 
 岡山大学の学内ローカルLLM基盤「おいとま」上で動く、**論文の投稿前セルフレビューシステム**です。
 
@@ -66,7 +66,7 @@
 
 ```bash
 git clone <このリポジトリ>
-cd mongai
+cd si-nsa
 
 cp .env.example .env
 # .env を編集し、OITOMA_API_KEY を設定する
@@ -88,6 +88,12 @@ ssh -L 8080:localhost:8080 <ユーザー名>@<ホスト名>
 ```
 
 その後、手元のブラウザで http://localhost:8080 を開きます。
+
+### 運用中のアクセス先
+
+運用中の SI-NSA は https://si-nsa.eucaly-labs.net/ で開けます（Cloudflare Tunnel 経由。Cloudflare Access の認証が必要です）。
+
+> この経路では Cloudflare のエッジで TLS が終端されるため、アップロードする論文・解析結果・注釈付きPDFが学外（Cloudflare）を通過します。扱いは TODO.md の「保留事項・質問」で検討中です。
 
 ### 利用者とデータの所有（認証の導入中）
 

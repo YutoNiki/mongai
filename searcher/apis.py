@@ -13,7 +13,7 @@ import httpx
 
 from shared.schemas import BibResult, TermResult
 
-USER_AGENT = "MongAI/0.1 (pre-submission self-review tool)"
+USER_AGENT = "SI-NSA/0.1 (pre-submission self-review tool)"
 MAX_TEXT = 4000
 _TAG = re.compile(r"<[^>]+>")
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")

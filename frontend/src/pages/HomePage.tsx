@@ -145,7 +145,6 @@ export function HomePage() {
 
   return (
     <div className="page">
-      <p className="eyebrow">論文の投稿前セルフレビュー</p>
       <h1>ダッシュボード</h1>
       <div className="grid home-top">
         <section className="panel kpi" aria-labelledby="usage-title">

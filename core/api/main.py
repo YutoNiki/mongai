@@ -56,7 +56,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="MongAI core", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
+    title="SI-NSA core", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan
 )
 
 

@@ -34,7 +34,7 @@ class Block:
 TITLE = "需要予測に基づく小規模自治体のオンデマンド交通の配車計画"
 META = [
     "門外 太郎　不出 花子（架空大学 情報学部）",
-    "※ 本論文は MongAI のデモ用に作成した合成データであり、内容・著者・データはすべて架空である。",
+    "※ 本論文は SI-NSA のデモ用に作成した合成データであり、内容・著者・データはすべて架空である。",
 ]
 
 BLOCKS: list[Block] = [
@@ -250,7 +250,7 @@ class Writer:
         self.y += 14
         for block in BLOCKS:
             self.block(block)
-        self.doc.set_metadata({"title": TITLE, "author": "MongAI demo (synthetic)"})
+        self.doc.set_metadata({"title": TITLE, "author": "SI-NSA demo (synthetic)"})
         self.doc.subset_fonts()
         path.parent.mkdir(parents=True, exist_ok=True)
         self.doc.save(path, garbage=4, deflate=True)

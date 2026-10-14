@@ -1,4 +1,4 @@
-# TODO（門外不出 / MongAI）
+# TODO（SI-NSA）
 
 仕様の詳細は `docs/SPEC.md` を参照。タスクを終えるたびにチェックを入れ、決定事項・保留事項を末尾に記録する。
 
@@ -118,6 +118,7 @@
 - [x] 解析済みの論文の削除、今日のAPIリクエスト回数・トークン数の表示、進捗バー、経過時間
 - [x] 注釈付きPDFをアプリ内のビューアで表示
 - [x] 論理チェックの JSON の失敗（finish=stop の JSONDecodeError）の原因の調査 → 下の「調査の結果」
+- [x] ブランド素材（案B：SI-NSA）の導入（2026-10-14）。追加：`docs/brand/`（README・2倍解像度の PNG）、`frontend/src/assets/brand/`（logo・banner・mark・icon の SVG と暗い背景用の `*-dark.svg`）、`frontend/public/favicon.svg`・`apple-touch-icon.png`・`icons/icon-maskable-192.png`。置き換え：`favicon.ico`・`icons/icon-192.png`・`icon-512.png`・`icon-maskable-512.png`・`manifest.webmanifest`。`index.html` の `<head>` を `docs/brand/README.md` のとおりにし、ヘッダーのロゴを `logo.svg` に変更
 
 ### 調査の結果：論理チェックの JSON の失敗（2026-10-13）
 
@@ -243,6 +244,8 @@
 | 2026-10-13 | おいとまAPIの応答の打ち切りは900秒（1本の生成は毎秒約28トークン。32本同時でも全体の処理量は伸び続けたため、`max_concurrency` は32のまま） |
 | 2026-10-13 | API の利用回数は、日本時間の日ごとにも集計する（論文を削除しても減らさない） |
 | 2026-10-13 | サービス名の英字表記を、新しいロゴに合わせて「MonGAI」から「MongAI」に改める（識別子の `mongai` は変えない） |
+| 2026-10-14 | サービス名を「門外不出（MongAI）」から「SI-NSA」に改める（ブランド素材 案B に合わせて。識別子の `mongai` は変えない） |
+| 2026-10-14 | リポジトリ名を `mongai` から `si-nsa` に改める（GitHub・ローカルとも。Docker のプロジェクト名 `mongai` は、既存のボリュームを引き継ぐため変えない） |
 | 2026-10-12 | `make check-api` の結果から、`api.json_mode: json_schema`、`api.thinking_param: chat_template_kwargs` とする（qwen3.8-27b-it は既定で思考オフ） |
 | 2026-10-13 | テスト用論文は、同じ研究の英語版（ACL Anthology）と日本語版（自然言語処理、J-STAGE）を使う（どちらも CC BY 4.0） |
 | 2026-10-13 | 見出しはレイアウト（PyMuPDF）からの検出を優先し、GROBID は参考文献と、見出しを検出できない場合の補完に使う（GROBID は日本語論文の見出しを取れなかったため） |
