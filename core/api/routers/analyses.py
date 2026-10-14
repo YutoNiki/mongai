@@ -37,6 +37,8 @@ async def create_analysis(
 ) -> AnalysisSummary:
     if store.get_paper(request.doc_id) is None:
         raise HTTPException(status_code=404, detail="論文が見つかりません")
+    if is_sample(request.doc_id):
+        raise HTTPException(status_code=403, detail="デモの論文は解析できません")
     settings = AnalysisSettings(output_lang=request.output_lang)
     analysis_id = store.create_analysis(
         request.doc_id, kind="logic", settings=settings, status="queued"

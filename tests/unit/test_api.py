@@ -493,6 +493,25 @@ def test_sample_analysis_is_listed_and_cannot_be_deleted(
     assert client.delete(f"/api/documents/{other}").status_code == 204  # ほかの論文は削除できる
 
 
+def test_sample_cannot_be_reanalyzed_or_changed(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes],
+) -> None:
+    client, store, queue, _ = ctx
+    install_sample(store)
+    before = {f.finding_id: f.status for f in store.get_findings(SAMPLE_ANALYSIS_ID)}
+
+    r = client.post("/api/analyses", json={"doc_id": SAMPLE_DOC_ID})
+    assert r.status_code == 403
+    assert queue.enqueued == []
+    assert [a.analysis_id for a in store.list_analyses()] == [SAMPLE_ANALYSIS_ID]
+
+    finding_id = next(iter(before))
+    base = f"/api/analyses/{SAMPLE_ANALYSIS_ID}/findings/{finding_id}"
+    assert client.patch(base, json={"status": "accepted"}).status_code == 403
+    assert client.patch(base, json={"status": "dismissed", "reason": "x"}).status_code == 403
+    assert {f.finding_id: f.status for f in store.get_findings(SAMPLE_ANALYSIS_ID)} == before
+
+
 class TermGateway(RecordingGateway):
     """承認すると、用語の説明（学外の辞書の結果）を返す gateway。"""
 
