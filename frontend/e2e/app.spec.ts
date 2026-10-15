@@ -5,7 +5,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { analysisId, GUEST, mockApi, summary } from "./mockApi";
+import { analysisId, GUEST, list, mockApi, summary } from "./mockApi";
 
 const title = summary.document?.title ?? "";
 
@@ -20,13 +20,23 @@ function watchExternal(page: Page): string[] {
   return external;
 }
 
-test("トップページに解析の一覧と今日の利用回数が出る", async ({ page }) => {
+/** 狭い画面（メニューが開閉式）では、メニューを開く。広い画面では何もしない */
+async function openMenu(page: Page): Promise<void> {
+  await expect(page.getByRole("banner")).toBeVisible();
+  const toggle = page.getByRole("button", { name: "メニュー", exact: true });
+  if ((await toggle.isVisible()) && (await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+}
+
+test("ログイン中のトップページに、解析のフォーム・解析の一覧・今日の利用回数が出る", async ({ page }) => {
   await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "ダッシュボード" })).toBeVisible();
   await expect(page.getByRole("link", { name: title })).toBeVisible();
-  await expect(page.getByText("120", { exact: false }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "今日のAPIリクエスト" })).toContainText("120回");
+  await expect(page.getByLabel("文書のPDF（複数選べます）")).toBeVisible();
+  // ゲスト向けの案内は出さない
+  await expect(page.getByRole("link", { name: "デモの解析結果を見る" })).toHaveCount(0);
   // デモの論文は「（デモ）」と表示し、削除のボタンを出さない
   await expect(page.getByRole("link", { name: `（デモ）${title}` })).toBeVisible();
   await expect(page.getByRole("button", { name: /を削除$/ })).toHaveCount(0);
@@ -154,6 +164,7 @@ test("ルール：確認して承認・編集・一括承認できる", async ({
   const api = await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
+  await openMenu(page);
   await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "ルール" }).click();
   await expect(page).toHaveURL("/rules");
   await expect(page.getByRole("heading", { level: 1, name: "ルール" })).toBeVisible();
@@ -188,6 +199,7 @@ test("専門知識：過去の指摘を確認して削除できる", async ({ pa
   const api = await mockApi(page);
   const external = watchExternal(page);
   await page.goto("/");
+  await openMenu(page);
   await page.getByRole("navigation", { name: "メニュー" }).getByRole("link", { name: "専門知識" }).click();
   await expect(page).toHaveURL("/lab");
   await expect(page.getByRole("heading", { level: 1, name: "専門知識" })).toBeVisible();
@@ -333,12 +345,18 @@ test("ゲスト：共通デモを閲覧でき、論文の解析にはログイ�
   const api = await mockApi(page, { me: GUEST });
   const external = watchExternal(page);
   await page.goto("/");
-  await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
   const login = page.getByRole("banner").getByRole("link", { name: "Googleでログイン" });
   await expect(login).toHaveAttribute("href", "/auth/login");
+  await openMenu(page);
+  await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
   // アップロードの代わりにログインの案内を出す（アクセス制御そのものは API が行う）
   await expect(page.getByLabel("文書のPDF（複数選べます）")).toHaveCount(0);
-  await expect(page.getByText("文書を解析するには、岡山大学のGoogleアカウントでのログインが必要です", { exact: false })).toBeVisible();
+  const guide = page.getByRole("region", { name: "自分の文書を解析するには" });
+  await expect(guide).toContainText("岡山大学のGoogleアカウントでログインすると");
+  await expect(guide).toContainText("論文や解析結果は送りません");
+  await expect(guide.getByRole("link", { name: "ログインして解析する" })).toHaveAttribute("href", "/auth/login");
+  // 利用回数のカードは出さない
+  await expect(page.getByRole("region", { name: "今日のAPIリクエスト" })).toHaveCount(0);
   // 利用回数は利用者ごとなので、ゲストでは問い合わせない
   expect(api.requests).not.toContain("GET /api/usage/today");
   // デモの解析結果は開ける
@@ -355,10 +373,13 @@ test("ゲスト：共通デモを閲覧でき、論文の解析にはログイ�
 test("ログイン中：利用者を表示し、ログアウトするとゲストとして読み込み直す", async ({ page }) => {
   const api = await mockApi(page);
   await page.goto("/");
+  await openMenu(page);
   await expect(page.getByText("taro@s.okayama-u.ac.jp")).toBeVisible();
   await expect(page.getByLabel("文書のPDF（複数選べます）")).toBeVisible();
   await page.evaluate(() => window.sessionStorage.setItem("mongai:demo-status:x", "{}"));
   await page.getByRole("button", { name: "ログアウト" }).click();
+  await expect(page.getByRole("link", { name: "デモの解析結果を見る" })).toBeVisible();
+  await openMenu(page);
   await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
   expect(api.logouts).toBe(1);
   await expect(page.getByLabel("文書のPDF（複数選べます）")).toHaveCount(0);
@@ -379,7 +400,11 @@ test("セッションが切れたら、もう一度ログインするかゲス�
   await page.goto("/");
   await expect(page.getByRole("alert").first()).toContainText("ログインの有効期限が切れた");
   await expect(page.getByRole("link", { name: "もう一度ログイン" })).toHaveAttribute("href", "/auth/login");
+  await openMenu(page);
   await page.getByRole("button", { name: "ゲストに戻る" }).click();
+  // 期限切れの画面もゲスト向けの表示なので、読み込み直して期限切れの知らせが消えるのを待つ
+  await expect(page.getByText("ログインの有効期限が切れた", { exact: false })).toHaveCount(0);
+  await openMenu(page);
   await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
   expect(api.logouts).toBe(1);
 });
@@ -387,8 +412,255 @@ test("セッションが切れたら、もう一度ログインするかゲス�
 test("ログアウトを確定できなかったときは、ゲストに切り替えずに知らせる", async ({ page }) => {
   const api = await mockApi(page, { logoutStatus: 503 });
   await page.goto("/");
+  await openMenu(page);
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page.getByRole("alert")).toContainText("ログアウトを確定できませんでした");
   await expect(page.getByText("taro@s.okayama-u.ac.jp")).toBeVisible();
   expect(api.logouts).toBe(1);
+});
+
+// ---- トップページ・ヘッダーの配置（デスクトップ 1600×900・Pixel 7 に加え、360・768・1024px の幅でも確かめる） ----
+
+const MENU_LINKS: [string, string][] = [
+  ["ダッシュボード", "/"],
+  ["ルール", "/rules"],
+  ["課題・提出要件", "/instructions"],
+  ["専門知識", "/lab"],
+  ["外部通信ログ", "/audit"],
+  ["承認キュー", "/queue"],
+  ["データの定義", "/definitions"],
+];
+const FEEDBACK_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLScdFd-8iPWnure9aQZpIleFLHzCrTbfFfuJxCS_HVbqNCVbvw/viewform?usp=dialog";
+
+/** 利用者が削除できる、合成の解析（デモの解析を複製して、別の文書にしたもの） */
+function ownAnalysis() {
+  const demo = list[0];
+  if (!demo) throw new Error("解析の一覧の fixture が空");
+  return {
+    ...demo,
+    analysis_id: "A-000000000001",
+    doc_id: "0000000000000abc",
+    sample: false,
+    title: "とても長い題目の合成論文：".repeat(8) + "改行できない英単語Supercalifragilisticexpialidocious_and_more_text",
+  };
+}
+
+/** 横スクロールが出ていないか、ヘッダーの要素どうしが重なっていないか */
+async function expectNoOverflow(page: Page): Promise<void> {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  const boxes = await page.evaluate(() =>
+    [".site-logo", ".site-header-quick", ".site-nav-wrap", ".account"]
+      .map((selector) => document.querySelector(selector))
+      .filter((el): el is Element => el !== null && el.getBoundingClientRect().width > 0)
+      .map((el) => el.getBoundingClientRect().toJSON() as { left: number; right: number; top: number; bottom: number }),
+  );
+  for (const [i, a] of boxes.entries())
+    for (const b of boxes.slice(i + 1)) {
+      const overlap = a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+      expect(overlap, `ヘッダーの要素が重なっている：${JSON.stringify([a, b])}`).toBe(false);
+    }
+}
+
+test("ヘッダー：広い画面ではロゴ・メニュー・ログインの状態を1行に収める", async ({ page, isMobile }) => {
+  test.skip(isMobile, "広い画面で確かめる");
+  for (const me of [GUEST, undefined]) {
+    await mockApi(page, me ? { me } : {});
+    for (const width of [1600, 1280, 1121]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      const header = page.getByRole("banner");
+      await expect(header.getByRole("link", { name: "ダッシュボード" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "メニュー", exact: true })).toBeHidden();
+      const height = (await header.boundingBox())?.height ?? 0;
+      expect(height, `幅 ${width}px でヘッダーが2段になっている`).toBeLessThanOrEqual(72);
+      await expectNoOverflow(page);
+    }
+  }
+});
+
+test("ヘッダー：狭い画面ではメニューを開閉でき、項目を選ぶと閉じる", async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "メニュー", exact: true });
+  const nav = page.getByRole("navigation", { name: "メニュー" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(nav).toBeHidden();
+  // 開く・Esc で閉じてボタンにフォーカスが戻る
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(nav.getByRole("link", { name: "データの定義" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toBeFocused();
+  // もう一度開いて、ボタンで閉じる
+  await toggle.click();
+  await toggle.click();
+  await expect(nav).toBeHidden();
+  // 項目を選ぶと移動して閉じる
+  await toggle.click();
+  await nav.getByRole("link", { name: "ルール" }).click();
+  await expect(page).toHaveURL("/rules");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(nav).toBeHidden();
+});
+
+test("ヘッダー：すべてのメニューの項目に移動でき、今いる画面が分かる", async ({ page }) => {
+  await mockApi(page);
+  const external = watchExternal(page);
+  for (const [name, href] of MENU_LINKS) {
+    await page.goto(href === "/" ? "/rules" : "/");
+    await openMenu(page);
+    const nav = page.getByRole("navigation", { name: "メニュー" });
+    const more = nav.getByRole("button", { name: /^その他/ });
+    if (["/audit", "/queue", "/definitions"].includes(href) && (await more.isVisible())) {
+      await more.click();
+      await expect(more).toHaveAttribute("aria-expanded", "true");
+    }
+    await nav.getByRole("link", { name, exact: true }).click();
+    await expect(page).toHaveURL(href);
+    await openMenu(page);
+    // 「その他」の中の画面にいるときは、閉じた「その他」のボタンでも分かるようにする
+    if (["/audit", "/queue", "/definitions"].includes(href) && (await more.isVisible())) {
+      await expect(more).toHaveClass(/is-current/);
+      await more.click();
+    }
+    await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute("aria-current", "page");
+  }
+  // ご意見・ご要望は Google フォームを新しいタブで開く（このテストではクリックしない）
+  await page.goto("/");
+  await openMenu(page);
+  const nav = page.getByRole("navigation", { name: "メニュー" });
+  const more = nav.getByRole("button", { name: /^その他/ });
+  if (await more.isVisible()) await more.click();
+  const feedback = nav.getByRole("link", { name: /ご意見・ご要望/ });
+  await expect(feedback).toBeVisible();
+  await expect(feedback).toHaveAttribute("href", FEEDBACK_URL);
+  await expect(feedback).toHaveAttribute("target", "_blank");
+  await expect(feedback).toHaveAttribute("rel", "noopener noreferrer");
+  expect(external).toEqual([]);
+});
+
+test("ゲストのトップページ：目的・デモへの導線・ログインの案内の順に出し、デモの解析結果へ進める", async ({ page }) => {
+  const api = await mockApi(page, { me: GUEST });
+  const external = watchExternal(page);
+  await page.goto("/");
+  const heading = page.getByRole("heading", { level: 1, name: "論文・レポートの提出前セルフレビュー" });
+  const demo = page.getByRole("link", { name: "デモの解析結果を見る" });
+  const guide = page.getByRole("region", { name: "自分の文書を解析するには" });
+  const listTitle = page.getByRole("heading", { level: 2, name: "解析済みの文書" });
+  await expect(heading).toBeVisible();
+  await expect(demo).toBeVisible();
+  // 画面の上から順に並ぶ（狭い画面では縦一列、広い画面ではデモとログインの案内が横並び）
+  const top = async (locator: typeof heading) => (await locator.boundingBox())?.y ?? Number.NaN;
+  expect(await top(heading)).toBeLessThan(await top(demo));
+  expect(await top(guide)).toBeLessThan(await top(listTitle));
+  expect(await top(demo)).toBeLessThan(await top(listTitle));
+  // 利用回数は問い合わせず、カードも出さない
+  await expect(page.getByRole("region", { name: "今日のAPIリクエスト" })).toHaveCount(0);
+  expect(api.requests).not.toContain("GET /api/usage/today");
+  // デモの解析 ID は一覧の API から取る
+  await expect(demo).toHaveAttribute("href", `/analyses/${analysisId}`);
+  await demo.click();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(title);
+  expect(external).toEqual([]);
+});
+
+test("ゲストのトップページ：デモが無いときは、そのことを知らせる", async ({ page }) => {
+  await mockApi(page, { me: GUEST, analyses: [] });
+  await page.goto("/");
+  await expect(page.getByText("いまは閲覧できるデモの解析結果がありません。")).toBeVisible();
+  await expect(page.getByRole("link", { name: "デモの解析結果を見る" })).toHaveCount(0);
+  await expect(page.getByText("閲覧できる解析はありません。")).toBeVisible();
+});
+
+test("ログイン中のトップページ：自分の文書を一覧から削除できる（デモは削除できない）", async ({ page }) => {
+  const own = ownAnalysis();
+  const api = await mockApi(page, { analyses: [own, ...list] });
+  await page.goto("/");
+  const rows = page.getByRole("table").locator("tbody tr");
+  await expect(rows).toHaveCount(2);
+  await expectNoOverflow(page); // 長い題目でも横にはみ出さない
+  const remove = page.getByRole("button", { name: /を削除$/ });
+  await expect(remove).toHaveCount(1);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await remove.click();
+  await expect(rows).toHaveCount(1);
+  expect(api.deleted).toEqual([own.doc_id]);
+  await expect(page.getByRole("link", { name: `（デモ）${title}` })).toBeVisible();
+});
+
+for (const width of [360, 768, 1024]) {
+  test(`表示幅 ${width}px：横にはみ出さず、ヘッダーはメニューを開閉式にする`, async ({ page, isMobile }) => {
+    test.skip(isMobile, "幅を変えて確かめるのはデスクトップの設定で行う");
+    for (const me of [GUEST, undefined]) {
+      await mockApi(page, me ? { me, analyses: [ownAnalysis(), ...list] } : { analyses: [ownAnalysis(), ...list] });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      await expect(page.getByRole("heading", { level: 2, name: "解析済みの文書" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "メニュー", exact: true })).toBeVisible();
+      await expectNoOverflow(page);
+      await openMenu(page);
+      await expectNoOverflow(page);
+      // 押せるものは 44px 以上の高さにする
+      for (const link of await page.getByRole("navigation", { name: "メニュー" }).getByRole("link").all())
+        expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+  });
+}
+
+test("スクリーンショット：トップページ（ゲスト・ログイン中）", async ({ page }, testInfo) => {
+  for (const [name, me] of [
+    ["guest", GUEST],
+    ["user", undefined],
+  ] as const) {
+    await mockApi(page, me ? { me, analyses: [ownAnalysis(), ...list] } : { analyses: [ownAnalysis(), ...list] });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 2, name: "解析済みの文書" })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`home-${name}.png`), fullPage: true });
+    const toggle = page.getByRole("button", { name: "メニュー", exact: true });
+    if (await toggle.isVisible()) {
+      await toggle.click();
+      await page.screenshot({ path: testInfo.outputPath(`home-${name}-menu.png`) });
+    } else {
+      await page.getByRole("button", { name: /^その他/ }).click();
+      await page.screenshot({ path: testInfo.outputPath(`home-${name}-more.png`) });
+    }
+  }
+});
+
+test("トップページ：ログインの状態・利用回数の読み込み中に、ほかの画面やエラーを一瞬出さない", async ({ page }) => {
+  // GET /api/me と /api/usage/today の応答を、テストから合図するまで止める
+  const hold = (pattern: string) => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    void page.route(pattern, async (route) => {
+      await released;
+      await route.fallback();
+    });
+    return release;
+  };
+
+  // ゲスト：確認中はログイン中向けの見出しを出さず、分かったらゲスト向けの画面を出す
+  await mockApi(page, { me: GUEST });
+  const releaseMe = hold("**/api/me");
+  await page.goto("/");
+  await expect(page.getByText("読み込み中…")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
+  releaseMe();
+  await expect(page.getByRole("heading", { level: 1, name: "論文・レポートの提出前セルフレビュー" })).toBeVisible();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  // ログイン中：利用回数を読み込んでいる間は「読み込めませんでした」を出さない
+  await mockApi(page);
+  const releaseUsage = hold("**/api/usage/today");
+  await page.goto("/");
+  const usage = page.getByRole("region", { name: "今日のAPIリクエスト" });
+  await expect(usage).toContainText("読み込み中…");
+  await expect(usage).not.toContainText("読み込めませんでした");
+  releaseUsage();
+  await expect(usage).toContainText("120回");
 });
