@@ -30,6 +30,7 @@
 - [x] ボリューム：`data_private`・`lancedb`・`app_db`・`audit_log`（`searcher` にはマウントしない）
 - [x] Squid 設定：`oitoma_proxy`（おいとまのホストのみ）、`egress_proxy`（書誌APIのみ）。どちらも HTTPS の CONNECT のみ
 - [x] `Makefile`：setup / build / up / down / dev / logs / test / test-security / lint / eval / check-api / config / clean / clean-data
+- [x] `make migrate-live`（運用中のサーバーの移行。`make migrate` はイメージの中の古いコードで実行され、版が上がっても「移行済み」と表示していたため）
 - [x] `docker compose config` が通ることを確認（`make config`）
 - [x] おいとまAPIの仕様確認 → `docs/oitoma_api.md`（`make check-api` で JSON出力・思考モード・埋め込みを確認）
 - [x] `core/llm/`：おいとまクライアント、トークン予算（32k）、JSONスキーマ強制、リトライ、並列実行（自己一貫性の多数決を含む）

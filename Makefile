@@ -9,7 +9,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev live logs migrate claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev live logs migrate migrate-live claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -37,8 +37,15 @@ live: ## 運用中のサーバー向けの起動（本番相当の構成で、�
 logs: ## ログ
 	$(COMPOSE) logs -f --tail=200
 
-migrate: ## データベースを今の版に移行（core・worker を止めてから実行。最初にバックアップを作る）
+migrate: ## データベースを今の版に移行（core・worker を止めてから実行。最初にバックアップを作る。make live で動かしているときは migrate-live）
 	$(COMPOSE) run --rm --no-deps core python -m core.store.migrate
+
+# make live ではソースをマウントして動かすため、イメージの中のコードは古いことがある。
+# migrate はイメージのコードで移行するので、新しい版を知らずに「移行済み」と表示してしまう。こちらはマウントした今のソースで移行する
+migrate-live: ## 運用中のサーバー（make live）のデータベースを移行（core・worker を止め、今のソースで移行してから起動し直す。実行中の解析は失敗になる）
+	$(COMPOSE_LIVE) stop core worker
+	$(COMPOSE_LIVE) run --rm --no-deps core python -m core.store.migrate
+	$(COMPOSE_LIVE) up -d --wait core worker
 
 claim-legacy: ## 移行で隔離したデータの持ち主を決める（例：make claim-legacy ARGS="--user U-… --doc <doc_id>"）
 	$(COMPOSE) run --rm --no-deps core python -m core.store.claim $(ARGS)
