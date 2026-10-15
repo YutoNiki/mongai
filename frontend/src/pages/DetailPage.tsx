@@ -10,6 +10,7 @@ import { clearDemoStatus, setDemoStatus } from "../lib/demoStatus";
 import { CATEGORY_LABELS, SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link, navigate } from "../lib/router";
 import { annotationColors } from "../theme/palette";
+import { useDocumentTitle } from "../lib/title";
 
 export function DetailPage({ analysisId, findingId }: { analysisId: string; findingId: string }) {
   const [summary, setSummary] = useState<AnalysisSummary | null>(null);
@@ -32,6 +33,7 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
     void load();
   }, [load]);
 
+  useDocumentTitle(`指摘 ${findingId}`);
   const index = findings.findIndex((f) => f.finding_id === findingId);
   const finding = index >= 0 ? findings[index] : undefined;
   // 表示する指摘が変わったときだけ、ページ・理由・メッセージを初期化する。
@@ -154,8 +156,8 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
           <fieldset className="status-form">
             <legend>この指摘への対応</legend>
             {summary.sample && (
-              <p>
-                デモの解析のため、変更はこのタブの中だけに反映され、保存されません（タブを閉じると元に戻ります）。{" "}
+              <div className="demo-note">
+                <p>デモの解析のため、変更はこのタブの中だけに反映され、保存されません（タブを閉じると元に戻ります）。</p>
                 <button
                   type="button"
                   className="button-secondary"
@@ -167,7 +169,7 @@ export function DetailPage({ analysisId, findingId }: { analysisId: string; find
                 >
                   変更をすべて元に戻す
                 </button>
-              </p>
+              </div>
             )}
             <label>
               却下する理由（却下する場合は必須）

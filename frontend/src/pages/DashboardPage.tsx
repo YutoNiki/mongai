@@ -21,8 +21,10 @@ import {
   label,
 } from "../lib/labels";
 import { prefetched } from "../lib/prefetch";
-import { Link } from "../lib/router";
+import { Link, navigate } from "../lib/router";
 import { diffText, summaryText } from "../lib/summary";
+import { retryAnalysis } from "../lib/retry";
+import { useDocumentTitle } from "../lib/title";
 
 interface Filters {
   category: string;
@@ -140,6 +142,15 @@ function TermsPanel({ terms }: { terms: TermLookup[] }) {
   );
 }
 
+/** 開閉のボタンの印（開くと上向き） */
+function Chevron() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function DashboardPage({ analysisId }: { analysisId: string }) {
   // トップページで先読みしたデータがあれば、最初から表示する（そのあと最新のものを取り直す）
   const [summary, setSummary] = useState<AnalysisSummary | null>(() => prefetched(analysisId)?.summary ?? null);
@@ -183,6 +194,26 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
     [findings, filters, summary],
   );
   const counts = useMemo(() => (summary ? countOf(filtered, summary.counts) : null), [filtered, summary]);
+  // スマートフォンでは、ダウンロードと絞り込みを畳んで、総指摘数を最初の画面に入れる（広い画面では常に表示）
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // 失敗した解析のやり直し
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const retry = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const id = await retryAnalysis(analysisId);
+      navigate(`/analyses/${id}`, "forward");
+    } catch (e) {
+      setRetryError(e instanceof Error ? e.message : "解析をやり直せませんでした");
+      setRetrying(false);
+    }
+  };
+  useDocumentTitle(
+    summary ? `解析結果：${summary.document?.title ?? summary.paper?.filename ?? summary.analysis.doc_id}` : "解析結果",
+  );
 
   if (error) return <p role="alert" className="error page">{error}</p>;
   if (!summary || !counts) return <p className="page">読み込み中…</p>;
@@ -232,7 +263,17 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
             </h1>
           </div>
         </div>
-        <div className="downloads">
+        <button
+          type="button"
+          className="mobile-disclosure"
+          aria-expanded={downloadsOpen}
+          aria-controls="dashboard-downloads"
+          onClick={() => setDownloadsOpen((open) => !open)}
+        >
+          注釈付きPDF・ダウンロード
+          <Chevron />
+        </button>
+        <div id="dashboard-downloads" className={downloadsOpen ? "downloads open" : "downloads"}>
           <Link className="button-secondary" href={`/analyses/${analysisId}/annotated`}>
             注釈付きPDF
           </Link>
@@ -250,7 +291,22 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
 
       <RequirementsPanel key={analysisId} analysis={summary.analysis} />
 
-      <form className="filters" aria-label="絞り込み" onSubmit={(e) => e.preventDefault()}>
+      <button
+        type="button"
+        className="mobile-disclosure"
+        aria-expanded={filtersOpen}
+        aria-controls="dashboard-filters"
+        onClick={() => setFiltersOpen((open) => !open)}
+      >
+        絞り込み{filtering ? "（条件あり）" : ""}
+        <Chevron />
+      </button>
+      <form
+        id="dashboard-filters"
+        className={filtersOpen ? "filters open" : "filters"}
+        aria-label="絞り込み"
+        onSubmit={(e) => e.preventDefault()}
+      >
         <label>
           カテゴリ
           <select value={filters.category} onChange={set("category")}>
@@ -342,9 +398,24 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
             </h2>
             <p>{summaryText(counts, previous?.total)}</p>
             {summary.analysis.status === "failed" && (
-              <p role="alert" className="error">
-                {summary.analysis.error ?? "解析に失敗しました"}
-              </p>
+              <>
+                <p role="alert" className="error">
+                  {summary.analysis.error ?? "解析に失敗しました"}
+                </p>
+                {!summary.sample && (
+                  <div className="retry-actions">
+                    <button type="button" disabled={retrying} aria-busy={retrying} onClick={() => void retry()}>
+                      {retrying ? "解析を始めています…" : "同じ設定でもう一度解析する"}
+                    </button>
+                    <p className="note">アップロード済みの同じ文書を、指摘を書く言語・文書の種類・提出要件を変えずに解析し直します。</p>
+                    {retryError && (
+                      <p role="alert" className="error">
+                        {retryError}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </section>
         )}

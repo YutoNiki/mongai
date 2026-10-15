@@ -1,4 +1,7 @@
-/** PDF ビューア（PDF.js をバンドル。文字マップ等も自分のサーバーから読む） */
+/**
+ * PDF ビューア（PDF.js をバンドル。文字マップ等も自分のサーバーから読む）。
+ * 既定は枠の幅に合わせて表示し、拡大すると枠の中で横にもスクロールできる（スマートフォンで文字を読めるように）。
+ */
 
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -7,6 +10,11 @@ import { useEffect, useRef, useState } from "react";
 import type { BBox } from "../lib/api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+
+/** 幅に合わせた大きさに対する倍率 */
+const ZOOMS = [1, 1.5, 2, 3];
+/** 枠を描かないとき（毎回新しい配列を作ると、描き直しが繰り返されるので共有する） */
+const NO_BOXES: BBox[] = [];
 
 interface Props {
   url: string;
@@ -17,10 +25,12 @@ interface Props {
   onPageChange: (page: number) => void;
 }
 
-export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", onPageChange }: Props) {
+export function PdfViewer({ url, page, boxes = NO_BOXES, color = "#000", label = "", onPageChange }: Props) {
   const [doc, setDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
+  const [zoom, setZoom] = useState(0); // ZOOMS の位置
+  const [pageWidth, setPageWidth] = useState<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +57,7 @@ export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", o
     void doc.getPage(page).then((p) => {
       if (cancelled || !canvasRef.current || !wrapRef.current) return;
       const base = p.getViewport({ scale: 1 });
-      const s = Math.min(2, wrapRef.current.clientWidth / base.width);
+      const s = Math.min(2, wrapRef.current.clientWidth / base.width) * (ZOOMS[zoom] ?? 1);
       const viewport = p.getViewport({ scale: s });
       const canvas = canvasRef.current;
       const ratio = window.devicePixelRatio || 1;
@@ -56,6 +66,7 @@ export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", o
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
       setScale(s);
+      setPageWidth(viewport.width);
       const task = p.render({
         canvas,
         viewport,
@@ -63,12 +74,15 @@ export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", o
       });
       renderTask = task;
       task.promise.catch(() => undefined);
+      // 拡大したときは、該当箇所が枠の中に見えるよう横にスクロールする
+      const first = boxes.find((b) => b.page === page);
+      if (wrapRef.current) wrapRef.current.scrollLeft = first && zoom > 0 ? Math.max(0, first.x0 * s - 16) : 0;
     });
     return () => {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [doc, page]);
+  }, [doc, page, zoom, boxes]);
 
   if (error) return <p role="alert">{error}</p>;
   const pageCount = doc?.numPages ?? 0;
@@ -89,8 +103,30 @@ export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", o
         >
           次のページ
         </button>
+        <span className="pdf-zoom">
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={zoom === 0}
+            onClick={() => setZoom((z) => Math.max(0, z - 1))}
+            aria-label="縮小"
+          >
+            −
+          </button>
+          <span aria-live="polite">{zoom === 0 ? "幅に合わせる" : `${(ZOOMS[zoom] ?? 1) * 100}%`}</span>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={zoom === ZOOMS.length - 1}
+            onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))}
+            aria-label="拡大"
+          >
+            ＋
+          </button>
+        </span>
       </div>
-      <div className="pdf-page" ref={wrapRef}>
+      <div className="pdf-scroll" ref={wrapRef}>
+        <div className="pdf-page" style={pageWidth ? { width: pageWidth } : undefined}>
         <canvas ref={canvasRef} aria-label={`論文の ${page} ページ目`} role="img" />
         {boxes
           .filter((b) => b.page === page)
@@ -108,6 +144,7 @@ export function PdfViewer({ url, page, boxes = [], color = "#000", label = "", o
               }}
             />
           ))}
+        </div>
       </div>
     </div>
   );

@@ -7,8 +7,10 @@ import { loginUrl, useAuth } from "../lib/auth";
 import { elapsedText } from "../lib/progress";
 import { prefetchDashboard } from "../lib/pages";
 import { prefetchAnalysis, waitForAnalysis } from "../lib/prefetch";
+import { retryAnalysis } from "../lib/retry";
 import { Link, navigate } from "../lib/router";
 import { DOCUMENT_LABELS, type DocumentType, type InstructionSelection } from "../lib/instructions";
+import { useDocumentTitle } from "../lib/title";
 
 const ANALYSIS_STATUS: Record<string, string> = {
   queued: "順番待ち",
@@ -62,6 +64,7 @@ function openAnalysis(event: MouseEvent<HTMLAnchorElement>, analysisId: string):
 export function HomePage() {
   const { state: auth } = useAuth();
   const signedIn = auth.kind === "user";
+  useDocumentTitle(auth.kind === "user" ? "ダッシュボード" : "論文・レポートの提出前セルフレビュー");
   // トップページが表示されたあと、手が空いたときに解析結果の画面の部品（グラフのライブラリ）を読み込んでおく
   useEffect(() => {
     const timer = window.setTimeout(prefetchDashboard, 1500);
@@ -71,6 +74,7 @@ export function HomePage() {
   // undefined は読み込み中、null は読み込めなかったとき
   const [usage, setUsage] = useState<DailyUsage | null | undefined>(undefined);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [outputLang, setOutputLang] = useState<"paper" | "ja">("paper");
@@ -117,6 +121,19 @@ export function HomePage() {
       setError(e instanceof Error ? e.message : "削除できませんでした");
     } finally {
       setDeleting(null);
+    }
+  };
+
+  // 失敗した解析を、同じ文書・同じ設定でやり直し、新しい解析の画面を開く
+  const retry = async (item: AnalysisListItem) => {
+    setRetrying(item.analysis_id);
+    setError(null);
+    try {
+      const id = await retryAnalysis(item.analysis_id);
+      navigate(`/analyses/${id}`, "forward");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "解析をやり直せませんでした");
+      setRetrying(null);
     }
   };
 
@@ -215,6 +232,18 @@ export function HomePage() {
                   </td>
                   <td data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
                   <td className="row-actions">
+                    <span className="home-row-actions">
+                    {!item.sample && item.status === "failed" && (
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        disabled={retrying !== null || deleting !== null}
+                        aria-busy={retrying === item.analysis_id}
+                        onClick={() => void retry(item)}
+                      >
+                        {retrying === item.analysis_id ? "解析を始めています…" : "もう一度解析する"}
+                      </button>
+                    )}
                     {!item.sample && (
                       <button
                         type="button"
@@ -228,6 +257,7 @@ export function HomePage() {
                         <TrashIcon />
                       </button>
                     )}
+                    </span>
                   </td>
                 </tr>
               ))}

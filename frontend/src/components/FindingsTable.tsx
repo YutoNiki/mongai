@@ -36,14 +36,18 @@ export function FindingsTable({
               ページ
             </th>
             <th scope="col">指摘</th>
-            <th scope="col">確度</th>
-            <th scope="col">ステータス</th>
+            <th scope="col" className="nowrap">
+              確度
+            </th>
+            <th scope="col" className="nowrap">
+              ステータス
+            </th>
           </tr>
         </thead>
         <tbody>
           {sortFindings(findings).map((f) => (
             <tr key={f.finding_id}>
-              <th scope="row" data-label="番号">
+              <th scope="row" className="nowrap" data-label="番号">
                 <Link href={`/analyses/${analysisId}/findings/${f.finding_id}`}>{f.finding_id}</Link>
                 {newIds?.has(f.finding_id) && <span className="badge badge-new">新規</span>}
               </th>
@@ -58,7 +62,7 @@ export function FindingsTable({
                 {f.page}
               </td>
               <td data-label="指摘">{f.issue}</td>
-              <td data-label="確度">
+              <td className="nowrap" data-label="確度">
                 {isVoted(f) && (
                   <>
                     {f.confidence === "high" ? "高" : "低"}
@@ -68,7 +72,7 @@ export function FindingsTable({
                   </>
                 )}
               </td>
-              <td data-label="ステータス">
+              <td className="nowrap" data-label="ステータス">
                 <StatusBadge status={f.status} />
               </td>
             </tr>
