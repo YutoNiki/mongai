@@ -9,7 +9,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev live logs migrate migrate-live claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security test-security-offline lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev live logs migrate migrate-live deploy-live deploy-timer deploy-timer-remove claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security test-security-offline lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -46,6 +46,25 @@ migrate-live: ## 運用中のサーバー（make live）のデータベースを
 	$(COMPOSE_LIVE) stop core worker
 	$(COMPOSE_LIVE) run --rm --no-deps core python -m core.store.migrate
 	$(COMPOSE_LIVE) up -d --wait core worker
+
+SYSTEMD_USER_DIR := $(HOME)/.config/systemd/user
+
+deploy-live: ## CI が通った main の版（origin/deploy/live）を運用中のサーバーに取り込む（実行中の解析があれば何もしない。DRY_RUN=1 で確認だけ）。docs/deploy.md
+	DRY_RUN=$(DRY_RUN) sh scripts/deploy-live.sh
+
+deploy-timer: ## deploy-live を5分おきに実行する systemd（ユーザー）のタイマーを入れて有効にする
+	mkdir -p $(SYSTEMD_USER_DIR)
+	for f in si-nsa-deploy-live.service si-nsa-deploy-live.timer; do \
+		sed 's|@REPO@|$(CURDIR)|g' deploy/systemd/$$f > $(SYSTEMD_USER_DIR)/$$f; \
+	done
+	systemctl --user daemon-reload
+	systemctl --user enable --now si-nsa-deploy-live.timer
+	@echo "ログアウト中も動かすには loginctl enable-linger $$USER を実行してください（docs/deploy.md）"
+
+deploy-timer-remove: ## deploy-live のタイマーを止めて削除する
+	-systemctl --user disable --now si-nsa-deploy-live.timer
+	rm -f $(SYSTEMD_USER_DIR)/si-nsa-deploy-live.service $(SYSTEMD_USER_DIR)/si-nsa-deploy-live.timer
+	systemctl --user daemon-reload
 
 claim-legacy: ## 移行で隔離したデータの持ち主を決める（例：make claim-legacy ARGS="--user U-… --doc <doc_id>"）
 	$(COMPOSE) run --rm --no-deps core python -m core.store.claim $(ARGS)
