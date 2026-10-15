@@ -109,6 +109,25 @@ def test_recover_interrupted(tmp_path: Path) -> None:
     assert store.get_analysis(done).status == "completed"  # type: ignore[union-attr]
 
 
+def test_previous_analysis_only_uses_earlier_rows_when_timestamps_tie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("core.store.db._now", lambda: "2026-10-15T10:00:00+00:00")
+    store = Store(tmp_path / "db.sqlite3")
+    owner = make_user(store.path)
+    ids = []
+    for _ in range(3):
+        aid = store.create_analysis(
+            "doc", owner_user_id=owner, kind="logic", settings=AnalysisSettings()
+        )
+        store.finish_analysis(aid, status="completed")
+        ids.append(aid)
+    assert store.find_previous(ids[0]) is None
+    for current, previous in zip(ids[1:], ids[:-1], strict=True):
+        found = store.find_previous(current)
+        assert found is not None and found.analysis_id == previous
+
+
 def test_term_decision_survives_analysis_saving_later(tmp_path: Path) -> None:
     """解析の途中で承認キューの用語を承認しても、解析の終わりに保存される記録で上書きされない。"""
     store = Store(tmp_path / "db.sqlite3")

@@ -395,10 +395,12 @@ class Store:
                 "SELECT a.*, d.title AS title, p.filename AS filename FROM analyses a "
                 "LEFT JOIN documents d ON d.doc_id = a.doc_id "
                 "LEFT JOIN papers p ON p.doc_id = a.doc_id "
-                "WHERE a.status = 'completed' AND a.analysis_id != ? AND a.created_at <= ? "
+                "WHERE a.status = 'completed' AND (a.created_at < ? OR "
+                "(a.created_at = ? AND a.rowid < "
+                "(SELECT rowid FROM analyses WHERE analysis_id = ?))) "
                 "AND a.owner_user_id = ? AND a.visibility = 'private' "
                 "ORDER BY a.created_at DESC, a.rowid DESC",
-                (analysis_id, current.created_at, current.owner_user_id),
+                (current.created_at, current.created_at, analysis_id, current.owner_user_id),
             ).fetchall()
             mine = conn.execute(
                 "SELECT d.title AS title, p.filename AS filename FROM analyses a "
