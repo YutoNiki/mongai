@@ -1,5 +1,6 @@
 import { CATEGORIES, CATEGORY_LABELS, SHAPE_LABELS, SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { annotationColors } from "../theme/palette";
+import { useDocumentTitle } from "../lib/title";
 
 const SUBCATEGORY_TEXT: Record<string, string> = {
   premise_evidence_mismatch: "主張を支えるとして示された根拠が、主張や前提と対応していない",
@@ -15,6 +16,7 @@ const SUBCATEGORY_TEXT: Record<string, string> = {
 };
 
 export function DefinitionsPage() {
+  useDocumentTitle("データの定義");
   return (
     <div className="page">
       <h1>データの定義</h1>
