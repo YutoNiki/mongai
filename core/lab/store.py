@@ -90,7 +90,13 @@ class LabStore:
         return [self._document(r) for r in rows]
 
     def set_document_status(
-        self, document_id: str, status: str, *, error: str | None = None, rule_count: int = 0
+        self,
+        document_id: str,
+        status: str,
+        *,
+        error: str | None = None,
+        rule_count: int = 0,
+        only_if_queued: bool = False,
     ) -> None:
         finished = _now() if status in ("completed", "failed") else None
         with self._connect() as conn:
@@ -99,7 +105,8 @@ class LabStore:
             ).fetchone()[0]
             conn.execute(
                 "UPDATE lab_documents SET status = ?, error = ?, comment_count = ?, rule_count = ?, "
-                "finished_at = ? WHERE document_id = ?",
+                "finished_at = ? WHERE document_id = ?"
+                + (" AND status = 'queued'" if only_if_queued else ""),
                 (status, error, count, rule_count, finished, document_id),
             )
 

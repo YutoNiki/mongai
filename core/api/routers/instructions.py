@@ -4,7 +4,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import Field, field_validator
 
-from core.api.dependencies import QueueDep, RuleStoreDep, StoreDep, UserDep
+from core.api.dependencies import (
+    JOB_SUBMISSION_ERROR,
+    QueueDep,
+    RuleStoreDep,
+    StoreDep,
+    UserDep,
+    job_unavailable,
+)
 from core.instructions.models import (
     DocumentType,
     Draft,
@@ -128,7 +135,11 @@ async def create_draft(
     except (InstructionNotFoundError, InstructionConflictError) as exc:
         raise instruction_error(exc) from None
     if draft.status == "queued":
-        await queue.enqueue_instructions(draft.draft_id)
+        try:
+            await queue.enqueue_instructions(draft.draft_id)
+        except Exception:
+            instructions.fail_queued_extraction(user.user_id, draft.draft_id, JOB_SUBMISSION_ERROR)
+            raise job_unavailable() from None
     return draft
 
 

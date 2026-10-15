@@ -441,11 +441,12 @@ class Store:
         warnings: list[str] | None = None,
         error: str | None = None,
         api_usage: list[UsageRow] | None = None,
+        only_if_queued: bool = False,
     ) -> None:
         with self._connect() as conn:
-            conn.execute(
+            changed = conn.execute(
                 "UPDATE analyses SET status = ?, warnings = ?, error = ?, finished_at = ? "
-                "WHERE analysis_id = ?",
+                "WHERE analysis_id = ?" + (" AND status = 'queued'" if only_if_queued else ""),
                 (
                     status,
                     json.dumps(warnings or [], ensure_ascii=False),
@@ -453,8 +454,8 @@ class Store:
                     _now(),
                     analysis_id,
                 ),
-            )
-            if api_usage:
+            ).rowcount
+            if changed and api_usage:
                 self._save_usage(conn, analysis_id, api_usage)
 
     def get_analysis(self, analysis_id: str) -> AnalysisRecord | None:

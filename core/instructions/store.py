@@ -225,6 +225,23 @@ class InstructionStore:
             (draft.model_dump_json(), draft.status, draft.revision, draft.draft_id),
         )
 
+    def fail_queued_extraction(self, owner: str, draft_id: str, error: str) -> None:
+        """キューへの登録に失敗した確認項目を、順番待ちのまま残さない。"""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            draft = self._draft(conn, owner, draft_id)
+            if draft.status == "queued":
+                self._write_draft(
+                    conn,
+                    draft.model_copy(
+                        update={
+                            "status": "failed",
+                            "error": error,
+                            "revision": draft.revision + 1,
+                        }
+                    ),
+                )
+
     def claim_extraction(self, draft_id: str) -> tuple[str, Draft] | None:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")

@@ -3,7 +3,15 @@
 from fastapi import APIRouter, HTTPException
 
 from core.analyze.pipeline import AnalysisSettings
-from core.api.dependencies import GatewayDep, PrincipalDep, QueueDep, StoreDep, UserDep
+from core.api.dependencies import (
+    JOB_SUBMISSION_ERROR,
+    GatewayDep,
+    PrincipalDep,
+    QueueDep,
+    StoreDep,
+    UserDep,
+    job_unavailable,
+)
 from core.api.queries import is_demo, owned_paper, previous_and_diff, readable_analysis
 from core.api.routers.instructions import instruction_error
 from core.api.schemas import (
@@ -79,7 +87,13 @@ async def create_analysis(
             settings=settings,
             status="queued",
         )
-    await queue.enqueue(analysis_id)
+    try:
+        await queue.enqueue(analysis_id)
+    except Exception:
+        store.finish_analysis(
+            analysis_id, status="failed", error=JOB_SUBMISSION_ERROR, only_if_queued=True
+        )
+        raise job_unavailable() from None
     record = store.get_analysis(analysis_id)
     assert record is not None
     return await summarize(store, record, gateway)
