@@ -615,6 +615,7 @@ blockquote {
 /* トップページ：今日の利用回数とアップロード */
 .home-top {
   margin-bottom: 16px;
+  align-items: start;
 }
 td.row-actions {
   text-align: right;
@@ -946,3 +947,25 @@ button.icon-button {
     padding: 12px;
   }
 }
+/* 課題・提出要件 */
+.instruction-composer { display: grid; gap: 1rem; margin-top: 1rem; }
+.instruction-inputs { border: 0; padding: 0; margin: 0; min-width: 0; }
+.instruction-composer label { display: grid; gap: .4rem; }
+.instruction-composer .check-label { display: flex; flex-direction: row; align-items: center; gap: .5rem; margin: .5rem 0; min-height: 2rem; }
+.instruction-composer input[type="checkbox"] { width: 1rem; height: 1rem; min-height: 0; flex-shrink: 0; margin: 0; }
+.instruction-composer input:not([type="checkbox"]), .instruction-composer select { min-width: 0; max-width: 100%; width: 100%; }
+.instruction-composer textarea { width: 100%; min-height: 5rem; }
+.instruction-preview, .instruction-save { display: grid; gap: 1rem; }
+.requirement-editor { min-width: 0; margin: 1rem 0; padding: 1rem; }
+.requirement-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 1rem; margin-top: .75rem; }
+.requirement-fields label { min-width: 0; }
+.requirement-source { display: block; margin-top: .4rem; font-weight: normal; }
+.requirements-table { width: 100%; }
+.requirements-table th:first-child { min-width: 12rem; max-width: 22rem; }
+.requirements-table td { vertical-align: top; }
+.requirements-table td[data-label="判定"] { white-space: nowrap; }
+.requirements-table td > div, .requirements-table th > div { min-width: 0; overflow-wrap: anywhere; }
+.requirements-panel blockquote { margin: .5rem 0; padding-inline-start: 1rem; }
+.instruction-profile-list { padding-inline-start: 1.5rem; }
+.instruction-profile-list li { margin: .75rem 0; }
+.instruction-profile-list button { margin-inline-start: .75rem; }

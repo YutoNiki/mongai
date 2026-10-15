@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 
 import { ProgressBar } from "../components/ProgressBar";
+import { InstructionComposer } from "../components/InstructionComposer";
 import { api, type AnalysisListItem, type DailyUsage } from "../lib/api";
 import { loginUrl, useAuth } from "../lib/auth";
 import { elapsedText } from "../lib/progress";
 import { prefetchDashboard } from "../lib/pages";
 import { prefetchAnalysis, waitForAnalysis } from "../lib/prefetch";
 import { Link, navigate } from "../lib/router";
+import { DOCUMENT_LABELS, type DocumentType, type InstructionSelection } from "../lib/instructions";
 
 const ANALYSIS_STATUS: Record<string, string> = {
   queued: "順番待ち",
@@ -71,6 +73,8 @@ export function HomePage() {
   const [files, setFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [outputLang, setOutputLang] = useState<"paper" | "ja">("paper");
+  const [documentType, setDocumentType] = useState<DocumentType>("paper");
+  const [instructions, setInstructions] = useState<InstructionSelection>({ ready: true });
   const [busy, setBusy] = useState(false);
   // 送信後にファイルの選択を空にするため、フォームを作り直す
   const [formKey, setFormKey] = useState(0);
@@ -100,7 +104,7 @@ export function HomePage() {
     const name = item.title ?? item.filename ?? item.doc_id;
     const count = items?.filter((i) => i.doc_id === item.doc_id).length ?? 1;
     const ok = window.confirm(
-      `「${name}」を削除しますか？\n\n論文のPDFと、この論文の解析結果 ${count} 件（指摘・対応状況を含む）をすべて削除します。元に戻せません。`,
+      `「${name}」を削除しますか？\n\n文書のPDFと、この文書の解析結果 ${count} 件（指摘・対応状況を含む）をすべて削除します。元に戻せません。`,
     );
     if (!ok) return;
     setDeleting(item.doc_id);
@@ -118,7 +122,7 @@ export function HomePage() {
   // 複数の論文は1件ずつアップロードして解析を始める（解析はワーカーが順番に、または並行して進める）
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (files.length === 0) return;
+    if (files.length === 0 || !instructions.ready) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -128,7 +132,11 @@ export function HomePage() {
       setNotice(`アップロード中…（${index + 1} / ${files.length}）${file.name}`);
       try {
         const uploaded = await api.upload(file);
-        const summary = await api.startAnalysis(uploaded.doc_id, outputLang);
+        const summary = await api.startAnalysis(uploaded.doc_id, outputLang, {
+          document_type: documentType,
+          instruction_draft_id: instructions.instruction_draft_id,
+          instruction_revision: instructions.instruction_revision,
+        });
         started.push(summary.analysis.analysis_id);
       } catch (e) {
         failed.push(`${file.name}：${e instanceof Error ? e.message : "解析を開始できませんでした"}`);
@@ -143,8 +151,8 @@ export function HomePage() {
     }
     setFiles([]);
     setFormKey((k) => k + 1);
-    if (started.length > 0) setNotice(`${started.length}件の論文の解析を始めました。下の一覧で進み具合を確認できます`);
-    if (failed.length > 0) setError(`解析を始められなかった論文があります：\n${failed.join("\n")}`);
+    if (started.length > 0) setNotice(`${started.length}件の文書の解析を始めました。下の一覧で進み具合を確認できます`);
+    if (failed.length > 0) setError(`解析を始められなかった文書があります：\n${failed.join("\n")}`);
     load();
   };
 
@@ -181,17 +189,17 @@ export function HomePage() {
         </section>
         <section className="panel summary-text" aria-labelledby="upload-title">
           <h2 id="upload-title" className="panel-title">
-            論文を解析する
+            論文・レポートを解析する
           </h2>
           <p className="note">
-            アップロードした論文は学内のサーバーにだけ保存され、学外には送信されません。
+            アップロードした文書と提出要件は、学内のサーバーで保存・解析します。
           </p>
           {auth.kind === "loading" ? (
             <p className="note">ログインの状態を確認しています…</p>
           ) : !signedIn ? (
             <div className="login-guide">
               <p>
-                論文を解析するには、岡山大学のGoogleアカウントでのログインが必要です。ログインしなくても、下の一覧の「（デモ）」の解析結果を閲覧できます。
+                文書を解析するには、岡山大学のGoogleアカウントでのログインが必要です。ログインしなくても、下の一覧の「（デモ）」の解析結果を閲覧できます。
               </p>
               <a className="button-primary-link" href={loginUrl("/")}>
                 Googleでログイン
@@ -203,9 +211,18 @@ export function HomePage() {
           ) : (
             <form key={formKey} onSubmit={submit} className="upload-form">
               <label>
-                論文のPDF（複数選べます）
+                文書の種類
+                <select value={documentType} disabled={busy} onChange={(e) => {
+                  setDocumentType(e.target.value as DocumentType); setInstructions({ ready: true });
+                }}>
+                  {Object.entries(DOCUMENT_LABELS).map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+                </select>
+              </label>
+              <label>
+                文書のPDF（複数選べます）
                 <input
                   type="file"
+                  disabled={busy}
                   accept="application/pdf,.pdf"
                   multiple
                   required
@@ -214,12 +231,18 @@ export function HomePage() {
               </label>
               <label>
                 指摘を書く言語
-                <select value={outputLang} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
-                  <option value="paper">論文と同じ言語</option>
+                <select value={outputLang} disabled={busy} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
+                  <option value="paper">文書と同じ言語</option>
                   <option value="ja">日本語</option>
                 </select>
               </label>
-              <button type="submit" disabled={files.length === 0 || busy}>
+              <details className="instruction-options"><summary>課題・提出要件を指定する（任意）</summary>
+                <fieldset disabled={busy} className="instruction-inputs"><legend className="visually-hidden">課題・提出要件</legend>
+                  <InstructionComposer key={`${documentType}-${formKey}`} documentType={documentType} onChange={setInstructions} />
+                </fieldset>
+              </details>
+              {!instructions.ready && <p className="note">解析を始める前に、今回適用する確認項目を確定してください。</p>}
+              <button type="submit" disabled={files.length === 0 || busy || !instructions.ready}>
                 {busy
                   ? "アップロード中…"
                   : files.length > 1
@@ -243,7 +266,7 @@ export function HomePage() {
 
       <section className="panel" aria-labelledby="list-title">
         <h2 id="list-title" className="panel-title">
-          解析済みの論文
+          解析済みの文書
         </h2>
         {items === null ? (
           <p>読み込み中…</p>
@@ -254,7 +277,7 @@ export function HomePage() {
             <table className="data-table responsive">
               <thead>
                 <tr>
-                  <th scope="col">論文</th>
+                  <th scope="col">文書</th>
                   <th scope="col">状態</th>
                   <th scope="col" className="num">
                     指摘数
@@ -268,7 +291,7 @@ export function HomePage() {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.analysis_id}>
-                    <th scope="row" data-label="論文">
+                    <th scope="row" data-label="文書">
                       <Link
                         href={`/analyses/${item.analysis_id}`}
                         transition="forward"

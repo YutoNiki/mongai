@@ -57,6 +57,7 @@ export const STAGE_LABELS: Record<string, string> = {
   lab_check: "専門知識との照合",
   double_check: "二重チェック",
   suggestion: "改善案の作成",
+  requirements: "提出要件の照合",
   locate: "指摘の位置の確認",
 };
 
@@ -70,6 +71,7 @@ export const STAGES = [
   "lab_check",
   "double_check",
   "suggestion",
+  "requirements",
   "locate",
 ] as const;
 

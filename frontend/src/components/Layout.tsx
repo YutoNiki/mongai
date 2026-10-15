@@ -8,6 +8,7 @@ import logoUrl from "../assets/brand/logo.svg";
 const MENU: [string, string][] = [
   ["/", "ダッシュボード"],
   ["/rules", "ルール"],
+  ["/instructions", "課題・提出要件"],
   ["/lab", "専門知識"],
   ["/audit", "外部通信ログ"],
   ["/queue", "承認キュー"],

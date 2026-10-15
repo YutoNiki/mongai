@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart } from "../components/BarChart";
 import { FindingsTable } from "../components/FindingsTable";
 import { ProgressPanel } from "../components/ProgressPanel";
+import { RequirementsPanel } from "../components/RequirementsPanel";
 import { api, isVoted, type AnalysisDiff, type AnalysisSummary, type Counts, type Finding, type TermLookup } from "../lib/api";
 import {
   CATEGORIES,
@@ -223,7 +224,7 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
               <Link href="/" transition="back">
                 ダッシュボード
               </Link>
-              {" ＞ "}論文の解析結果（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）
+              {" ＞ "}文書の解析結果（{summary.analysis.status === "completed" ? "解析完了" : summary.analysis.status === "failed" ? "解析失敗" : "解析中"}）
             </p>
             <h1>
               {summary.sample && "（デモ）"}
@@ -246,6 +247,8 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           </a>
         </div>
       </div>
+
+      <RequirementsPanel key={analysisId} analysis={summary.analysis} />
 
       <form className="filters" aria-label="絞り込み" onSubmit={(e) => e.preventDefault()}>
         <label>
