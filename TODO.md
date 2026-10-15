@@ -122,6 +122,7 @@
 - [x] 論理チェックの JSON の失敗（finish=stop の JSONDecodeError）の原因の調査 → 下の「調査の結果」
 - [x] ブランド素材（案B：SI-NSA）の導入（2026-10-14）。追加：`docs/brand/`（README・2倍解像度の PNG）、`frontend/src/assets/brand/`（logo・banner・mark・icon の SVG と暗い背景用の `*-dark.svg`）、`frontend/public/favicon.svg`・`apple-touch-icon.png`・`icons/icon-maskable-192.png`。置き換え：`favicon.ico`・`icons/icon-192.png`・`icon-512.png`・`icon-maskable-512.png`・`manifest.webmanifest`。`index.html` の `<head>` を `docs/brand/README.md` のとおりにし、ヘッダーのロゴを `logo.svg` に変更
 - [x] ヘッダーのメニューの末尾に「ご意見・ご要望」（Google フォームへのリンク、新しいタブで開く）を追加（2026-10-15）
+- [x] トップページ・ヘッダーの UI/UX の改善（2026-10-15、ブランチ `feature/ui-ux-improvements`）。ヘッダーを1行に（よく使う4画面＋「その他」、1120px 以下は開閉式のメニュー）、ゲストには目的・デモへの導線・ログインの案内を先に出し利用回数を出さない、ログイン中は解析のフォームを主にし利用回数は見出しの横に小さく、トップの最大幅を 1240px に
 
 ### 調査の結果：論理チェックの JSON の失敗（2026-10-13）
 
