@@ -7,6 +7,7 @@ from typing import Literal
 
 from core.analyze.models import ArgumentStructure
 from core.ingest.models import Document, Lang, Paragraph, Section, SectionRole, Sentence
+from core.instructions.models import DocumentType
 
 OutputLang = Literal["paper", "ja"]
 
@@ -53,7 +54,11 @@ class Target:
 
 
 def select_targets(
-    doc: Document, *, min_chars: int = 40, max_paragraphs: int | None = None
+    doc: Document,
+    *,
+    min_chars: int = 40,
+    max_paragraphs: int | None = None,
+    document_type: DocumentType = "paper",
 ) -> list[Target]:
     sections = {s.section_id: s for s in doc.sections}
     sentences: dict[str, Sentence] = {s.sentence_id: s for s in doc.sentences}
@@ -65,10 +70,11 @@ def select_targets(
         section = sections.get(para.section_id or "")
         if section is not None and section.role in SKIPPED_ROLES:
             continue
-        if len(para.text) < min_chars or not _TERMINAL.search(para.text):
+        threshold = min_chars if document_type == "paper" else 1
+        if len(para.text) < threshold or not _TERMINAL.search(para.text):
             continue
         in_front = section is not None and section.section_id == "SEC-00" and section.number is None
-        if in_front and len(para.text) < _FRONT_MIN_CHARS[para.lang]:
+        if document_type == "paper" and in_front and len(para.text) < _FRONT_MIN_CHARS[para.lang]:
             continue
         targets.append(
             Target(

@@ -13,6 +13,8 @@ Lang = Literal["ja", "en"]
 @lru_cache(maxsize=128)
 def _read(name: str, lang: Lang) -> str:
     path = PROMPT_DIR / lang / f"{name}.md"
+    if not path.is_file():
+        path = PROMPT_DIR / lang / f"{name}.txt"
     return path.read_text(encoding="utf-8").strip()
 
 

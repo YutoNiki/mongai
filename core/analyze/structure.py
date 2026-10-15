@@ -3,6 +3,8 @@
 from core.analyze.context import Target, numbered_paragraph
 from core.analyze.models import ArgumentStructure, ArgumentUnit, ParagraphStructure
 from core.ingest.models import Lang
+from core.instructions.models import DocumentType
+from core.instructions.review import review_prompt
 from core.llm.client import OitomaClient
 from core.llm.prompts import load_prompt
 
@@ -10,13 +12,18 @@ ROLE = "structure_extraction"
 
 
 async def extract_structure(
-    client: OitomaClient, target: Target, *, prompt_lang: Lang, output_language: str
+    client: OitomaClient,
+    target: Target,
+    *,
+    prompt_lang: Lang,
+    output_language: str,
+    document_type: DocumentType = "paper",
 ) -> ParagraphStructure:
     messages = [
         {
             "role": "system",
-            "content": load_prompt(
-                "argument_structure", prompt_lang, output_language=output_language
+            "content": review_prompt(
+                "argument_structure", prompt_lang, document_type, output_language=output_language
             ),
         },
         {

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from core.analyze.pipeline import AnalysisSettings
 from core.api.dependencies import GatewayDep, PrincipalDep, QueueDep, StoreDep, UserDep
 from core.api.queries import is_demo, owned_paper, previous_and_diff, readable_analysis
+from core.api.routers.instructions import instruction_error
 from core.api.schemas import (
     AnalysisDiff,
     AnalysisListItem,
@@ -16,6 +17,12 @@ from core.api.schemas import (
 from core.api.summary import count_findings
 from core.auth.principal import viewer_of
 from core.gateway_client import GatewayClient, GatewayError
+from core.instructions.models import RequirementResult, RequirementsResponse, Snapshot
+from core.instructions.store import (
+    InstructionConflictError,
+    InstructionNotFoundError,
+    InstructionStore,
+)
 from core.llm.config import get_models_config
 from core.store import AnalysisRecord, Store, TermLookupRecord
 
@@ -45,14 +52,64 @@ async def create_analysis(
         if exc.status_code == 403:
             raise HTTPException(status_code=403, detail="デモの論文は解析できません") from None
         raise
-    settings = AnalysisSettings(output_lang=request.output_lang)
-    analysis_id = store.create_analysis(
-        request.doc_id, owner_user_id=user.user_id, kind="logic", settings=settings, status="queued"
+    settings = AnalysisSettings(
+        output_lang=request.output_lang, document_type=request.document_type
     )
+    if request.instruction_draft_id is not None:
+        if request.instruction_revision is None:
+            raise HTTPException(status_code=409, detail="確認済み要件の版を指定してください")
+        try:
+            analysis_id = InstructionStore(store.path).create_analysis(
+                user.user_id,
+                request.doc_id,
+                settings,
+                request.instruction_draft_id,
+                request.instruction_revision,
+                request.document_type,
+            )
+        except (InstructionNotFoundError, InstructionConflictError) as exc:
+            raise instruction_error(exc) from None
+    else:
+        if request.instruction_revision is not None:
+            raise HTTPException(status_code=409, detail="要件の確認項目を指定してください")
+        analysis_id = store.create_analysis(
+            request.doc_id,
+            owner_user_id=user.user_id,
+            kind="logic",
+            settings=settings,
+            status="queued",
+        )
     await queue.enqueue(analysis_id)
     record = store.get_analysis(analysis_id)
     assert record is not None
     return await summarize(store, record, gateway)
+
+
+@router.get("/analyses/{analysis_id}/requirements")
+def analysis_requirements(
+    analysis_id: str, store: StoreDep, principal: PrincipalDep
+) -> RequirementsResponse:
+    record = readable_analysis(store, principal, analysis_id)
+    raw_snapshot = record.settings.get("instruction_snapshot")
+    snapshot = Snapshot.model_validate(raw_snapshot) if raw_snapshot else None
+    saved = {r.requirement_id: r for r in InstructionStore(store.path).results(analysis_id)}
+    results = []
+    for req in snapshot.requirements if snapshot else []:
+        if req.enabled:
+            pending = record.status in ("queued", "running")
+            results.append(
+                saved.get(
+                    req.requirement_id,
+                    RequirementResult(
+                        requirement_id=req.requirement_id,
+                        reason="確認待ちです。"
+                        if pending
+                        else "確認結果がありません。解析が中断された可能性があります。",
+                        state="pending" if pending else "completed",
+                    ),
+                )
+            )
+    return RequirementsResponse(snapshot=snapshot, results=results)
 
 
 @router.get("/analyses")

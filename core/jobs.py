@@ -16,6 +16,12 @@ from core.analyze.pipeline import AnalysisSettings, analyze_logic
 from core.annotate.locate import relocate_findings, summary
 from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.pipeline import ingest_pdf
+from core.instructions.check import check_requirements
+from core.instructions.extract import extract_requirements
+from core.instructions.findings import link_findings
+from core.instructions.models import RequirementResult
+from core.instructions.review import document_for_review
+from core.instructions.store import InstructionStore
 from core.lab.extract import extract_lab_knowledge
 from core.lab.store import LabStore
 from core.llm.client import OitomaClient
@@ -81,7 +87,18 @@ async def run_analysis(
 
         # 所有者の承認済みのルール（解析の開始時点のもの）を使い、その件数と更新日時を記録する
         rules = rule_store.list_rules(owner, status="approved")
+        if settings.instruction_snapshot is not None:
+            snapshot = settings.instruction_snapshot
+            if settings.document_type == "paper":
+                rules = [
+                    r for r in snapshot.legacy_rules if r.rule_id not in snapshot.excluded_rule_ids
+                ]
+            else:
+                rules = [r for r in rules if r.builtin]
+        elif settings.document_type != "paper":
+            rules = [r for r in rules if r.builtin]
         approved, updated_at = rule_store.ruleset_version(owner)
+        approved = len(rules)
         store.update_settings(
             analysis_id, {"ruleset": {"approved": approved, "updated_at": updated_at}}
         )
@@ -101,6 +118,30 @@ async def run_analysis(
         )
         store.save_structures(analysis_id, result.structures)
         store.save_term_lookups(analysis_id, result.terms)
+        if settings.instruction_snapshot is not None:
+            instruction_store = InstructionStore(store.path)
+            total = sum(r.enabled for r in settings.instruction_snapshot.requirements)
+            store.set_progress(analysis_id, "requirements", 0, total)
+
+            async def on_requirement(item: RequirementResult, done: int, count: int) -> None:
+                instruction_store.save_results(analysis_id, [item])
+                on_progress("requirements", done, count)
+
+            requirements = await check_requirements(
+                llm,
+                document_for_review(doc, settings.document_type),
+                settings.instruction_snapshot,
+                output_lang=settings.output_lang,
+                on_result=on_requirement,
+            )
+            requirements = link_findings(
+                doc,
+                settings.instruction_snapshot,
+                requirements,
+                result.findings,
+                llm.config.role("requirement_check").model,
+            )
+            instruction_store.save_results(analysis_id, requirements)
         # 指摘の位置を PDF 上の引用箇所に合わせる（文の座標がずれる PDF への対策）
         store.set_progress(analysis_id, "locate", 0, len(result.findings))
         findings, counts = relocate_findings(
@@ -133,6 +174,38 @@ async def run_analysis(
         with contextlib.suppress(GatewayError):
             await gw.forget(record.doc_id)
         if own_client:
+            await llm.aclose()
+
+
+async def run_instruction_extraction(
+    ctx: dict[str, Any],
+    draft_id: str,
+    *,
+    store: InstructionStore | None = None,
+    client: OitomaClient | None = None,
+) -> str:
+    instructions = store or InstructionStore(Store().path)
+    claimed = instructions.claim_extraction(draft_id)
+    if claimed is None:
+        return "skipped"
+    owner, draft = claimed
+    llm = client or OitomaClient()
+    try:
+        items = await extract_requirements(llm, draft.raw_text)
+        result = instructions.finish_extraction(owner, draft_id, items)
+        return result.status
+    except Exception as exc:
+        logger.warning("要件の抽出 %s に失敗しました（%s）", draft_id, type(exc).__name__)
+        instructions.finish_extraction(
+            owner,
+            draft_id,
+            [],
+            error="条件の抽出に失敗しました。内容を分けて入力し、確認項目を作り直してください。",
+        )
+        return "failed"
+    finally:
+        Store(instructions.path).add_daily_usage(today_jst(), llm.usage.unreported(), user_id=owner)
+        if client is None:
             await llm.aclose()
 
 

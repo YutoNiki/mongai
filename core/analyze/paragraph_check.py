@@ -6,6 +6,8 @@ from core.analyze.context import Target, normalize, numbered_paragraph, structur
 from core.analyze.models import ParagraphCheckOutput, ParagraphIssue, ParagraphStructure
 from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
+from core.instructions.models import DocumentType
+from core.instructions.review import review_prompt
 from core.llm.client import JSONOutputError, OitomaClient
 from core.llm.prompts import load_prompt
 
@@ -75,12 +77,15 @@ async def check_paragraph(
     known_sentences: set[str],
     context_text: str,
     next_text: str = "",
+    document_type: DocumentType = "paper",
 ) -> tuple[list[Voted[ParagraphIssue]], int]:
     """段落を最大 n 回判定し、過半数に現れた指摘と、実際に判定した回数を返す。"""
     messages = [
         {
             "role": "system",
-            "content": load_prompt("paragraph_check", prompt_lang, output_language=output_language),
+            "content": review_prompt(
+                "paragraph_check", prompt_lang, document_type, output_language=output_language
+            ),
         },
         {
             "role": "user",

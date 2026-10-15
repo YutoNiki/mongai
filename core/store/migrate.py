@@ -21,7 +21,14 @@ from pathlib import Path
 from core.rules.models import BUILTIN_RULES
 from core.sample import SAMPLE_ANALYSIS_ID, SAMPLE_DIR, SAMPLE_DOC_ID, _SampleAnalysis
 from core.store.db import DEFAULT_DB_PATH
-from core.store.schema import SCHEMA, SCHEMA_VERSION, create_schema, has_tables, schema_version
+from core.store.schema import (
+    INSTRUCTION_SCHEMA,
+    SCHEMA,
+    SCHEMA_VERSION,
+    create_schema,
+    has_tables,
+    schema_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +235,15 @@ def migrate(path: Path) -> str:
         conn.execute("PRAGMA foreign_keys = OFF")
         conn.execute("BEGIN IMMEDIATE")
         try:
+            if version == 1:
+                for statement in INSTRUCTION_SCHEMA.split(";\n"):
+                    if statement.strip():
+                        conn.execute(statement)
+                if conn.execute("PRAGMA foreign_key_check").fetchall():
+                    raise MigrationError("外部キーの整合性が取れない")
+                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                conn.execute("COMMIT")
+                return f"版 {SCHEMA_VERSION} に移行しました（バックアップ：{saved}）。"
             tables = _tables(conn)
             _upgrade_legacy_columns(conn, tables)
             before = {t: _count(conn, t) for t in LEGACY_TABLES if t in tables}
@@ -243,7 +259,7 @@ def migrate(path: Path) -> str:
                 conn.execute(f"DROP INDEX IF EXISTS {index}")
             for table in before:
                 conn.execute(f"ALTER TABLE {table} RENAME TO legacy_{table}")
-            for statement in SCHEMA.split(";\n"):
+            for statement in (SCHEMA + INSTRUCTION_SCHEMA).split(";\n"):
                 if statement.strip():
                     conn.execute(statement)
             _copy(conn, _tables(conn))

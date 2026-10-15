@@ -32,6 +32,8 @@ class JobQueue(Protocol):
 
     async def enqueue_lab(self, document_id: str) -> None: ...
 
+    async def enqueue_instructions(self, draft_id: str) -> None: ...
+
 
 class ArqQueue:
     """解析ジョブを Redis（arq）に積む。"""
@@ -56,6 +58,10 @@ class ArqQueue:
     async def enqueue_lab(self, document_id: str) -> None:
         pool = await self._redis()
         await pool.enqueue_job("run_lab_extraction", document_id, _job_id=document_id)
+
+    async def enqueue_instructions(self, draft_id: str) -> None:
+        pool = await self._redis()
+        await pool.enqueue_job("run_instruction_extraction", draft_id, _job_id=draft_id)
 
 
 _queue = ArqQueue()
