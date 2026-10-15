@@ -295,10 +295,10 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <AuthBanner path={path} />
+      <ApprovalNotice />
       <main id="main" tabIndex={-1}>
         {children}
       </main>
-      <ApprovalNotice />
     </>
   );
 }

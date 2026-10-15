@@ -1,11 +1,13 @@
 /**
- * 承認待ちの外部通信の通知（ポップアップ）。承認キューを定期的に確かめ、新しい承認待ちが出たら知らせる。
+ * 承認待ちの外部通信の通知（ヘッダーの下の帯。本文を覆わない）。承認キューを定期的に確かめ、新しい承認待ちが出たら知らせる。
+ * 承認キューはログインした利用者ごとなので、ゲストでは問い合わせない。
  * 一度閉じた要求は、このタブでは再び知らせない（sessionStorage。使えない環境でも表示は動く）。
  */
 
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type QueueItem } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { describeRequest } from "../lib/requests";
 import { Link, usePath } from "../lib/router";
 
@@ -31,6 +33,8 @@ function saveSeen(seen: Set<string>): void {
 
 export function ApprovalNotice() {
   const path = usePath();
+  const { state: auth } = useAuth();
+  const signedIn = auth.kind === "user";
   const [items, setItems] = useState<QueueItem[]>([]);
   const [seen, setSeen] = useState<Set<string>>(loadSeen);
 
@@ -41,10 +45,14 @@ export function ApprovalNotice() {
     );
   }, []);
   useEffect(() => {
+    if (!signedIn) {
+      setItems([]);
+      return;
+    }
     check();
     const timer = window.setInterval(check, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [check, path]);
+  }, [check, path, signedIn]);
 
   const fresh = items.filter((q) => !seen.has(q.request_id));
   const dismiss = () => {
@@ -57,16 +65,18 @@ export function ApprovalNotice() {
   if (fresh.length === 0 || path === "/queue") return null;
   return (
     <section className="approval-notice" role="status" aria-live="polite" aria-labelledby="approval-notice-title">
-      <h2 id="approval-notice-title" className="approval-notice-title">
-        承認待ちの外部通信が{fresh.length}件あります
-      </h2>
-      <p className="note">承認するまで、学外には送信されません。</p>
-      <ul>
-        {fresh.slice(0, SHOWN).map((q) => (
-          <li key={q.request_id}>{describeRequest(q.request)}</li>
-        ))}
-        {fresh.length > SHOWN && <li>ほか{fresh.length - SHOWN}件</li>}
-      </ul>
+      <div className="approval-notice-body">
+        <h2 id="approval-notice-title" className="approval-notice-title">
+          承認待ちの外部通信が{fresh.length}件あります
+        </h2>
+        <p className="note">承認するまで、学外には送信されません。</p>
+        <ul>
+          {fresh.slice(0, SHOWN).map((q) => (
+            <li key={q.request_id}>{describeRequest(q.request)}</li>
+          ))}
+          {fresh.length > SHOWN && <li>ほか{fresh.length - SHOWN}件</li>}
+        </ul>
+      </div>
       <div className="approval-notice-actions">
         <Link href="/queue" className="button-primary" onClick={dismiss}>
           承認キューを開く

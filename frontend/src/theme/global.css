@@ -6,6 +6,12 @@
   box-sizing: border-box;
 }
 
+/* スクロールバーの幅を常に空けておく。読み込み後にページが長くなってスクロールバーが出ても、
+   本文の横幅が変わらず、中央寄せの本文やヘッダーが左右にずれない（重なるスクロールバーの環境では何も変わらない） */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;
@@ -88,8 +94,9 @@ a {
   padding: 0;
 }
 
+/* 本文の最大幅はどの画面も同じ（広い画面で横に広がりすぎないように） */
 .page {
-  max-width: 1600px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 16px 24px 48px;
 }
@@ -230,6 +237,10 @@ label {
 }
 .grid > .panel {
   margin: 0;
+}
+/* 上段のタイル群と、その下の欄の間をあける（.panel 同士と同じ間隔） */
+.grid {
+  margin-bottom: 16px;
 }
 .kpi {
   grid-column: span 2;
@@ -821,35 +832,58 @@ button.icon-button {
   margin-bottom: 8px;
 }
 
-/* ---- 承認待ちの外部通信の通知（右下のポップアップ。影は使わず枠で区切る） ---- */
+/* ---- 承認待ちの外部通信の通知（ヘッダーの下の帯。本文を覆わないよう、画面に固定しない） ---- */
 
 .approval-notice {
-  position: fixed;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 20;
-  width: min(380px, calc(100vw - 32px));
-  padding: 14px 16px;
-  background: var(--color-bg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  /* 本文（.page の内側の幅）に揃える */
+  width: calc(100% - 48px);
+  max-width: 1192px;
+  margin: 12px auto 0;
+  padding: 12px 20px;
+  background: var(--color-bg-highlight);
   border: 2px solid var(--color-primary);
   border-radius: 8px;
 }
+.approval-notice-body {
+  flex: 1 1 320px;
+  min-width: 0;
+}
 .approval-notice-title {
   font-size: 16px;
-  margin: 0 0 4px;
+  margin: 0;
 }
 .approval-notice .note {
-  margin: 0 0 6px;
+  margin: 0;
 }
 .approval-notice ul {
-  margin: 0 0 10px;
+  margin: 4px 0 0;
   padding-left: 20px;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .approval-notice-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+@media (max-width: 640px) {
+  .approval-notice {
+    width: calc(100% - 24px);
+    margin-top: 8px;
+    padding: 12px;
+  }
+  .approval-notice-actions {
+    width: 100%;
+  }
+  .approval-notice-actions > * {
+    flex: 1;
+    justify-content: center;
+  }
 }
 .button-primary {
   display: inline-flex;
@@ -993,7 +1027,9 @@ button.icon-button {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-  max-width: 1600px;
+  /* 本文（.page の内側の幅）に揃える */
+  width: calc(100% - 48px);
+  max-width: 1192px;
   margin: 12px auto 0;
   padding: 12px 20px;
   border: 2px solid var(--color-error);
@@ -1012,7 +1048,8 @@ button.icon-button {
     font-size: 16px;
   }
   .auth-banner {
-    margin: 8px 12px 0;
+    width: calc(100% - 24px);
+    margin-top: 8px;
     padding: 12px;
   }
 }
@@ -1192,9 +1229,6 @@ button.icon-button {
 
 /* ---- トップページ（ほかの画面に影響しないよう .home-page の中だけ） ---- */
 
-.page.home-page {
-  max-width: 1240px;
-}
 .home-intro {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
@@ -1267,7 +1301,7 @@ button.icon-button {
 .home-usage p {
   margin: 0;
 }
-.home-page .doc-title {
+.doc-title {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1298,5 +1332,240 @@ button.icon-button {
   .home-page .home-login-button {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* ---- 狭い画面だけで畳む欄（解析結果のダウンロード・絞り込み）。広い画面ではボタンを出さず、常に表示する ---- */
+
+button.mobile-disclosure {
+  display: none;
+}
+@media (max-width: 640px) {
+  button.mobile-disclosure {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin: 8px 0 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-weight: 700;
+  }
+  button.mobile-disclosure[aria-expanded="true"] {
+    border-color: var(--color-primary);
+  }
+  button.mobile-disclosure[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+  }
+  .dashboard .downloads:not(.open),
+  .dashboard .filters:not(.open) {
+    display: none;
+  }
+  .dashboard .downloads.open {
+    margin-top: 8px;
+  }
+  /* 畳んだ絞り込みのボタンと、その下の総指摘数の間をあける */
+  .dashboard > button.mobile-disclosure[aria-expanded="false"] {
+    margin-bottom: 16px;
+  }
+}
+
+/* ---- ログインが必要な画面の案内（ゲスト向け） ---- */
+
+.login-required p {
+  margin: 0 0 12px;
+}
+.login-required p.note {
+  margin: 12px 0 0;
+}
+.login-required-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.login-required-actions > * {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .login-required-actions > * {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* ---- 表の共通の部品 ---- */
+
+/* 番号・種類・確度など、短い値を1文字ずつ折り返さない */
+.data-table .nowrap {
+  white-space: nowrap;
+}
+/* 行ごとの操作のボタン（セル自体は表のセルのまま、中で横に並べる） */
+.row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.data-table td.cell-actions {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  table.responsive td.cell-actions {
+    padding-top: 8px;
+  }
+  table.responsive td.cell-actions .row-buttons,
+  table.responsive td.cell-actions > button {
+    width: 100%;
+  }
+  .row-buttons > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* 「確認項目を作る」などの操作は、入力欄の幅いっぱいに広げない */
+.instruction-composer > button {
+  justify-self: start;
+}
+@media (max-width: 640px) {
+  .instruction-composer > button {
+    justify-self: stretch;
+  }
+}
+
+/* 注釈付きPDF：見出しとダウンロードを同じ行に */
+.annotated-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.annotated-head h1 {
+  margin: 0;
+}
+/* 指摘の詳細：デモの解析の説明と「元に戻す」 */
+.demo-note {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.demo-note p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .annotated-head > a {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* PDF ビューア：拡大したときは枠の中で横にスクロールする */
+.pdf-toolbar {
+  flex-wrap: wrap;
+}
+.pdf-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.pdf-zoom button {
+  min-width: 40px;
+}
+.pdf-scroll {
+  overflow: auto;
+  max-width: 100%;
+}
+.pdf-scroll .pdf-page {
+  max-width: none;
+}
+@media (max-width: 640px) {
+  .pdf-zoom {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .pdf-zoom button {
+    min-width: 56px;
+  }
+}
+
+/* 指摘の一覧（スマートフォン）：1件を短いカードにする
+   1行目：番号・重大度・種類・ページ、2行目：指摘、3行目：確度・ステータス */
+@media (max-width: 640px) {
+  table.responsive.findings tr {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 12px 0;
+  }
+  table.responsive.findings th[scope="row"],
+  table.responsive.findings td {
+    display: block;
+    padding: 0;
+  }
+  table.responsive.findings th[data-label]::before,
+  table.responsive.findings td[data-label]::before {
+    content: none;
+  }
+  table.responsive.findings td[data-label="ページ"]::before {
+    content: "p.";
+    color: var(--color-label);
+    font-size: 13px;
+  }
+  table.responsive.findings td[data-label="指摘"] {
+    grid-column: 1 / -1;
+  }
+  table.responsive.findings td[data-label="確度"] {
+    grid-column: 1 / 3;
+    font-size: 14px;
+  }
+  table.responsive.findings td[data-label="確度"]::before {
+    content: "確度 ";
+    color: var(--color-label);
+    font-size: 13px;
+  }
+  table.responsive.findings td[data-label="確度"]:empty {
+    display: none;
+  }
+  table.responsive.findings td[data-label="ステータス"] {
+    grid-column: 3 / -1;
+    justify-self: end;
+    font-size: 14px;
+  }
+}
+
+/* 失敗した解析のやり直し（トップの一覧の操作・解析結果の画面） */
+.home-row-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.home-row-actions > button {
+  white-space: nowrap;
+}
+.retry-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.retry-actions p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .home-row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .retry-actions > button {
+    width: 100%;
   }
 }
