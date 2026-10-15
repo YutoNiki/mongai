@@ -156,7 +156,7 @@ def test_analysis_summaries_use_one_scoped_query(
             "other-doc", owner_user_id=other, kind="logic", settings=AnalysisSettings()
         )
     original_connect = store._connect
-    queries = []
+    queries: list[str] = []
 
     @contextmanager
     def traced_connect() -> Iterator[sqlite3.Connection]:

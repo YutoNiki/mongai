@@ -8,11 +8,14 @@ import pytest
 
 import core.jobs as jobs
 from core.analyze.pipeline import AnalysisSettings
+from core.instructions.models import Draft
 from core.instructions.store import InstructionStore
+from core.lab.models import LabDocument
 from core.lab.store import LabStore
 from core.llm.client import OitomaClient
+from core.rules.models import RuleDocument
 from core.rules.store import RuleStore
-from core.store import Store
+from core.store import AnalysisRecord, Store
 from tests.unit.auth_factory import make_user
 from tests.unit.test_analyze_pipeline import config
 from tests.unit.test_jobs import FakeGateway
@@ -66,6 +69,7 @@ async def test_cancelled_job_finishes_and_reraises(
         with pytest.raises(asyncio.CancelledError):
             await task
     assert task.cancelled()
+    record: AnalysisRecord | Draft | RuleDocument | LabDocument | None
     if kind == "analysis":
         record = db.get_analysis(record_id)
         assert record is not None and record.finished_at is not None
