@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from core.analyze.context import OutputLang
 from core.analyze.models import Finding
+from core.instructions.models import DocumentType
 from core.llm.usage import UsageRow
 from core.rules.models import RuleStatus
 from core.store import AnalysisRecord, PaperRecord, Progress
@@ -20,6 +21,9 @@ class UploadResponse(BaseModel):
 class CreateAnalysisRequest(BaseModel):
     doc_id: str
     output_lang: OutputLang = "paper"
+    document_type: DocumentType = "paper"
+    instruction_draft_id: str | None = None
+    instruction_revision: int | None = Field(default=None, ge=1)
 
 
 class StatusUpdate(BaseModel):

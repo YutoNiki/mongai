@@ -170,6 +170,7 @@ export async function mockApi(
     if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(list));
     if (path === "/api/usage/today")
       return route.fulfill(json({ day: "2026-10-13", requests: 120, prompt_tokens: 340000, completion_tokens: 410000 }));
+    if (path === "/api/instruction-profiles" && request.method() === "GET") return route.fulfill(json([]));
     if (path === base) return route.fulfill(json({ ...summary, sample: options.sample ?? summary.sample }));
     if (path === `${base}/findings`)
       return route.fulfill(json(filtered(state.findings, url.searchParams)));

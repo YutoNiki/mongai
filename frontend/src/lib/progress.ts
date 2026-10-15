@@ -8,13 +8,14 @@ import { STAGES } from "./labels";
 const STAGE_WEIGHTS: Record<(typeof STAGES)[number], number> = {
   ingest: 5,
   structure: 8,
-  paragraph_check: 59,
+  paragraph_check: 56,
   flow_check: 5,
   citation: 6,
   rule_check: 3,
   lab_check: 2,
   double_check: 2,
   suggestion: 8,
+  requirements: 3,
   locate: 2,
 };
 

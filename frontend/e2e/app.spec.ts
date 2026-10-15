@@ -317,13 +317,13 @@ test("論文を複数まとめてアップロードし、それぞれの解析�
   const api = await mockApi(page);
   await page.goto("/");
   const pdf = { mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n") };
-  await page.getByLabel("論文のPDF（複数選べます）").setInputFiles([
+  await page.getByLabel("文書のPDF（複数選べます）").setInputFiles([
     { name: "a.pdf", ...pdf },
     { name: "b.pdf", ...pdf },
     { name: "c.pdf", ...pdf },
   ]);
   await page.getByRole("button", { name: "3件をアップロードして解析を始める" }).click();
-  await expect(page.getByText("3件の論文の解析を始めました")).toBeVisible();
+  await expect(page.getByText("3件の文書の解析を始めました")).toBeVisible();
   expect(api.uploads).toBe(3);
   expect(api.started).toEqual(["0000000000000001", "0000000000000002", "0000000000000003"]);
   await expect(page).toHaveURL("/"); // 複数のときはトップページに留まる
@@ -337,8 +337,8 @@ test("ゲスト：共通デモを閲覧でき、論文の解析にはログイ�
   const login = page.getByRole("banner").getByRole("link", { name: "Googleでログイン" });
   await expect(login).toHaveAttribute("href", "/auth/login");
   // アップロードの代わりにログインの案内を出す（アクセス制御そのものは API が行う）
-  await expect(page.getByLabel("論文のPDF（複数選べます）")).toHaveCount(0);
-  await expect(page.getByText("論文を解析するには、岡山大学のGoogleアカウントでのログインが必要です", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("文書のPDF（複数選べます）")).toHaveCount(0);
+  await expect(page.getByText("文書を解析するには、岡山大学のGoogleアカウントでのログインが必要です", { exact: false })).toBeVisible();
   // 利用回数は利用者ごとなので、ゲストでは問い合わせない
   expect(api.requests).not.toContain("GET /api/usage/today");
   // デモの解析結果は開ける
@@ -356,12 +356,12 @@ test("ログイン中：利用者を表示し、ログアウトするとゲス�
   const api = await mockApi(page);
   await page.goto("/");
   await expect(page.getByText("taro@s.okayama-u.ac.jp")).toBeVisible();
-  await expect(page.getByLabel("論文のPDF（複数選べます）")).toBeVisible();
+  await expect(page.getByLabel("文書のPDF（複数選べます）")).toBeVisible();
   await page.evaluate(() => window.sessionStorage.setItem("mongai:demo-status:x", "{}"));
   await page.getByRole("button", { name: "ログアウト" }).click();
   await expect(page.getByText("ゲスト", { exact: true })).toBeVisible();
   expect(api.logouts).toBe(1);
-  await expect(page.getByLabel("論文のPDF（複数選べます）")).toHaveCount(0);
+  await expect(page.getByLabel("文書のPDF（複数選べます）")).toHaveCount(0);
   expect(await page.evaluate(() => window.sessionStorage.length)).toBe(0);
 });
 

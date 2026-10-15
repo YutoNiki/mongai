@@ -39,8 +39,11 @@ from core.analyze.terms import lookup_terms
 from core.analyze.voting import Voted, most_common
 from core.gateway_client import GatewayClient
 from core.ingest.models import BBox, Document, Lang, Sentence
+from core.instructions.models import DocumentType, Snapshot
+from core.instructions.review import document_for_review
 from core.lab.check import LabMatch, candidates_for, check_lab, embed_targets
 from core.lab.models import LabComment
+from core.llm.budget import PromptTooLongError
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
 from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
@@ -57,6 +60,8 @@ FindingsCallback = Callable[[list[Finding]], Awaitable[None] | None]
 
 
 class AnalysisSettings(BaseModel):
+    document_type: DocumentType = "paper"
+    instruction_snapshot: Snapshot | None = None
     output_lang: OutputLang = "paper"
     max_paragraphs: int | None = Field(default=None, ge=1)
     min_paragraph_chars: int = Field(default=40, ge=1)
@@ -325,11 +330,15 @@ async def analyze_logic(
     渡すとルールの判定も行う。rule_vectors はルールの埋め込み（ルールが多いときの絞り込みに使う）。
     lab_comments（研究室の過去の指摘）と lab_vectors（その埋め込み）を渡すと、類似箇所の検出も行う。"""
     settings = settings or AnalysisSettings()
+    doc = document_for_review(doc, settings.document_type)
     prompt_lang = doc.lang
     out_lang = output_language(prompt_lang, doc.lang, settings.output_lang)
     out_lang_code: Lang = doc.lang if settings.output_lang == "paper" else "ja"
     targets = select_targets(
-        doc, min_chars=settings.min_paragraph_chars, max_paragraphs=settings.max_paragraphs
+        doc,
+        min_chars=settings.min_paragraph_chars,
+        max_paragraphs=settings.max_paragraphs,
+        document_type=settings.document_type,
     )
     warnings: list[str] = []
     known_sentences = {s.sentence_id for s in doc.sentences}
@@ -346,7 +355,11 @@ async def analyze_logic(
         nonlocal done
         try:
             result = await extract_structure(
-                client, t, prompt_lang=prompt_lang, output_language=out_lang
+                client,
+                t,
+                prompt_lang=prompt_lang,
+                output_language=out_lang,
+                document_type=settings.document_type,
             )
         except OitomaError as exc:
             warnings.append(
@@ -391,6 +404,7 @@ async def analyze_logic(
                 known_sentences=known_sentences,
                 context_text=context,
                 next_text=next_text,
+                document_type=settings.document_type,
             )
         except OitomaError as exc:
             warnings.append(f"段落 {t.paragraph.paragraph_id} のチェックに失敗しました：{exc}")
@@ -418,6 +432,7 @@ async def analyze_logic(
                 prompt_lang=prompt_lang,
                 output_language=out_lang,
                 on_chunk=lambda done, total: progress("flow_check", done, total),
+                document_type=settings.document_type,
             )
             warnings.extend(flow_warnings)
             new = [f for f in (builder.from_flow(v) for v in flow) if f is not None]
@@ -566,7 +581,12 @@ async def analyze_logic(
             finding = findings[index]
             try:
                 opinion = await second_opinion(
-                    client, doc, finding, prompt_lang=prompt_lang, output_language=out_lang
+                    client,
+                    doc,
+                    finding,
+                    prompt_lang=prompt_lang,
+                    output_language=out_lang,
+                    document_type=settings.document_type,
                 )
                 findings[index] = apply_opinion(finding, opinion, secondary)
             except OitomaError as exc:
@@ -590,9 +610,18 @@ async def analyze_logic(
             nonlocal done
             finding = findings[index]
             try:
-                rewrites = await suggest(client, doc, finding, prompt_lang=prompt_lang)
+                rewrites = await suggest(
+                    client,
+                    doc,
+                    finding,
+                    prompt_lang=prompt_lang,
+                    document_type=settings.document_type,
+                    requirements=settings.instruction_snapshot.requirements
+                    if settings.instruction_snapshot
+                    else None,
+                )
                 findings[index] = finding.model_copy(update={"suggestions": rewrites})
-            except OitomaError as exc:
+            except (OitomaError, PromptTooLongError) as exc:
                 warnings.append(f"{finding.finding_id} の改善案を作れませんでした：{exc}")
             done += 1
             await _notify(on_progress, "suggestion", done, len(to_suggest))

@@ -1,0 +1,3 @@
+This review is for $document_type. Interpret the preceding references to papers and reviewers as general readers and submission checks, giving precedence to the document type here.
+Course reports may use introduction/body/conclusion or other structures. Lab reports may use purpose/method/results/discussion. Do not require particular sections or IMRaD unless explicitly specified.
+Do not automatically interpret an opening paragraph as an abstract. Do not criticize a permitted report structure for violating research-paper section roles. Do not assess novelty or assign grades.

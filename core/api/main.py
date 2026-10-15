@@ -29,6 +29,7 @@ from core.api.routers import (
     exports,
     findings,
     gateway,
+    instructions,
     lab,
     me,
     rules,
@@ -77,6 +78,7 @@ async def healthz() -> dict[str, str]:
 
 app.include_router(me.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
+app.include_router(instructions.router, prefix="/api")
 app.include_router(usage.router, prefix="/api")
 app.include_router(analyses.router, prefix="/api")
 app.include_router(findings.router, prefix="/api")

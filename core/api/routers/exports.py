@@ -6,6 +6,7 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
 from core.annotate.labels import category_label, severity_label, subcategory_label
@@ -20,7 +21,10 @@ from core.api.queries import (
     previous_and_diff,
     readable_analysis,
 )
+from core.api.routers.analyses import analysis_requirements
 from core.api.summary import count_findings
+from core.instructions.models import Snapshot
+from core.instructions.store import InstructionStore
 from core.report.text import text_report
 from core.store.files import load_paper
 
@@ -124,11 +128,63 @@ def report_text(analysis_id: str, store: StoreDep, principal: PrincipalDep) -> R
         findings=findings,
         previous_total=previous.total if previous else None,
         diff=diff,
+        document_type=record.settings.get("document_type", "paper"),
+        instruction_snapshot=Snapshot.model_validate(record.settings["instruction_snapshot"])
+        if record.settings.get("instruction_snapshot")
+        else None,
+        requirement_results=InstructionStore(store.path).results(analysis_id),
     )
     return Response(
         content=text,
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{analysis_id}_report.txt"'},
+    )
+
+
+@router.get("/analyses/{analysis_id}/requirements.json")
+def requirements_json(analysis_id: str, store: StoreDep, principal: PrincipalDep) -> Response:
+    body = analysis_requirements(analysis_id, store, principal)
+    return Response(
+        content=json.dumps(jsonable_encoder(body), ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_requirements.json"'},
+    )
+
+
+@router.get("/analyses/{analysis_id}/requirements.csv")
+def requirements_csv(analysis_id: str, store: StoreDep, principal: PrincipalDep) -> Response:
+    body = analysis_requirements(analysis_id, store, principal)
+    snapshot = body.snapshot
+    results = {r.requirement_id: r for r in body.results}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        ["要件ID", "要件", "出典", "強さ", "判定", "理由", "根拠", "ページ", "改善の方向"]
+    )
+    labels = {"met": "満たす", "not_met": "満たさない", "unknown": "判断できない"}
+    for req in snapshot.requirements if snapshot else []:
+        if not req.enabled:
+            continue
+        result = results.get(req.requirement_id)
+        verdict = labels[result.verdict] if result and result.state == "completed" else "未確認"
+        cells = [
+            req.requirement_id,
+            req.text,
+            req.source,
+            "必須" if req.strength == "required" else "推奨",
+            verdict,
+            result.reason if result else "",
+            result.quote if result else "",
+            "、".join(str(p) for p in result.pages) if result else "",
+            result.suggestion if result else "",
+        ]
+        writer.writerow(
+            ["'" + c if c.lstrip().startswith(("=", "+", "-", "@")) else c for c in cells]
+        )
+    return Response(
+        content="\ufeff" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{analysis_id}_requirements.csv"'},
     )
 
 

@@ -14,7 +14,31 @@
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+INSTRUCTION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS instruction_profiles (
+    profile_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL REFERENCES users(user_id),
+    revision INTEGER NOT NULL,
+    data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS instruction_profiles_by_owner ON instruction_profiles(owner_user_id);
+CREATE TABLE IF NOT EXISTS instruction_drafts (
+    draft_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL REFERENCES users(user_id),
+    status TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS instruction_drafts_by_owner ON instruction_drafts(owner_user_id);
+CREATE TABLE IF NOT EXISTS analysis_requirement_results (
+    analysis_id TEXT NOT NULL REFERENCES analyses(analysis_id) ON DELETE CASCADE,
+    requirement_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (analysis_id, requirement_id)
+);
+"""
 
 
 def _owned(allowed: str) -> str:
@@ -229,7 +253,7 @@ def has_tables(conn: sqlite3.Connection) -> bool:
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA)
+    conn.executescript(SCHEMA + INSTRUCTION_SCHEMA)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 

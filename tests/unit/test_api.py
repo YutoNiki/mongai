@@ -53,6 +53,9 @@ class FakeQueue:
     async def enqueue_lab(self, document_id: str) -> None:
         self.enqueued.append(document_id)
 
+    async def enqueue_instructions(self, draft_id: str) -> None:
+        self.enqueued.append(draft_id)
+
 
 @pytest.fixture
 def ctx(

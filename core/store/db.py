@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from core.analyze.models import Finding, ParagraphStructure
 from core.ingest.models import Document
+from core.instructions.review import comparison_key
 from core.llm.usage import UsageRow
 from core.store.schema import connect, ensure_schema
 
@@ -313,7 +314,7 @@ class Store:
             if owned is None:
                 raise PaperNotFoundError(doc_id)
             rows = conn.execute(
-                "SELECT analysis_id, status FROM analyses WHERE doc_id = ?", (doc_id,)
+                "SELECT analysis_id, status, settings FROM analyses WHERE doc_id = ?", (doc_id,)
             ).fetchall()
             if any(r["status"] in ("queued", "running") for r in rows):
                 raise PaperBusyError(doc_id)
@@ -324,6 +325,16 @@ class Store:
                     [(i,) for i in ids],
                 )
             conn.execute("DELETE FROM analyses WHERE doc_id = ?", (doc_id,))
+            for row in rows:
+                snapshot = json.loads(row["settings"]).get("instruction_snapshot")
+                draft_id = snapshot.get("draft_id") if snapshot else None
+                if draft_id:
+                    conn.execute(
+                        "DELETE FROM instruction_drafts WHERE draft_id=? AND owner_user_id=? "
+                        "AND NOT EXISTS (SELECT 1 FROM analyses WHERE "
+                        "json_extract(settings, '$.instruction_snapshot.draft_id')=?)",
+                        (draft_id, owner_user_id, draft_id),
+                    )
             conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM papers WHERE doc_id = ?", (doc_id,))
         return ids
@@ -396,6 +407,8 @@ class Store:
                 (analysis_id,),
             ).fetchone()
         for row in rows:
+            if comparison_key(json.loads(row["settings"])) != comparison_key(current.settings):
+                continue
             same_doc = row["doc_id"] == current.doc_id
             same_title = bool(mine["title"]) and row["title"] == mine["title"]
             same_file = bool(mine["filename"]) and row["filename"] == mine["filename"]

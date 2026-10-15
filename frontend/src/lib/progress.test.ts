@@ -11,12 +11,12 @@ describe("overallPercent", () => {
   it("前の工程の分に、今の工程の進み具合を足す", () => {
     expect(overallPercent("running", { stage: "ingest", done: 0, total: 1 })).toBe(0);
     expect(overallPercent("running", { stage: "paragraph_check", done: 0, total: 10 })).toBe(13);
-    expect(overallPercent("running", { stage: "paragraph_check", done: 5, total: 10 })).toBe(42);
+    expect(overallPercent("running", { stage: "paragraph_check", done: 5, total: 10 })).toBe(41);
     expect(overallPercent("running", { stage: "locate", done: 1, total: 1 })).toBe(99);
   });
 
   it("工程が増えても進捗は戻らない", () => {
-    const stages = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "rule_check", "lab_check", "double_check", "suggestion", "locate"];
+    const stages = ["ingest", "structure", "paragraph_check", "flow_check", "citation", "rule_check", "lab_check", "double_check", "suggestion", "requirements", "locate"];
     const values = stages.map((stage) => overallPercent("running", { stage, done: 0, total: 1 }));
     expect(values).toEqual([...values].sort((a, b) => a - b));
   });

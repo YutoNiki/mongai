@@ -3,6 +3,7 @@
 from core.analyze.models import SEVERITY_RANK, Finding
 from core.annotate.labels import category_label, severity_label, subcategory_label
 from core.api.schemas import Counts
+from core.instructions.models import DOCUMENT_LABELS, DocumentType, RequirementResult, Snapshot
 from core.report.diff import FindingsDiff
 
 SEVERITY_ORDER = ("critical", "major", "suggestion")
@@ -25,9 +26,15 @@ def text_report(
     findings: list[Finding],
     previous_total: int | None = None,
     diff: FindingsDiff | None = None,
+    document_type: DocumentType = "paper",
+    instruction_snapshot: Snapshot | None = None,
+    requirement_results: list[RequirementResult] | None = None,
 ) -> str:
     lines = ["SI-NSA 解析レポート", ""]
-    lines.append(f"論文：{title or '（タイトル不明）'}" + (f"（{filename}）" if filename else ""))
+    lines.append(
+        f"{DOCUMENT_LABELS[document_type]}：{title or '（タイトル不明）'}"
+        + (f"（{filename}）" if filename else "")
+    )
     lines.append(f"解析ID：{analysis_id}")
     lines.append(f"解析日時：{created_at}")
     lines.append("")
@@ -58,6 +65,26 @@ def text_report(
             f"継続 {len(diff.persisting)}件。"
         )
     lines.append("")
+
+    if instruction_snapshot is not None:
+        lines.append("■ 課題・提出要件（解析開始時に確定した条件）")
+        results = {r.requirement_id: r for r in requirement_results or []}
+        verdicts = {"met": "満たす", "not_met": "満たさない", "unknown": "判断できない"}
+        for req in instruction_snapshot.requirements:
+            if not req.enabled:
+                continue
+            result = results.get(req.requirement_id)
+            verdict = (
+                verdicts[result.verdict] if result and result.state == "completed" else "未確認"
+            )
+            lines.append(f"- [{verdict}] {req.text}（{req.source}）")
+            if result:
+                lines.append(f"  理由：{result.reason}")
+                if result.quote:
+                    lines.append(f"  根拠：「{result.quote}」")
+                if result.suggestion:
+                    lines.append(f"  改善の方向：{result.suggestion}")
+        lines.append("")
 
     active = [f for f in findings if f.status != "dismissed"]
     main = sorted(

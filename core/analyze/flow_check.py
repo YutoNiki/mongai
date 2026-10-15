@@ -14,6 +14,8 @@ from core.analyze.models import FlowCheckOutput, FlowIssue, ParagraphStructure
 from core.analyze.paragraph_check import early_stop_for, samples_for
 from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
+from core.instructions.models import DocumentType
+from core.instructions.review import review_prompt
 from core.llm.budget import estimate_tokens
 from core.llm.client import JSONOutputError, OitomaClient
 from core.llm.prompts import load_prompt
@@ -86,6 +88,7 @@ async def check_flow(
     output_language: str,
     max_paragraphs: int = MAX_PARAGRAPHS_PER_CHUNK,
     on_chunk: Callable[[int, int], Awaitable[None] | None] | None = None,
+    document_type: DocumentType = "paper",
 ) -> tuple[list[Voted[FlowIssue]], int, list[str]]:
     """段落間の問題（多数決後）、判定回数の上限 n、警告を返す。実際の回数は Voted.samples。
 
@@ -93,7 +96,9 @@ async def check_flow(
     """
     if len(targets) < 2:
         return [], samples_for(client, ROLE), []
-    system = load_prompt("flow_check", prompt_lang, output_language=output_language)
+    system = review_prompt(
+        "flow_check", prompt_lang, document_type, output_language=output_language
+    )
     lines = [paragraph_line(t, structures[t.paragraph.paragraph_id]) for t in targets]
     cfg = client.config
     max_output = cfg.role(ROLE).max_tokens or cfg.api.default_max_tokens

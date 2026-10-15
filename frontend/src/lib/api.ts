@@ -1,6 +1,7 @@
 /** core の API（/api）。型は core/api/schemas.py と core/analyze/models.py に対応する。 */
 
 import { applyDemoStatus, demoHiddenFindings } from "./demoStatus";
+import type { AnalysisOptions, InstructionDraft, InstructionProfile, InstructionSnapshot, DocumentType, ProfileScope, Requirement, RequirementsResponse } from "./instructions";
 
 export interface BBox {
   page: number;
@@ -48,7 +49,7 @@ export interface AnalysisRecord {
   analysis_id: string;
   doc_id: string;
   status: "queued" | "running" | "completed" | "failed";
-  settings: { output_lang?: string };
+  settings: { output_lang?: string; document_type?: DocumentType; instruction_snapshot?: InstructionSnapshot | null };
   progress: Progress;
   warnings: string[];
   error: string | null;
@@ -274,6 +275,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (typeof body.detail === "string") {
         code = body.detail;
         detail = AUTH_MESSAGES[body.detail] ?? body.detail;
+      } else if (Array.isArray(body.detail)) {
+        detail = body.detail.map((item: { msg?: string }) => item.msg ?? "入力内容を確認してください").join("、");
       }
     } catch {
       // 本文が JSON でない場合はステータスコードだけを表示する
@@ -310,16 +313,43 @@ export const api = {
       body,
     });
   },
-  startAnalysis(docId: string, outputLang: "paper" | "ja") {
+  startAnalysis(docId: string, outputLang: "paper" | "ja", options: AnalysisOptions = {}) {
     return request<AnalysisSummary>("/analyses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ doc_id: docId, output_lang: outputLang }),
+      body: JSON.stringify({ doc_id: docId, output_lang: outputLang, ...options }),
     });
   },
   deleteDocument: (docId: string) =>
     request<undefined>(`/documents/${encodeURIComponent(docId)}`, { method: "DELETE" }),
   usageToday: () => request<DailyUsage>("/usage/today"),
+  instructionProfiles: () => request<InstructionProfile[]>("/instruction-profiles"),
+  createInstructionDraft: (documentType: DocumentType, rawText: string, profiles: InstructionProfile[]) =>
+    request<InstructionDraft>("/instruction-drafts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_type: documentType, raw_text: rawText,
+        profiles: profiles.map((p) => ({ profile_id: p.profile_id, revision: p.revision })) }),
+    }),
+  instructionDraft: (id: string) => request<InstructionDraft>(`/instruction-drafts/${encodeURIComponent(id)}`),
+  editInstructionDraft: (draft: InstructionDraft, requirements: Requirement[], excluded: string[]) =>
+    request<InstructionDraft>(`/instruction-drafts/${encodeURIComponent(draft.draft_id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: draft.revision, requirements, excluded_rule_ids: excluded }),
+    }),
+  confirmInstructionDraft: (draft: InstructionDraft) =>
+    request<InstructionDraft>(`/instruction-drafts/${encodeURIComponent(draft.draft_id)}/confirm`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: draft.revision }),
+    }),
+  saveInstructionProfile: (draft: InstructionDraft, name: string, scope: ProfileScope, previous?: InstructionProfile) =>
+    request<InstructionProfile>(`/instruction-profiles${previous ? `/${encodeURIComponent(previous.profile_id)}` : ""}`, {
+      method: previous ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, scope, draft_id: draft.draft_id, draft_revision: draft.revision,
+        revision: previous?.revision }),
+    }),
+  deleteInstructionProfile: (id: string) => request<undefined>(`/instruction-profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  requirements: (id: string) => request<RequirementsResponse>(`/analyses/${encodeURIComponent(id)}/requirements`),
+  requirementsUrl: (id: string, format: "csv" | "json") => `/api/analyses/${encodeURIComponent(id)}/requirements.${format}`,
   listAnalyses: () => request<AnalysisListItem[]>("/analyses"),
   summary: (id: string) => request<AnalysisSummary>(`/analyses/${encodeURIComponent(id)}`),
   diff: (id: string) => request<AnalysisDiff>(`/analyses/${encodeURIComponent(id)}/diff`),

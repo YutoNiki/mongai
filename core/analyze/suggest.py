@@ -1,10 +1,13 @@
 """改善案の生成（SPEC 3.3-5）。元の文意と専門用語を変えない書き換え案を1〜2個作る。"""
 
+import json
 import re
 
 from core.analyze.context import normalize
 from core.analyze.models import Finding, SuggestionOutput
 from core.ingest.models import Document, Lang
+from core.instructions.models import DocumentType, Requirement
+from core.instructions.review import review_prompt
 from core.llm.client import OitomaClient
 from core.llm.prompts import load_prompt
 
@@ -39,11 +42,17 @@ def _context(doc: Document, finding: Finding) -> str:
 
 
 async def suggest(
-    client: OitomaClient, doc: Document, finding: Finding, *, prompt_lang: Lang
+    client: OitomaClient,
+    doc: Document,
+    finding: Finding,
+    *,
+    prompt_lang: Lang,
+    document_type: DocumentType = "paper",
+    requirements: list[Requirement] | None = None,
 ) -> list[str]:
     """書き換え案を返す。専門用語・数値・引用の表記が消えた案や、原文と同じ案は除く。"""
     messages = [
-        {"role": "system", "content": load_prompt("suggestion", prompt_lang)},
+        {"role": "system", "content": review_prompt("suggestion", prompt_lang, document_type)},
         {
             "role": "user",
             "content": load_prompt(
@@ -57,6 +66,13 @@ async def suggest(
             ),
         },
     ]
+    if requirements:
+        messages[1]["content"] += "\n\n" + json.dumps(
+            {
+                "submission_requirements_data": [r.text for r in requirements if r.enabled],
+            },
+            ensure_ascii=False,
+        )
     result = await client.chat_json(ROLE, messages, SuggestionOutput, lang=prompt_lang)
     # 原文（引用箇所、または指摘された文の全文）と同じ案は、書き換えになっていないので除く
     texts = {s.sentence_id: s.text for s in doc.sentences}

@@ -31,7 +31,7 @@ export function ProgressPanel({ analysis }: { analysis: AnalysisRecord }) {
           );
         })}
       </ol>
-      <p className="note">確定した指摘から順に下の一覧に表示されます。論文1本の解析には数十分かかることがあります。</p>
+      <p className="note">確定した指摘から順に下の一覧に表示されます。文書の長さや確認項目によって、解析には数十分かかることがあります。</p>
     </section>
   );
 }

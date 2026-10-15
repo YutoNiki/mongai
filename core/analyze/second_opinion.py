@@ -10,6 +10,8 @@ from typing import Literal
 from core.analyze.context import numbered_paragraph
 from core.analyze.models import Finding, ModelInfo, _LLMOutput
 from core.ingest.models import Document, Lang, Paragraph
+from core.instructions.models import DocumentType
+from core.instructions.review import review_prompt
 from core.llm.client import OitomaClient
 from core.llm.prompts import load_prompt
 
@@ -54,6 +56,7 @@ async def second_opinion(
     *,
     prompt_lang: Lang,
     output_language: str,
+    document_type: DocumentType = "paper",
 ) -> SecondOpinion:
     paragraph, previous = _paragraph_of(doc, finding)
     section = next((s for s in doc.sections if s.section_id == finding.section_id), None)
@@ -65,7 +68,9 @@ async def second_opinion(
     messages = [
         {
             "role": "system",
-            "content": load_prompt("second_opinion", prompt_lang, output_language=output_language),
+            "content": review_prompt(
+                "second_opinion", prompt_lang, document_type, output_language=output_language
+            ),
         },
         {
             "role": "user",
