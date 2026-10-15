@@ -130,20 +130,17 @@ def analysis_requirements(
 def list_analyses(store: StoreDep, principal: PrincipalDep) -> list[AnalysisListItem]:
     """主体が読める解析（ゲストは共通デモだけ、利用者は自分の解析と共通デモ）。"""
     items = []
-    for record in store.list_analyses(viewer_of(principal)):
-        doc = store.get_document(record.doc_id)
-        paper = store.get_paper(record.doc_id)
-        findings = store.get_findings(record.analysis_id)
+    for record in store.list_analysis_summaries(viewer_of(principal)):
         items.append(
             AnalysisListItem(
                 analysis_id=record.analysis_id,
                 doc_id=record.doc_id,
-                title=doc.title if doc else None,
-                filename=paper.filename if paper else None,
+                title=record.title,
+                filename=record.filename,
                 status=record.status,
                 created_at=record.created_at,
                 finished_at=record.finished_at,
-                total=sum(f.status != "dismissed" for f in findings),
+                total=record.total,
                 progress=record.progress,
                 sample=is_demo(record),
             )

@@ -182,6 +182,27 @@ def test_summary_counts_and_previous(ctx: tuple[TestClient, Store, FakeQueue, by
     assert client.get("/api/analyses/A-none").status_code == 404
 
 
+def test_analysis_listing_reads_only_metadata(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, store, _, pdf = ctx
+    doc_id = upload(client, pdf)
+    ids = [seed(store, doc_id) for _ in range(20)]
+    store.set_finding_status(ids[-1], "F-0001", "dismissed", "意図どおり")
+    store.set_progress(ids[-1], "paragraph_check", 3, 10)
+
+    def reject_full_read(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("一覧で原稿・指摘の本文や論文の個別読み出しをしない")
+
+    for name in ("get_document", "get_paper", "get_findings"):
+        monkeypatch.setattr(store, name, reject_full_read)
+    rows = client.get("/api/analyses").json()
+    assert [r["analysis_id"] for r in rows] == ids[::-1]
+    assert rows[0]["filename"] == "論文.pdf" and rows[0]["total"] == 2
+    assert rows[0]["progress"] == {"stage": "paragraph_check", "done": 3, "total": 10}
+    assert all(r["total"] == 3 for r in rows[1:])
+
+
 def test_findings_filters_status_and_csv(ctx: tuple[TestClient, Store, FakeQueue, bytes]) -> None:
     client, store, _, pdf = ctx
     aid = seed(store, upload(client, pdf))

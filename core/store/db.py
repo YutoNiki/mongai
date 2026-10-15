@@ -115,6 +115,21 @@ class AnalysisRecord(BaseModel):
     visibility: Visibility = "private"
 
 
+class AnalysisListRecord(BaseModel):
+    """一覧に必要なメタデータだけ。原稿・設定・指摘の本文を読み込まない。"""
+
+    analysis_id: str
+    doc_id: str
+    title: str | None
+    filename: str | None
+    status: AnalysisStatus
+    created_at: str
+    finished_at: str | None
+    total: int
+    progress: Progress
+    visibility: Visibility
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -381,6 +396,31 @@ class Store:
                 (viewer, limit),
             ).fetchall()
         return [self._analysis(r) for r in rows]
+
+    def list_analysis_summaries(
+        self, viewer: str | None, limit: int = 100
+    ) -> list[AnalysisListRecord]:
+        """読める解析を絞ってから上限を適用し、タイトル・件数を1回のSQLで取得する。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT a.analysis_id, a.doc_id, a.status, a.created_at, a.finished_at, "
+                "a.progress, a.visibility, d.title, p.filename, "
+                "(SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id "
+                "AND f.status != 'dismissed') AS total FROM "
+                "(SELECT rowid AS insertion_order, analysis_id, doc_id, status, created_at, "
+                f"finished_at, progress, visibility FROM analyses WHERE {_READABLE} "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?) a "
+                "LEFT JOIN documents d ON d.doc_id = a.doc_id "
+                "LEFT JOIN papers p ON p.doc_id = a.doc_id "
+                "ORDER BY a.created_at DESC, a.insertion_order DESC",
+                (viewer, limit),
+            ).fetchall()
+        return [
+            AnalysisListRecord(
+                **{**dict(r), "progress": Progress.model_validate_json(r["progress"] or "{}")}
+            )
+            for r in rows
+        ]
 
     def find_previous(self, analysis_id: str) -> AnalysisRecord | None:
         """同じ論文（同じ ID、または同じタイトル・ファイル名）の、これより前の完了した解析。

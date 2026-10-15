@@ -1,5 +1,8 @@
 """SQLite への保存（文書・解析・指摘・APIの利用回数）。"""
 
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -126,6 +129,59 @@ def test_previous_analysis_only_uses_earlier_rows_when_timestamps_tie(
     for current, previous in zip(ids[1:], ids[:-1], strict=True):
         found = store.find_previous(current)
         assert found is not None and found.analysis_id == previous
+
+
+def test_analysis_summaries_use_one_scoped_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = Store(tmp_path / "db.sqlite3")
+    owner, other = make_user(store.path, "a"), make_user(store.path, "b")
+    store.save_paper("doc-test", owner_user_id=owner, filename="synthetic.pdf", size=1)
+    store.save_document(
+        make_doc([("1 はじめに", "introduction", [["文です。"]])]).model_copy(
+            update={"title": "合成レポート"}
+        )
+    )
+    mine = []
+    for _ in range(20):
+        aid = store.create_analysis(
+            "doc-test", owner_user_id=owner, kind="logic", settings=AnalysisSettings()
+        )
+        store.save_findings(aid, [finding("F-0001"), finding("F-0002")])
+        store.set_finding_status(aid, "F-0001", "dismissed", "意図どおり")
+        mine.append(aid)
+    # 新しい他人の行が多くても、自分の上限枠は減らない。
+    for _ in range(25):
+        store.create_analysis(
+            "other-doc", owner_user_id=other, kind="logic", settings=AnalysisSettings()
+        )
+    original_connect = store._connect
+    queries = []
+
+    @contextmanager
+    def traced_connect() -> Iterator[sqlite3.Connection]:
+        with original_connect() as conn:
+            conn.set_trace_callback(queries.append)
+            yield conn
+
+    monkeypatch.setattr(store, "_connect", traced_connect)
+    rows = store.list_analysis_summaries(owner, limit=10)
+    assert len(queries) == 1
+    assert [r.analysis_id for r in rows] == mine[::-1][:10]
+    assert all((r.title, r.filename, r.total) == ("合成レポート", "synthetic.pdf", 1) for r in rows)
+    assert store.list_analysis_summaries(None) == []
+    # 構造化前の解析も、タイトルとファイルが無いまま一覧に出せる。
+    orphan = store.create_analysis(
+        "not-ingested",
+        owner_user_id=owner,
+        kind="logic",
+        settings=AnalysisSettings(),
+        status="queued",
+    )
+    (row,) = store.list_analysis_summaries(owner, limit=1)
+    assert (
+        row.analysis_id == orphan and row.title is None and row.filename is None and row.total == 0
+    )
 
 
 def test_term_decision_survives_analysis_saving_later(tmp_path: Path) -> None:
