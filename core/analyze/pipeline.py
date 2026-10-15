@@ -46,7 +46,14 @@ from core.lab.models import LabComment
 from core.llm.budget import PromptTooLongError
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.usage import UsageRow
-from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
+from core.rules.check import (
+    MAX_RULES_PER_CHECK,
+    applicable_rules,
+    check_rules,
+    embed_missing_rules,
+    group_targets,
+    select_rules,
+)
 from core.rules.mechanical import RuleViolation, run_mechanical
 from core.rules.models import Rule
 from core.store import TermLookupRecord
@@ -499,12 +506,26 @@ async def analyze_logic(
         groups = group_targets(targets)
         checked = 0
         await progress("rule_check", checked, len(groups))
+        candidates = [applicable_rules(approved, group, doc, cited) for group in groups]
+        vectors = dict(rule_vectors or {})
+        # 並列の節判定で同じルールを何度も埋め込まないよう、必要な分を先にまとめる。
+        to_embed = {
+            r.rule_id: r
+            for chosen in candidates
+            if len(chosen) > MAX_RULES_PER_CHECK
+            for r in chosen
+        }
+        try:
+            await embed_missing_rules(client, list(to_embed.values()), vectors)
+        except OitomaError as exc:
+            warnings.append(f"ルールの埋め込みの作成に失敗しました：{exc}")
+            progress.finish("rule_check")
+            return
 
-        async def check_group(group: list[Target]) -> None:
+        async def check_group(group: list[Target], chosen: list[Rule]) -> None:
             nonlocal checked
             try:
-                chosen = applicable_rules(approved, group, doc, cited)
-                chosen = await select_rules(client, chosen, group, rule_vectors or {})
+                chosen = await select_rules(client, chosen, group, vectors)
                 found = await check_rules(
                     client, group, chosen, prompt_lang=prompt_lang, output_language=out_lang
                 )
@@ -518,7 +539,7 @@ async def analyze_logic(
             checked += 1
             await progress("rule_check", checked, len(groups))
 
-        await asyncio.gather(*(check_group(g) for g in groups))
+        await asyncio.gather(*(check_group(g, c) for g, c in zip(groups, candidates, strict=True)))
         progress.finish("rule_check")
 
     # 研究室の過去の指摘に類似する箇所（埋め込みで候補を絞り、高速モデルで確かめる）

@@ -97,6 +97,16 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / norm if norm else 0.0
 
 
+async def embed_missing_rules(
+    client: OitomaClient, rules: list[Rule], rule_vectors: dict[str, list[float]]
+) -> None:
+    """編集で無効になった埋め込みを、現在のルール本文から作り直す。"""
+    missing = [r for r in rules if r.rule_id not in rule_vectors]
+    if missing:
+        vectors = await client.embed([r.rule for r in missing], role=EMBEDDING_ROLE)
+        rule_vectors.update({r.rule_id: v for r, v in zip(missing, vectors, strict=True)})
+
+
 async def select_rules(
     client: OitomaClient,
     rules: list[Rule],
@@ -108,12 +118,10 @@ async def select_rules(
     """ルールが limit を超える場合は、本文の埋め込みに近い順に limit 件を選ぶ。"""
     if len(rules) <= limit:
         return rules
-    with_vectors = [r for r in rules if r.rule_id in rule_vectors]
-    if not with_vectors:
-        return rules[:limit]
+    await embed_missing_rules(client, rules, rule_vectors)
     text = "\n".join(t.paragraph.text for t in group)
     (vector,) = await client.embed([text], role=EMBEDDING_ROLE)
-    ranked = sorted(with_vectors, key=lambda r: -_cosine(vector, rule_vectors[r.rule_id]))
+    ranked = sorted(rules, key=lambda r: -_cosine(vector, rule_vectors[r.rule_id]))
     return ranked[:limit]
 
 

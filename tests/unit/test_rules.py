@@ -14,7 +14,7 @@ from core.ingest.textdoc import chunk_pages, read_pages
 from core.jobs import run_rule_extraction
 from core.llm.client import DEFAULT_BASE_URL, OitomaClient
 from core.llm.config import ModelsConfig
-from core.rules.check import applicable_rules, check_rules, group_targets
+from core.rules.check import applicable_rules, check_rules, group_targets, select_rules
 from core.rules.extract import (
     ExtractedRule,
     extract_rules,
@@ -341,6 +341,58 @@ def test_applicable_rules_by_section_and_language() -> None:
     results = {r.rule_id for r in applicable_rules(rules, [targets[1]], doc, set())}
     assert intro == {"R-all", "R-intro", "R-fig"}
     assert results == {"R-all", "R-res"}
+
+
+async def test_edited_rule_is_embedded_and_ranked_again(tmp_path: Path) -> None:
+    store = RuleStore(tmp_path / "db.sqlite3")
+    owner = make_user(store.path)
+    rules = [rule(f"R-{i}", f"ルール{i}") for i in range(13)]
+    store.add_rules(owner, rules, [[1.0, 0.0], *[[0.0, 1.0] for _ in range(12)]])
+    doc = make_doc([("1 はじめに", "introduction", [["本研究の目的を説明する。"]])])
+    targets = select_targets(doc, min_chars=1)
+
+    def embed(request: httpx.Request) -> httpx.Response:
+        texts = json.loads(request.content)["input"]
+        return httpx.Response(
+            200, json={"data": [{"index": i, "embedding": [1.0, 0.0]} for i in range(len(texts))]}
+        )
+
+    with respx.mock:
+        endpoint = respx.post(EMBED_URL).mock(side_effect=embed)
+        async with OitomaClient(config(), api_key="k") as client:
+            assert rules[0] in await select_rules(client, rules, targets, store.embeddings(owner))
+            edited = store.update_rule(owner, "R-0", RuleUpdate(rule="目的を明確に説明する"))
+            vectors = store.embeddings(owner)
+            assert "R-0" not in vectors
+            current = [r for r in store.list_rules(owner, status="approved") if not r.builtin]
+            selected = await select_rules(client, current, targets, vectors)
+            assert len(selected) == 12 and selected[0] == edited
+            assert vectors[edited.rule_id] == [1.0, 0.0]
+            # 同じ解析内の次の節ではルールの再生成は不要。
+            await select_rules(client, current, targets, vectors)
+        inputs = [json.loads(call.request.content)["input"] for call in endpoint.calls]
+    assert inputs.count([edited.rule]) == 1
+
+
+async def test_rule_selection_embeds_all_missing_vectors_and_keeps_limit() -> None:
+    rules = [rule(f"R-{i}", f"ルール{i}") for i in range(13)]
+    doc = make_doc([("1 はじめに", "introduction", [["目的を説明する。"]])])
+    with respx.mock:
+        endpoint = respx.post(EMBED_URL).mock(
+            side_effect=lambda request: httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"index": i, "embedding": [1.0, 0.0]}
+                        for i, _ in enumerate(json.loads(request.content)["input"])
+                    ]
+                },
+            )
+        )
+        async with OitomaClient(config(), api_key="k") as client:
+            selected = await select_rules(client, rules, select_targets(doc, min_chars=1), {})
+    assert selected == rules[:12]
+    assert json.loads(endpoint.calls[0].request.content)["input"] == [r.rule for r in rules]
 
 
 async def test_check_rules_validates_output() -> None:

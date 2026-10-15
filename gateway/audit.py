@@ -41,6 +41,14 @@ BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit
 BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 CREATE INDEX IF NOT EXISTS audit_by_analysis ON audit(analysis_id);
+CREATE INDEX IF NOT EXISTS audit_by_doc ON audit(doc_id);
+
+CREATE TABLE IF NOT EXISTS send_attempts (
+    request_id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attempts_by_doc ON send_attempts(doc_id);
 
 CREATE TABLE IF NOT EXISTS queue (
     request_id TEXT PRIMARY KEY,
@@ -185,13 +193,47 @@ class AuditStore:
         return result
 
     def sent_count(self, doc_id: str) -> int:
-        """論文ごとに実際に学外へ送信した要求の数（件数制限に使う）。"""
+        """送信枠の使用数。結果不明の失敗・中断も数え、再試行で上限を迂回させない。"""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM audit WHERE doc_id = ? AND decision IN ('sent', 'approved')",
-                (doc_id,),
-            ).fetchone()
+            return self._sent_count(conn, doc_id)
+
+    @staticmethod
+    def _sent_count(conn: sqlite3.Connection, doc_id: str) -> int:
+        # 導入前の成功ログも引き継ぐ。予約済みの要求の成功ログは二重に数えない。
+        row = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM send_attempts WHERE doc_id = ?) + "
+            "(SELECT COUNT(*) FROM audit a WHERE doc_id = ? "
+            "AND decision IN ('sent', 'approved') AND NOT EXISTS "
+            "(SELECT 1 FROM send_attempts s WHERE s.request_id = a.request_id))",
+            (doc_id, doc_id),
+        ).fetchone()
         return int(row[0])
+
+    def reserve_send(
+        self, request_id: str, doc_id: str, limit: int, *, approving_owner: str | None = None
+    ) -> bool:
+        """送信前に枠を確保する。承認の確定も同じトランザクションで行う。"""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute(
+                "SELECT 1 FROM send_attempts WHERE request_id = ?", (request_id,)
+            ).fetchone():
+                return False
+            if self._sent_count(conn, doc_id) >= limit:
+                return False
+            if approving_owner is not None:
+                changed = conn.execute(
+                    "UPDATE queue SET status = 'approved', decided_at = ? "
+                    "WHERE request_id = ? AND doc_id = ? AND owner_id = ? AND status = 'pending'",
+                    (_now(), request_id, doc_id, approving_owner),
+                ).rowcount
+                if not changed:
+                    return False
+            conn.execute(
+                "INSERT INTO send_attempts (request_id, doc_id, created_at) VALUES (?, ?, ?)",
+                (request_id, doc_id, _now()),
+            )
+        return True
 
     def external_count(self, analysis_id: str, *, owner_id: str | None) -> int:
         where, params = self._scope(owner_id, analysis_id)
@@ -257,11 +299,14 @@ class AuditStore:
             row = conn.execute("SELECT * FROM queue WHERE request_id = ?", (request_id,)).fetchone()
         return QueueItem(**{**dict(row), "request": json.loads(row["request"])}) if row else None
 
-    def decide(self, request_id: str, status: str) -> None:
+    def decide(self, request_id: str, status: str) -> bool:
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE queue SET status = ?, decided_at = ? WHERE request_id = ?",
-                (status, _now(), request_id),
+            return bool(
+                conn.execute(
+                    "UPDATE queue SET status = ?, decided_at = ? WHERE request_id = ? "
+                    "AND status = 'pending'",
+                    (status, _now(), request_id),
+                ).rowcount
             )
 
     # ------------------------------------------------------------ 結果のキャッシュ

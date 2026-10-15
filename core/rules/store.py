@@ -122,7 +122,12 @@ class RuleStore:
         return [self._document(r) for r in rows]
 
     def set_document_status(
-        self, document_id: str, status: str, *, error: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        *,
+        error: str | None = None,
+        only_if_queued: bool = False,
     ) -> None:
         finished = _now() if status in ("completed", "failed") else None
         with self._connect() as conn:
@@ -131,7 +136,7 @@ class RuleStore:
             ).fetchone()[0]
             conn.execute(
                 "UPDATE rule_documents SET status = ?, error = ?, rule_count = ?, finished_at = ? "
-                "WHERE document_id = ?",
+                "WHERE document_id = ?" + (" AND status = 'queued'" if only_if_queued else ""),
                 (status, error, count, finished, document_id),
             )
 

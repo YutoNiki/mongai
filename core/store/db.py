@@ -115,6 +115,21 @@ class AnalysisRecord(BaseModel):
     visibility: Visibility = "private"
 
 
+class AnalysisListRecord(BaseModel):
+    """一覧に必要なメタデータだけ。原稿・設定・指摘の本文を読み込まない。"""
+
+    analysis_id: str
+    doc_id: str
+    title: str | None
+    filename: str | None
+    status: AnalysisStatus
+    created_at: str
+    finished_at: str | None
+    total: int
+    progress: Progress
+    visibility: Visibility
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -382,6 +397,31 @@ class Store:
             ).fetchall()
         return [self._analysis(r) for r in rows]
 
+    def list_analysis_summaries(
+        self, viewer: str | None, limit: int = 100
+    ) -> list[AnalysisListRecord]:
+        """読める解析を絞ってから上限を適用し、タイトル・件数を1回のSQLで取得する。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT a.analysis_id, a.doc_id, a.status, a.created_at, a.finished_at, "
+                "a.progress, a.visibility, d.title, p.filename, "
+                "(SELECT COUNT(*) FROM findings f WHERE f.analysis_id = a.analysis_id "
+                "AND f.status != 'dismissed') AS total FROM "
+                "(SELECT rowid AS insertion_order, analysis_id, doc_id, status, created_at, "
+                f"finished_at, progress, visibility FROM analyses WHERE {_READABLE} "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?) a "
+                "LEFT JOIN documents d ON d.doc_id = a.doc_id "
+                "LEFT JOIN papers p ON p.doc_id = a.doc_id "
+                "ORDER BY a.created_at DESC, a.insertion_order DESC",
+                (viewer, limit),
+            ).fetchall()
+        return [
+            AnalysisListRecord(
+                **{**dict(r), "progress": Progress.model_validate_json(r["progress"] or "{}")}
+            )
+            for r in rows
+        ]
+
     def find_previous(self, analysis_id: str) -> AnalysisRecord | None:
         """同じ論文（同じ ID、または同じタイトル・ファイル名）の、これより前の完了した解析。
 
@@ -395,10 +435,12 @@ class Store:
                 "SELECT a.*, d.title AS title, p.filename AS filename FROM analyses a "
                 "LEFT JOIN documents d ON d.doc_id = a.doc_id "
                 "LEFT JOIN papers p ON p.doc_id = a.doc_id "
-                "WHERE a.status = 'completed' AND a.analysis_id != ? AND a.created_at <= ? "
+                "WHERE a.status = 'completed' AND (a.created_at < ? OR "
+                "(a.created_at = ? AND a.rowid < "
+                "(SELECT rowid FROM analyses WHERE analysis_id = ?))) "
                 "AND a.owner_user_id = ? AND a.visibility = 'private' "
                 "ORDER BY a.created_at DESC, a.rowid DESC",
-                (analysis_id, current.created_at, current.owner_user_id),
+                (current.created_at, current.created_at, analysis_id, current.owner_user_id),
             ).fetchall()
             mine = conn.execute(
                 "SELECT d.title AS title, p.filename AS filename FROM analyses a "
@@ -441,11 +483,12 @@ class Store:
         warnings: list[str] | None = None,
         error: str | None = None,
         api_usage: list[UsageRow] | None = None,
+        only_if_queued: bool = False,
     ) -> None:
         with self._connect() as conn:
-            conn.execute(
+            changed = conn.execute(
                 "UPDATE analyses SET status = ?, warnings = ?, error = ?, finished_at = ? "
-                "WHERE analysis_id = ?",
+                "WHERE analysis_id = ?" + (" AND status = 'queued'" if only_if_queued else ""),
                 (
                     status,
                     json.dumps(warnings or [], ensure_ascii=False),
@@ -453,8 +496,8 @@ class Store:
                     _now(),
                     analysis_id,
                 ),
-            )
-            if api_usage:
+            ).rowcount
+            if changed and api_usage:
                 self._save_usage(conn, analysis_id, api_usage)
 
     def get_analysis(self, analysis_id: str) -> AnalysisRecord | None:

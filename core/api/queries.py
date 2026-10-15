@@ -14,7 +14,7 @@ from core.api.summary import count_findings
 from core.auth.principal import AuthenticatedUser, Principal, viewer_of
 from core.report.diff import FindingsDiff, diff_findings
 from core.sample import is_sample
-from core.store import AnalysisRecord, PaperRecord, Store
+from core.store import AnalysisListRecord, AnalysisRecord, PaperRecord, Store
 
 Severity = Literal["critical", "major", "suggestion"]
 Category = Literal["logic", "readability", "rule", "citation", "lab"]
@@ -22,7 +22,7 @@ Status = Literal["open", "accepted", "dismissed"]
 Confidence = Literal["high", "low"]
 
 
-def is_demo(record: AnalysisRecord) -> bool:
+def is_demo(record: AnalysisRecord | AnalysisListRecord) -> bool:
     """共通デモの解析（公開データ、またはデモの論文に付いた解析）。誰も変更できない。"""
     return record.visibility == "public_demo" or is_sample(record.doc_id)
 

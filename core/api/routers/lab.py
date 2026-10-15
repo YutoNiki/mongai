@@ -9,7 +9,14 @@ import os
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from core.api.dependencies import LabStoreDep, QueueDep, RuleStoreDep, UserDep
+from core.api.dependencies import (
+    JOB_SUBMISSION_ERROR,
+    LabStoreDep,
+    QueueDep,
+    RuleStoreDep,
+    UserDep,
+    job_unavailable,
+)
 from core.api.routers.rules import MAX_RULE_DOCUMENT_BYTES
 from core.ingest.textdoc import SUFFIXES, looks_valid
 from core.lab.extract import delete_lab_file
@@ -42,8 +49,14 @@ async def upload_lab_document(
     if not looks_valid(kind, data):
         raise HTTPException(status_code=415, detail="ファイルの形式が拡張子と合いません")
     doc = lab.create_document(user.user_id, filename, kind)
-    save_lab_file(doc.document_id, kind, data)
-    await queue.enqueue_lab(doc.document_id)
+    try:
+        save_lab_file(doc.document_id, kind, data)
+        await queue.enqueue_lab(doc.document_id)
+    except Exception:
+        lab.set_document_status(
+            doc.document_id, "failed", error=JOB_SUBMISSION_ERROR, only_if_queued=True
+        )
+        raise job_unavailable() from None
     return doc
 
 
