@@ -691,11 +691,6 @@ button.menu-toggle[aria-expanded="true"] {
   }
 }
 
-/* トップページ：今日の利用回数とアップロード */
-.home-top {
-  margin-bottom: 16px;
-  align-items: start;
-}
 td.row-actions {
   text-align: right;
 }
@@ -1009,12 +1004,6 @@ button.icon-button {
   margin: 0;
   flex: 1 1 320px;
 }
-.login-guide {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
 
 @media (max-width: 640px) {
   .button-primary-link {
@@ -1201,3 +1190,113 @@ button.icon-button {
   }
 }
 
+/* ---- トップページ（ほかの画面に影響しないよう .home-page の中だけ） ---- */
+
+.page.home-page {
+  max-width: 1240px;
+}
+.home-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px 32px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.home-hero h1 {
+  font-size: 28px;
+  line-height: 1.4;
+  text-wrap: balance;
+  margin: 8px 0 8px;
+}
+.home-lead {
+  max-width: 40em;
+  margin: 0 0 16px;
+}
+.home-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.home-page .home-cta-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 24px;
+  font-size: 17px;
+}
+.home-page .home-intro > .panel {
+  margin: 0;
+}
+.home-login p {
+  margin: 0 0 12px;
+}
+.home-login p.note {
+  margin: 12px 0 0;
+}
+.home-page .home-login-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+}
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+.home-head h1 {
+  margin: 4px 0;
+}
+.home-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 14px;
+}
+.home-usage-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-label);
+}
+.home-usage p {
+  margin: 0;
+}
+.home-page .doc-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* 状態（所要時間）と日時は、題目が長くても細切れに折り返さない */
+@media (min-width: 641px) {
+  .home-page .data-table td[data-label="状態"] {
+    min-width: 9em;
+  }
+  .home-page .data-table td[data-label="開始日時"] {
+    white-space: nowrap;
+  }
+}
+@media (max-width: 960px) {
+  .home-intro {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .home-hero h1 {
+    font-size: 22px;
+    margin-top: 0;
+  }
+  .home-lead {
+    font-size: 15px;
+    margin-bottom: 12px;
+  }
+  .home-page .home-cta-button,
+  .home-page .home-login-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
