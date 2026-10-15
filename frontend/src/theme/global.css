@@ -466,6 +466,8 @@ blockquote {
   background: var(--color-bg-control);
 }
 .site-nav a.external-link {
+  /* 読み上げ用の文言（.visually-hidden）の基準にする。無いとスマートフォン幅でメニューの横スクロールの枠から出て、ページ全体が横に広がる */
+  position: relative;
   gap: 4px;
 }
 .site-nav a[aria-current="page"] {
