@@ -83,6 +83,7 @@ test: ## 単体テスト（Python・フロントエンド。ネットワーク�
 	$(COMPOSE_TEST) run --rm --no-deps frontend sh -c "npm test"
 
 test-integration: ## GROBID を使う結合テスト（internal_net 内で実行）
+	$(COMPOSE_TEST) build -q test
 	$(COMPOSE_TEST) run --rm integration
 
 test-e2e: ## 画面の E2E テスト（Playwright、ネットワークなしのコンテナ。API は保存した応答で差し替える）
