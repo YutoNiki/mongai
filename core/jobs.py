@@ -6,6 +6,7 @@
 解析の材料（ルール・過去の指摘）と外部への要求・利用回数は、すべてその所有者のものにする。
 """
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -157,6 +158,14 @@ async def run_analysis(
         )
         llm.usage.log_summary(label=analysis_id)
         return "completed"
+    except asyncio.CancelledError:
+        store.finish_analysis(
+            analysis_id,
+            status="failed",
+            error="解析が中断されました。もう一度解析してください。",
+            api_usage=llm.usage.rows(),
+        )
+        raise
     except Exception as exc:
         # 例外の内容に論文の本文が含まれる可能性は低いが、利用者に見せるのは種類だけにする
         logger.exception("解析 %s に失敗しました", analysis_id)
@@ -194,6 +203,14 @@ async def run_instruction_extraction(
         items = await extract_requirements(llm, draft.raw_text)
         result = instructions.finish_extraction(owner, draft_id, items)
         return result.status
+    except asyncio.CancelledError:
+        instructions.finish_extraction(
+            owner,
+            draft_id,
+            [],
+            error="条件の抽出が中断されました。確認項目を作り直してください。",
+        )
+        raise
     except Exception as exc:
         logger.warning("要件の抽出 %s に失敗しました（%s）", draft_id, type(exc).__name__)
         instructions.finish_extraction(
@@ -204,7 +221,10 @@ async def run_instruction_extraction(
         )
         return "failed"
     finally:
-        Store(instructions.path).add_daily_usage(today_jst(), llm.usage.unreported(), user_id=owner)
+        with contextlib.suppress(Exception):
+            Store(instructions.path).add_daily_usage(
+                today_jst(), llm.usage.unreported(), user_id=owner
+            )
         if client is None:
             await llm.aclose()
 
@@ -227,6 +247,13 @@ async def run_rule_extraction(
         rule_store.set_document_status(document_id, "completed")
         logger.info("ルール資料 %s から %d 件のルールを追加しました", document_id, added)
         return "completed"
+    except asyncio.CancelledError:
+        rule_store.set_document_status(
+            document_id,
+            "failed",
+            error="ルールの抽出が中断されました。資料を登録し直してください。",
+        )
+        raise
     except Exception as exc:
         logger.exception("ルール資料 %s の抽出に失敗しました", document_id)
         rule_store.set_document_status(
@@ -268,6 +295,13 @@ async def run_lab_extraction(
             rules,
         )
         return "completed"
+    except asyncio.CancelledError:
+        lab_store.set_document_status(
+            document_id,
+            "failed",
+            error="取り込みが中断されました。資料を登録し直してください。",
+        )
+        raise
     except Exception as exc:
         logger.exception("専門知識 %s の取り込みに失敗しました", document_id)
         lab_store.set_document_status(
