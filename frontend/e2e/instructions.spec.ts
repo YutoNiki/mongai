@@ -100,7 +100,7 @@ test("講義の要件を選択・編集・確定し、PDFごとに同じ条件�
   });
   await page.goto("/");
   await page.getByLabel("文書の種類").selectOption("course_report");
-  await page.getByText("課題・提出要件を指定する（任意）", { exact: true }).click();
+  await page.locator("summary").filter({ hasText: "課題・提出要件" }).click();
   await page.getByLabel("学部共通：学部の共通様式（版1）").check();
   await page.getByLabel("今回の課題・提出要件（任意）").fill("2000字以内。フォント12pt。");
   await page.getByLabel("文書のPDF（複数選べます）").setInputFiles([

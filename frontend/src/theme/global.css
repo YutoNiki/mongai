@@ -159,10 +159,29 @@ label {
 }
 
 .upload-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  min-width: 0;
+  gap: 20px;
+}
+.upload-fields {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr) minmax(9rem, 1fr);
+  align-items: end;
   gap: 16px;
+}
+.upload-fields label,
+.upload-fields select,
+.upload-fields input {
+  min-width: 0;
+  width: 100%;
+}
+.upload-actions {
+  display: grid;
+  justify-items: end;
+  gap: 12px;
+}
+.upload-actions .note {
+  margin: 0;
 }
 
 /* ---- ダッシュボード（16:9 の 6 列グリッド。左上から右下へ、全体から部分へ） ---- */
@@ -519,9 +538,8 @@ blockquote {
     font-size: 16px; /* iOS で入力時に拡大されないように */
     min-height: 44px;
   }
-  .upload-form {
-    flex-direction: column;
-    align-items: stretch;
+  .upload-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
   .upload-form label,
   .upload-form select,
@@ -948,6 +966,65 @@ button.icon-button {
   }
 }
 /* 課題・提出要件 */
+.instruction-options {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.instruction-options > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 14px 16px;
+  list-style: none;
+  cursor: pointer;
+}
+.instruction-options > summary::-webkit-details-marker {
+  display: none;
+}
+.instruction-options > summary:hover {
+  background: var(--color-bg-standard);
+}
+.instruction-options-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.instruction-optional {
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-label);
+}
+.instruction-options-description {
+  grid-column: 1;
+  font-size: 14px;
+  color: var(--color-label);
+}
+.instruction-options-chevron {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+.instruction-options[open] > summary {
+  border-bottom: 1px solid var(--color-border);
+}
+.instruction-options[open] .instruction-options-chevron {
+  transform: rotate(180deg);
+}
+.instruction-options-body {
+  padding: 16px;
+}
+.instruction-options-body .instruction-composer {
+  margin-top: 0;
+}
+.instruction-options-body .instruction-composer > .note:first-child {
+  margin: 0;
+}
 .instruction-composer { display: grid; gap: 1rem; margin-top: 1rem; }
 .instruction-inputs { border: 0; padding: 0; margin: 0; min-width: 0; }
 .instruction-composer label { display: grid; gap: .4rem; }

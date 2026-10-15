@@ -210,45 +210,58 @@ export function HomePage() {
             </div>
           ) : (
             <form key={formKey} onSubmit={submit} className="upload-form">
-              <label>
-                文書の種類
-                <select value={documentType} disabled={busy} onChange={(e) => {
-                  setDocumentType(e.target.value as DocumentType); setInstructions({ ready: true });
-                }}>
-                  {Object.entries(DOCUMENT_LABELS).map(([key, text]) => <option key={key} value={key}>{text}</option>)}
-                </select>
-              </label>
-              <label>
-                文書のPDF（複数選べます）
-                <input
-                  type="file"
-                  disabled={busy}
-                  accept="application/pdf,.pdf"
-                  multiple
-                  required
-                  onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-                />
-              </label>
-              <label>
-                指摘を書く言語
-                <select value={outputLang} disabled={busy} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
-                  <option value="paper">文書と同じ言語</option>
-                  <option value="ja">日本語</option>
-                </select>
-              </label>
-              <details className="instruction-options"><summary>課題・提出要件を指定する（任意）</summary>
-                <fieldset disabled={busy} className="instruction-inputs"><legend className="visually-hidden">課題・提出要件</legend>
-                  <InstructionComposer key={`${documentType}-${formKey}`} documentType={documentType} onChange={setInstructions} />
-                </fieldset>
+              <div className="upload-fields">
+                <label>
+                  文書の種類
+                  <select value={documentType} disabled={busy} onChange={(e) => {
+                    setDocumentType(e.target.value as DocumentType); setInstructions({ ready: true });
+                  }}>
+                    {Object.entries(DOCUMENT_LABELS).map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+                  </select>
+                </label>
+                <label>
+                  文書のPDF（複数選べます）
+                  <input
+                    type="file"
+                    disabled={busy}
+                    accept="application/pdf,.pdf"
+                    multiple
+                    required
+                    onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                  />
+                </label>
+                <label>
+                  指摘を書く言語
+                  <select value={outputLang} disabled={busy} onChange={(e) => setOutputLang(e.target.value as "paper" | "ja")}>
+                    <option value="paper">文書と同じ言語</option>
+                    <option value="ja">日本語</option>
+                  </select>
+                </label>
+              </div>
+              <details className="instruction-options">
+                <summary>
+                  <span className="instruction-options-title">課題・提出要件<span className="instruction-optional">任意</span></span>
+                  <span className="instruction-options-description">学部・講義の様式や、今回の課題の条件を追加できます。</span>
+                  <svg className="instruction-options-chevron" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </summary>
+                <div className="instruction-options-body">
+                  <fieldset disabled={busy} className="instruction-inputs"><legend className="visually-hidden">課題・提出要件</legend>
+                    <InstructionComposer key={`${documentType}-${formKey}`} documentType={documentType} onChange={setInstructions} />
+                  </fieldset>
+                </div>
               </details>
-              {!instructions.ready && <p className="note">解析を始める前に、今回適用する確認項目を確定してください。</p>}
-              <button type="submit" disabled={files.length === 0 || busy || !instructions.ready}>
-                {busy
-                  ? "アップロード中…"
-                  : files.length > 1
-                    ? `${files.length}件をアップロードして解析を始める`
-                    : "アップロードして解析を始める"}
-              </button>
+              <div className="upload-actions">
+                {!instructions.ready && <p className="note">解析を始める前に、今回適用する確認項目を確定してください。</p>}
+                <button type="submit" disabled={files.length === 0 || busy || !instructions.ready}>
+                  {busy
+                    ? "アップロード中…"
+                    : files.length > 1
+                      ? `${files.length}件をアップロードして解析を始める`
+                      : "アップロードして解析を始める"}
+                </button>
+              </div>
             </form>
           )}
           {notice && (
