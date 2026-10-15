@@ -9,7 +9,7 @@ RUN_TEST     := $(COMPOSE_TEST) run --rm --no-deps test
 ROLE   ?= logic_check
 MODELS ?=
 
-.PHONY: help setup build up down dev live logs migrate migrate-live claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
+.PHONY: help setup build up down dev live logs migrate migrate-live claim-legacy authn-rotate-key authn-revoke-sessions test test-integration test-e2e test-security test-security-offline lint format eval demo-paper check-highlights check-api bench-concurrency config clean clean-data
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -70,10 +70,12 @@ test-e2e: ## 画面の E2E テスト（Playwright、ネットワークなしの�
 	$(COMPOSE_TEST) build -q e2e
 	$(COMPOSE_TEST) run --rm --no-deps e2e
 
-test-security: ## 検索ゲートウェイの検査（ネットワークなし）と、ネットワーク分離・プロキシ・マウントのテスト（実際の構成で検証）
-	$(RUN_TEST) pytest tests/security
+test-security: test-security-offline ## 検索ゲートウェイの検査（ネットワークなし）と、ネットワーク分離・プロキシ・マウントのテスト（実際の構成で検証）
 	$(COMPOSE) up -d --build --wait
 	sh tests/security/run.sh
+
+test-security-offline: ## 検索ゲートウェイの検査だけ（ネットワークなしのコンテナ。サービスを起動しない。CI でも実行）
+	$(RUN_TEST) pytest tests/security
 
 lint: ## ruff / mypy / eslint / tsc
 	$(RUN_TEST) sh -c "ruff check . && ruff format --check . && mypy"
