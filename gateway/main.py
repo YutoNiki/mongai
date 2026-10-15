@@ -94,7 +94,28 @@ async def _send(
     envelope: GatewayRequest,
     request: dict[str, Any],
     decision: str,
+    config: GatewayConfig,
 ) -> GatewayResponse:
+    if not store.reserve_send(
+        request_id,
+        envelope.doc_id,
+        config.limits.max_requests_per_doc,
+        approving_owner=envelope.owner_id if decision == "approved" else None,
+    ):
+        if decision == "approved":
+            _pending_item(store, request_id, envelope.owner_id)
+        reason = f"この論文の外部要求の上限（{config.limits.max_requests_per_doc} 件）に達しました"
+        store.record(
+            request_id=request_id,
+            owner_id=envelope.owner_id,
+            analysis_id=envelope.analysis_id,
+            doc_id=envelope.doc_id,
+            kind=request["kind"],
+            request=request,
+            decision="blocked",
+            reason=reason,
+        )
+        return GatewayResponse(request_id=request_id, decision="blocked", reason=reason)
     try:
         response = await send_to_searcher(request)
     except httpx.HTTPError as exc:
@@ -206,7 +227,7 @@ async def submit(
             request_id=existing or request_id, decision="pending", reason="承認待ち"
         )
 
-    return await _send(store, request_id, envelope, request, "sent")
+    return await _send(store, request_id, envelope, request, "sent", config)
 
 
 def _pending_item(store: AuditStore, request_id: str, owner_id: str) -> QueueItem:
@@ -229,7 +250,6 @@ async def approve(
     item = _pending_item(store, request_id, owner_id)
     if config.mode == "offline":
         raise HTTPException(status_code=409, detail="offline モードでは送信できません")
-    store.decide(request_id, "approved")
     envelope = GatewayRequest.model_validate(
         {
             "owner_id": owner_id,
@@ -238,13 +258,14 @@ async def approve(
             "request": item.request,
         }
     )
-    return await _send(store, request_id, envelope, item.request, "approved")
+    return await _send(store, request_id, envelope, item.request, "approved", config)
 
 
 @app.post("/queue/{request_id}/reject")
 def reject(request_id: str, store: StoreDep, owner_id: OwnerId) -> GatewayResponse:
     item = _pending_item(store, request_id, owner_id)
-    store.decide(request_id, "rejected")
+    if not store.decide(request_id, "rejected"):
+        raise HTTPException(status_code=404, detail="承認待ちの要求が見つかりません")
     store.record(
         request_id=request_id,
         owner_id=owner_id,

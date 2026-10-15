@@ -7,11 +7,14 @@
   owner_id は searcher に渡さない
 """
 
+import asyncio
 import sqlite3
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -243,6 +246,116 @@ def test_request_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     r = env.submit({"kind": "oa_fetch", "doi": "10.1000/a9"}).json()
     assert r["decision"] == "blocked" and "上限" in r["reason"]
     gw.app.dependency_overrides.clear()
+
+
+def test_approvals_respect_limit(env: Env) -> None:
+    gw.app.dependency_overrides[get_config] = lambda: GatewayConfig(
+        mode="strict", limits=Limits(max_requests_per_doc=1)
+    )
+    ids = [
+        env.submit({"kind": "oa_fetch", "doi": f"10.1000/a{i}"}).json()["request_id"]
+        for i in range(2)
+    ]
+    assert env.decide(ids[0], "approve").json()["decision"] == "sent"
+    assert env.decide(ids[1], "approve").json()["decision"] == "blocked"
+    assert len(env.sent) == env.store.sent_count(DOC) == 1
+    assert [item["request_id"] for item in env.queue()] == [ids[1]]
+
+
+@pytest.mark.parametrize("mode", ["standard", "strict"])
+async def test_concurrent_requests_respect_limit(
+    env: Env, monkeypatch: pytest.MonkeyPatch, mode: Literal["standard", "strict"]
+) -> None:
+    config = GatewayConfig(mode=mode, limits=Limits(max_requests_per_doc=1))
+    gw.app.dependency_overrides[get_config] = lambda: config
+
+    async def delayed_send(request: dict[str, Any]) -> SearchResponse:
+        env.sent.append(request)
+        await asyncio.sleep(0.02)
+        return SearchResponse(results=[])
+
+    monkeypatch.setattr(gw, "send_to_searcher", delayed_send)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gw.app), base_url="http://test"
+    ) as client:
+        bodies = [
+            {
+                "owner_id": OWNER,
+                "analysis_id": AID,
+                "doc_id": DOC,
+                "request": {"kind": "oa_fetch", "doi": f"10.1000/a{i}"},
+            }
+            for i in range(2)
+        ]
+        if mode == "strict":
+            queued = [await client.post("/requests", json=body) for body in bodies]
+            calls = [
+                client.post(f"/queue/{r.json()['request_id']}/approve", params={"owner_id": OWNER})
+                for r in queued
+            ]
+        else:
+            calls = [client.post("/requests", json=body) for body in bodies]
+        responses = await asyncio.gather(*calls)
+    assert sorted(r.json()["decision"] for r in responses) == ["blocked", "sent"]
+    assert len(env.sent) == env.store.sent_count(DOC) == 1
+
+
+def test_send_reservations_are_atomic_across_connections(env: Env) -> None:
+    def reserve(i: int) -> bool:
+        return AuditStore(env.store.path).reserve_send(f"R-{i}", DOC, 2)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sum(pool.map(reserve, range(12))) == 2
+    assert AuditStore(env.store.path).sent_count(DOC) == 2
+
+
+def test_repeated_approval_only_sends_once(env: Env) -> None:
+    rid = env.submit({"kind": "term_lookup", "term": "BERT", "lang": "en"}).json()["request_id"]
+    assert env.decide(rid, "approve").json()["decision"] == "sent"
+    assert env.decide(rid, "approve").status_code == 404
+    assert env.decide(rid, "reject").status_code == 404
+    assert len(env.sent) == env.store.sent_count(DOC) == 1
+
+
+def test_failed_sends_keep_their_reservation(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    gw.app.dependency_overrides[get_config] = lambda: GatewayConfig(
+        limits=Limits(max_requests_per_doc=1)
+    )
+
+    async def fail(request: dict[str, Any]) -> SearchResponse:
+        env.sent.append(request)
+        raise httpx.ReadTimeout("synthetic failure")
+
+    monkeypatch.setattr(gw, "send_to_searcher", fail)
+    assert env.submit({"kind": "oa_fetch", "doi": "10.1000/a"}).json()["decision"] == "failed"
+    assert env.submit({"kind": "oa_fetch", "doi": "10.1000/b"}).json()["decision"] == "blocked"
+    assert len(env.sent) == env.store.sent_count(DOC) == 1
+    assert [e.decision for e in env.store.entries(owner_id=OWNER)] == ["blocked", "failed"]
+
+
+def test_reservations_keep_legacy_counts(env: Env) -> None:
+    env.store.record(
+        request_id="R-old",
+        owner_id=OWNER,
+        analysis_id=AID,
+        doc_id=DOC,
+        kind="oa_fetch",
+        request={},
+        decision="sent",
+    )
+    assert env.store.reserve_send("R-new", DOC, 2)
+    env.store.record(
+        request_id="R-new",
+        owner_id=OWNER,
+        analysis_id=AID,
+        doc_id=DOC,
+        kind="oa_fetch",
+        request={},
+        decision="approved",
+    )
+    reopened = AuditStore(env.store.path)
+    assert reopened.sent_count(DOC) == 2
+    assert not reopened.reserve_send("R-extra", DOC, 2)
 
 
 def test_audit_log_is_append_only(env: Env) -> None:
