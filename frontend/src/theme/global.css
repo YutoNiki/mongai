@@ -6,6 +6,12 @@
   box-sizing: border-box;
 }
 
+/* スクロールバーの幅を常に空けておく。読み込み後にページが長くなってスクロールバーが出ても、
+   本文の横幅が変わらず、中央寄せの本文やヘッダーが左右にずれない（重なるスクロールバーの環境では何も変わらない） */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;
@@ -48,23 +54,39 @@ a {
   padding: 4px 8px;
 }
 
+/* ヘッダー：広い画面ではロゴ・メニュー・ログインの状態を1行に並べる */
 .site-header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 24px;
   padding: 12px 24px;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
 }
-.site-title {
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--color-text);
-  text-decoration: none;
+.site-header-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-.site-nav {
+.site-header-quick {
+  display: none;
+}
+.site-menu {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+}
+.site-nav-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.site-nav,
+.nav-more-list {
   display: flex;
   gap: 8px;
   list-style: none;
@@ -72,8 +94,9 @@ a {
   padding: 0;
 }
 
+/* 本文の最大幅はどの画面も同じ（広い画面で横に広がりすぎないように） */
 .page {
-  max-width: 1600px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 16px 24px 48px;
 }
@@ -214,6 +237,10 @@ label {
 }
 .grid > .panel {
   margin: 0;
+}
+/* 上段のタイル群と、その下の欄の間をあける（.panel 同士と同じ間隔） */
+.grid {
+  margin-bottom: 16px;
 }
 .kpi {
   grid-column: span 2;
@@ -450,31 +477,94 @@ blockquote {
   width: auto;
 }
 /* メニューはボタンの形にし、今いる画面は塗りつぶして示す（色だけでなく形・太さでも区別する） */
-.site-nav a {
+.site-nav a,
+.nav-more-toggle {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   padding: 6px 14px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 15px;
+  white-space: nowrap;
   text-decoration: none;
 }
-.site-nav a:hover {
+.site-nav a:hover,
+.nav-more-toggle:hover {
   border-color: var(--color-primary);
   background: var(--color-bg-control);
 }
-.site-nav a.external-link {
-  /* 読み上げ用の文言（.visually-hidden）の基準にする。無いとスマートフォン幅でメニューの横スクロールの枠から出て、ページ全体が横に広がる */
-  position: relative;
-  gap: 4px;
-}
-.site-nav a[aria-current="page"] {
+.site-nav a[aria-current="page"],
+.nav-more-toggle.is-current,
+.nav-more-list a[aria-current="page"] {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: var(--color-text-on-dark);
   font-weight: 700;
+}
+.nav-more-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+/* 「その他」：ボタンの下に一覧を開く（影は使わず枠で区切る） */
+.nav-more {
+  position: relative;
+}
+.nav-more-heading {
+  display: none;
+}
+.nav-more-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 14em;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.nav-more.open .nav-more-list {
+  display: flex;
+}
+.nav-more-list a {
+  /* 読み上げ用の文言（.visually-hidden）の基準にする（上流 #29 の修正）。無いと画面の外を基準に置かれ、ページが横に広がることがある */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-more-list a:hover {
+  background: var(--color-bg-control);
+}
+/* 狭い画面のメニューのボタン */
+button.menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+button.menu-toggle[aria-expanded="true"] {
+  border-color: var(--color-primary);
+}
+.quick-login {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 .button-secondary:hover {
   background: var(--color-bg-control);
@@ -495,32 +585,11 @@ blockquote {
     font-size: 15px;
   }
   .site-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    padding: max(8px, env(safe-area-inset-top)) 12px 0;
+    padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px
+      max(12px, env(safe-area-inset-left));
   }
   .site-logo img {
     height: 30px;
-  }
-  /* メニューは横にスクロールできる1行にし、押しやすい大きさにする */
-  .site-nav-wrap {
-    /* 縦並びの flex の中で、中身の幅に合わせて広がらないようにする（横スクロールを枠の中に収める） */
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .site-nav {
-    gap: 4px;
-    white-space: nowrap;
-  }
-  .site-nav {
-    padding-bottom: 8px;
-  }
-  .site-nav a {
-    padding: 10px 14px;
-    min-height: 44px;
   }
   .page {
     padding: 12px 12px max(32px, env(safe-area-inset-bottom));
@@ -635,11 +704,6 @@ blockquote {
   }
 }
 
-/* トップページ：今日の利用回数とアップロード */
-.home-top {
-  margin-bottom: 16px;
-  align-items: start;
-}
 td.row-actions {
   text-align: right;
 }
@@ -770,35 +834,58 @@ button.icon-button {
   margin-bottom: 8px;
 }
 
-/* ---- 承認待ちの外部通信の通知（右下のポップアップ。影は使わず枠で区切る） ---- */
+/* ---- 承認待ちの外部通信の通知（ヘッダーの下の帯。本文を覆わないよう、画面に固定しない） ---- */
 
 .approval-notice {
-  position: fixed;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 20;
-  width: min(380px, calc(100vw - 32px));
-  padding: 14px 16px;
-  background: var(--color-bg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  /* 本文（.page の内側の幅）に揃える */
+  width: calc(100% - 48px);
+  max-width: 1192px;
+  margin: 12px auto 0;
+  padding: 12px 20px;
+  background: var(--color-bg-highlight);
   border: 2px solid var(--color-primary);
   border-radius: 8px;
 }
+.approval-notice-body {
+  flex: 1 1 320px;
+  min-width: 0;
+}
 .approval-notice-title {
   font-size: 16px;
-  margin: 0 0 4px;
+  margin: 0;
 }
 .approval-notice .note {
-  margin: 0 0 6px;
+  margin: 0;
 }
 .approval-notice ul {
-  margin: 0 0 10px;
+  margin: 4px 0 0;
   padding-left: 20px;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .approval-notice-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+@media (max-width: 640px) {
+  .approval-notice {
+    width: calc(100% - 24px);
+    margin-top: 8px;
+    padding: 12px;
+  }
+  .approval-notice-actions {
+    width: 100%;
+  }
+  .approval-notice-actions > * {
+    flex: 1;
+    justify-content: center;
+  }
 }
 .button-primary {
   display: inline-flex;
@@ -915,7 +1002,12 @@ button.icon-button {
   gap: 4px;
 }
 .account-email {
-  overflow-wrap: anywhere;
+  display: inline-block;
+  max-width: 18em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 /* ページ遷移のリンク（Google のログイン画面へ移る）を、主ボタンの形で示す */
 .button-primary-link {
@@ -937,7 +1029,9 @@ button.icon-button {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-  max-width: 1600px;
+  /* 本文（.page の内側の幅）に揃える */
+  width: calc(100% - 48px);
+  max-width: 1192px;
   margin: 12px auto 0;
   padding: 12px 20px;
   border: 2px solid var(--color-error);
@@ -948,25 +1042,16 @@ button.icon-button {
   margin: 0;
   flex: 1 1 320px;
 }
-.login-guide {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
 
 @media (max-width: 640px) {
-  .account {
-    margin-left: 0;
-    padding-bottom: 8px;
-  }
   .button-primary-link {
     min-height: 44px;
     padding: 10px 16px;
     font-size: 16px;
   }
   .auth-banner {
-    margin: 8px 12px 0;
+    width: calc(100% - 24px);
+    margin-top: 8px;
     padding: 12px;
   }
 }
@@ -1051,3 +1136,438 @@ button.icon-button {
 .instruction-profile-list { padding-inline-start: 1.5rem; }
 .instruction-profile-list li { margin: .75rem 0; }
 .instruction-profile-list button { margin-inline-start: .75rem; }
+
+/* ---- ヘッダーの折りたたみ ----
+   幅に余裕がないときは、補足の文を省いて1行に収める。さらに狭いときは、メニューを開閉式にする */
+@media (max-width: 1360px) {
+  .account-hint {
+    display: none;
+  }
+  .account-email {
+    max-width: 10em;
+  }
+  .site-nav a,
+  .nav-more-toggle {
+    padding: 6px 12px;
+  }
+}
+@media (max-width: 1120px) {
+  .site-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: 8px;
+  }
+  .site-header-quick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .site-menu {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border);
+  }
+  .site-menu.open {
+    display: block;
+  }
+  .site-nav-wrap {
+    display: block;
+  }
+  .site-nav,
+  .nav-more-list {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .site-nav a,
+  .nav-more-list a {
+    display: flex;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 16px;
+  }
+  .nav-more {
+    position: static;
+  }
+  .nav-more-toggle {
+    display: none;
+  }
+  .nav-more-heading {
+    display: block;
+    margin: 8px 12px 2px;
+    font-size: 13px;
+    color: var(--color-label);
+  }
+  .nav-more-list,
+  .nav-more.open .nav-more-list {
+    display: flex;
+    position: static;
+    min-width: 0;
+    padding: 0;
+    border: none;
+  }
+  .account {
+    margin: 8px 0 0;
+    padding: 12px 12px 4px;
+    border-top: 1px solid var(--color-border);
+  }
+  /* ログインのボタンはヘッダーの行に出す（quick-login） */
+  .account-login {
+    display: none;
+  }
+  .account-hint {
+    display: inline;
+  }
+  .account-email {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ---- トップページ（ほかの画面に影響しないよう .home-page の中だけ） ---- */
+
+.home-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px 32px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.home-hero h1 {
+  font-size: 28px;
+  line-height: 1.4;
+  text-wrap: balance;
+  margin: 8px 0 8px;
+}
+.home-lead {
+  max-width: 40em;
+  margin: 0 0 16px;
+}
+.home-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.home-page .home-cta-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 24px;
+  font-size: 17px;
+}
+.home-page .home-intro > .panel {
+  margin: 0;
+}
+.home-login p {
+  margin: 0 0 12px;
+}
+.home-login p.note {
+  margin: 12px 0 0;
+}
+.home-page .home-login-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+}
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+.home-head h1 {
+  margin: 4px 0;
+}
+.home-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 14px;
+}
+.home-usage-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-label);
+}
+.home-usage p {
+  margin: 0;
+}
+.doc-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* 状態（所要時間）と日時は、題目が長くても細切れに折り返さない */
+@media (min-width: 641px) {
+  .home-page .data-table td[data-label="状態"] {
+    min-width: 9em;
+  }
+  .home-page .data-table td[data-label="開始日時"] {
+    white-space: nowrap;
+  }
+}
+@media (max-width: 960px) {
+  .home-intro {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .home-hero h1 {
+    font-size: 22px;
+    margin-top: 0;
+  }
+  .home-lead {
+    font-size: 15px;
+    margin-bottom: 12px;
+  }
+  .home-page .home-cta-button,
+  .home-page .home-login-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---- 狭い画面だけで畳む欄（解析結果のダウンロード・絞り込み）。広い画面ではボタンを出さず、常に表示する ---- */
+
+button.mobile-disclosure {
+  display: none;
+}
+@media (max-width: 640px) {
+  button.mobile-disclosure {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin: 8px 0 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    font-weight: 700;
+  }
+  button.mobile-disclosure[aria-expanded="true"] {
+    border-color: var(--color-primary);
+  }
+  button.mobile-disclosure[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+  }
+  .dashboard .downloads:not(.open),
+  .dashboard .filters:not(.open) {
+    display: none;
+  }
+  .dashboard .downloads.open {
+    margin-top: 8px;
+  }
+  /* 畳んだ絞り込みのボタンと、その下の総指摘数の間をあける */
+  .dashboard > button.mobile-disclosure[aria-expanded="false"] {
+    margin-bottom: 16px;
+  }
+}
+
+/* ---- ログインが必要な画面の案内（ゲスト向け） ---- */
+
+.login-required p {
+  margin: 0 0 12px;
+}
+.login-required p.note {
+  margin: 12px 0 0;
+}
+.login-required-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.login-required-actions > * {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .login-required-actions > * {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* ---- 表の共通の部品 ---- */
+
+/* 番号・種類・確度など、短い値を1文字ずつ折り返さない */
+.data-table .nowrap {
+  white-space: nowrap;
+}
+/* 行ごとの操作のボタン（セル自体は表のセルのまま、中で横に並べる） */
+.row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.data-table td.cell-actions {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  table.responsive td.cell-actions {
+    padding-top: 8px;
+  }
+  table.responsive td.cell-actions .row-buttons,
+  table.responsive td.cell-actions > button {
+    width: 100%;
+  }
+  .row-buttons > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* 「確認項目を作る」などの操作は、入力欄の幅いっぱいに広げない */
+.instruction-composer > button {
+  justify-self: start;
+}
+@media (max-width: 640px) {
+  .instruction-composer > button {
+    justify-self: stretch;
+  }
+}
+
+/* 注釈付きPDF：見出しとダウンロードを同じ行に */
+.annotated-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.annotated-head h1 {
+  margin: 0;
+}
+/* 指摘の詳細：デモの解析の説明と「元に戻す」 */
+.demo-note {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.demo-note p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .annotated-head > a {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* PDF ビューア：拡大したときは枠の中で横にスクロールする */
+.pdf-toolbar {
+  flex-wrap: wrap;
+}
+.pdf-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.pdf-zoom button {
+  min-width: 40px;
+}
+.pdf-scroll {
+  overflow: auto;
+  max-width: 100%;
+}
+.pdf-scroll .pdf-page {
+  max-width: none;
+}
+@media (max-width: 640px) {
+  .pdf-zoom {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .pdf-zoom button {
+    min-width: 56px;
+  }
+}
+
+/* 指摘の一覧（スマートフォン）：1件を短いカードにする
+   1行目：番号・重大度・種類・ページ、2行目：指摘、3行目：確度・ステータス */
+@media (max-width: 640px) {
+  table.responsive.findings tr {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 12px 0;
+  }
+  table.responsive.findings th[scope="row"],
+  table.responsive.findings td {
+    display: block;
+    padding: 0;
+  }
+  table.responsive.findings th[data-label]::before,
+  table.responsive.findings td[data-label]::before {
+    content: none;
+  }
+  table.responsive.findings td[data-label="ページ"]::before {
+    content: "p.";
+    color: var(--color-label);
+    font-size: 13px;
+  }
+  table.responsive.findings td[data-label="指摘"] {
+    grid-column: 1 / -1;
+  }
+  table.responsive.findings td[data-label="確度"] {
+    grid-column: 1 / 3;
+    font-size: 14px;
+  }
+  table.responsive.findings td[data-label="確度"]::before {
+    content: "確度 ";
+    color: var(--color-label);
+    font-size: 13px;
+  }
+  table.responsive.findings td[data-label="確度"]:empty {
+    display: none;
+  }
+  table.responsive.findings td[data-label="ステータス"] {
+    grid-column: 3 / -1;
+    justify-self: end;
+    font-size: 14px;
+  }
+}
+
+/* 失敗した解析のやり直し（トップの一覧の操作・解析結果の画面） */
+.home-row-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.home-row-actions > button {
+  white-space: nowrap;
+}
+.retry-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.retry-actions p {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .home-row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .retry-actions > button {
+    width: 100%;
+  }
+}

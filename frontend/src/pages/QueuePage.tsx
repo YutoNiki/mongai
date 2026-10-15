@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { AuthChecking, LoginRequired } from "../components/LoginRequired";
 import { api, type QueueItem } from "../lib/api";
+import { useAnalysisTitles } from "../lib/analysisTitles";
+import { useAuth } from "../lib/auth";
 import { DECISION_LABELS, REQUEST_KIND_LABELS, label } from "../lib/labels";
 import { describeRequest } from "../lib/requests";
 import { Link } from "../lib/router";
+import { useDocumentTitle } from "../lib/title";
 
 /** 承認キュー（SPEC 2.3）。承認した要求だけが学外に送信される */
 export function QueuePage() {
+  useDocumentTitle("承認キュー");
+  const { state: auth } = useAuth();
+  const signedIn = auth.kind === "user";
+  const titles = useAnalysisTitles(signedIn);
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,7 +22,9 @@ export function QueuePage() {
   const load = useCallback(() => {
     api.queue().then(setItems, () => setMessage("承認キューを読み込めませんでした"));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (signedIn) load();
+  }, [load, signedIn]);
 
   /**
    * 表示中の要求をすべて1件ずつ順に処理する（途中で失敗しても残りを続け、結果を件数でまとめて知らせる）。
@@ -58,6 +68,20 @@ export function QueuePage() {
     }
   };
 
+  // ゲストには API を問い合わせず、ログインの案内だけを出す（API はゲストに 401 を返す）
+  if (!signedIn)
+    return (
+      <div className="page">
+        <h1>承認キュー</h1>
+        {auth.kind === "loading" ? (
+          <AuthChecking />
+        ) : (
+          <LoginRequired path="/queue">
+            自分の解析で、学外への送信に承認が必要な要求（用語の照会など）を確認し、承認・却下できます。
+          </LoginRequired>
+        )}
+      </div>
+    );
   return (
     <div className="page">
       <h1>承認キュー</h1>
@@ -100,8 +124,10 @@ export function QueuePage() {
                   <tr>
                     <th scope="col">種類</th>
                     <th scope="col">内容</th>
-                    <th scope="col">解析</th>
-                    <th scope="col">操作</th>
+                    <th scope="col">文書</th>
+                    <th scope="col">
+                      <span className="visually-hidden">操作</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -109,10 +135,13 @@ export function QueuePage() {
                     <tr key={item.request_id}>
                       <td data-label="種類">{label(REQUEST_KIND_LABELS, item.kind)}</td>
                       <td data-label="内容">{describeRequest(item.request)}</td>
-                      <td data-label="解析">
-                        <Link href={`/analyses/${item.analysis_id}`}>{item.analysis_id}</Link>
+                      <td data-label="文書">
+                        <Link href={`/analyses/${item.analysis_id}`} className="doc-title">
+                          {titles.get(item.analysis_id) ?? item.analysis_id}
+                        </Link>
                       </td>
-                      <td className="status-buttons" data-label="操作">
+                      <td className="cell-actions">
+                        <div className="row-buttons">
                         <button type="button" disabled={busy} onClick={() => void decide(item, "approve")}>
                           承認して送信
                         </button>
@@ -124,6 +153,7 @@ export function QueuePage() {
                         >
                           却下
                         </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

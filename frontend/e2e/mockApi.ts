@@ -19,7 +19,7 @@ function fixture<T>(name: string): T {
 export const summary = fixture<AnalysisSummary>("summary.json");
 export const analysisId = summary.analysis.analysis_id;
 const initialFindings = fixture<Finding[]>("findings.json");
-const list = fixture<AnalysisListItem[]>("analyses.json");
+export const list = fixture<AnalysisListItem[]>("analyses.json");
 const paper = readFileSync(resolve(FIXTURES, "paper.pdf"));
 
 /** ルールの画面用の合成のルール（組み込み1件・抽出した未確認2件） */
@@ -99,10 +99,16 @@ export interface MockApi {
   /** アップロードされたファイルの数と、解析を始めた論文の ID */
   uploads: number;
   started: string[];
+  /** 解析の開始（POST /api/analyses）の本文 */
+  startBodies: Record<string, unknown>[];
   /** ログインの状態（GET /api/me の応答。"expired" は 401 invalid_session） */
   me: Me | "expired";
   /** POST /auth/logout の回数 */
   logouts: number;
+  /** 解析の一覧（GET /api/analyses の応答） */
+  analyses: AnalysisListItem[];
+  /** DELETE /api/documents/{doc_id} で削除した文書 */
+  deleted: string[];
 }
 
 /** 合成の利用者（ログインした状態） */
@@ -123,10 +129,11 @@ function filtered(findings: Finding[], params: URLSearchParams): Finding[] {
  * sample：解析の集計の `sample`（デモかどうか）を差し替える。省くと保存した応答のまま（デモ）
  * me：ログインの状態。省くとログインした利用者
  * logoutStatus：POST /auth/logout の応答のステータス（省くと 204）
+ * analyses：解析の一覧（省くと保存した応答のまま。デモ1件）
  */
 export async function mockApi(
   page: Page,
-  options: { sample?: boolean; me?: Me | "expired"; logoutStatus?: number } = {},
+  options: { sample?: boolean; me?: Me | "expired"; logoutStatus?: number; analyses?: AnalysisListItem[] } = {},
 ): Promise<MockApi> {
   const state: MockApi = {
     labComments: sampleLabComments(),
@@ -139,8 +146,11 @@ export async function mockApi(
     terms: [],
     uploads: 0,
     started: [],
+    startBodies: [],
     me: options.me ?? SIGNED_IN,
     logouts: 0,
+    analyses: structuredClone(options.analyses ?? list),
+    deleted: [],
   };
   const json = (body: unknown, status = 200) => ({
     status,
@@ -167,7 +177,7 @@ export async function mockApi(
 
     if (path === "/api/me")
       return route.fulfill(state.me === "expired" ? json({ detail: "invalid_session" }, 401) : json(state.me));
-    if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(list));
+    if (path === "/api/analyses" && request.method() === "GET") return route.fulfill(json(state.analyses));
     if (path === "/api/usage/today")
       return route.fulfill(json({ day: "2026-10-13", requests: 120, prompt_tokens: 340000, completion_tokens: 410000 }));
     if (path === "/api/instruction-profiles" && request.method() === "GET") return route.fulfill(json([]));
@@ -239,6 +249,13 @@ export async function mockApi(
       state.labComments = state.labComments.filter((c) => c.comment_id !== decodeURIComponent(labDelete[1] ?? ""));
       return route.fulfill({ status: 204 });
     }
+    const documentDelete = path.match(/^\/api\/documents\/([^/]+)$/);
+    if (documentDelete && request.method() === "DELETE") {
+      const docId = decodeURIComponent(documentDelete[1] ?? "");
+      state.deleted.push(docId);
+      state.analyses = state.analyses.filter((a) => a.doc_id !== docId);
+      return route.fulfill({ status: 204 });
+    }
     if (path === "/api/documents" && request.method() === "POST") {
       state.uploads += 1;
       const docId = `${state.uploads}`.padStart(16, "0");
@@ -247,6 +264,7 @@ export async function mockApi(
     if (path === "/api/analyses" && request.method() === "POST") {
       const body = request.postDataJSON() as { doc_id: string };
       state.started.push(body.doc_id);
+      state.startBodies.push(body);
       return route.fulfill(json({ ...summary, analysis: { ...summary.analysis, status: "queued" } }, 201));
     }
     if (path === "/api/gateway/queue") return route.fulfill(json(state.queue));

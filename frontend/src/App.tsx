@@ -3,7 +3,8 @@ import { Suspense } from "react";
 import { Layout } from "./components/Layout";
 import { AuthProvider } from "./lib/auth";
 import { AnnotatedPage, DashboardPage, DetailPage } from "./lib/pages";
-import { matchRoute, usePath } from "./lib/router";
+import { Link, matchRoute, usePath } from "./lib/router";
+import { useDocumentTitle } from "./lib/title";
 import { AuditPage } from "./pages/AuditPage";
 import { DefinitionsPage } from "./pages/DefinitionsPage";
 import { HomePage } from "./pages/HomePage";
@@ -26,7 +27,7 @@ function Route({ path }: { path: string }) {
   if (path === "/lab") return <LabPage />;
   if (path === "/definitions") return <DefinitionsPage />;
   if (path === "/") return <HomePage />;
-  return <p className="page">ページが見つかりません。</p>;
+  return <NotFound />;
 }
 
 export function App() {
@@ -39,5 +40,21 @@ export function App() {
         </Suspense>
       </Layout>
     </AuthProvider>
+  );
+}
+
+/** 存在しない URL */
+function NotFound() {
+  useDocumentTitle("ページが見つかりません");
+  return (
+    <div className="page">
+      <h1>ページが見つかりません</h1>
+      <section className="panel">
+        <p>URL が間違っているか、ページが移動・削除された可能性があります。</p>
+        <Link href="/" className="button-primary-link">
+          ダッシュボードへ戻る
+        </Link>
+      </section>
+    </div>
   );
 }

@@ -5,7 +5,9 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { AuthChecking, LoginRequired } from "../components/LoginRequired";
 import { api, type Rule, type RuleDocument, type RuleStatus } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import {
   CHECK_TYPE_LABELS,
   RULE_STATUS_LABELS,
@@ -13,6 +15,7 @@ import {
   TARGET_SECTION_LABELS,
   label,
 } from "../lib/labels";
+import { useDocumentTitle } from "../lib/title";
 
 const DOCUMENT_STATUS: Record<string, string> = {
   queued: "順番待ち",
@@ -79,6 +82,9 @@ function RuleEditor({ rule, onSaved, onCancel }: { rule: Rule; onSaved: (r: Rule
 }
 
 export function RulesPage() {
+  useDocumentTitle("ルール");
+  const { state: auth } = useAuth();
+  const signedIn = auth.kind === "user";
   const [rules, setRules] = useState<Rule[] | null>(null);
   const [documents, setDocuments] = useState<RuleDocument[]>([]);
   const [statusFilter, setStatusFilter] = useState<"" | RuleStatus>("");
@@ -91,7 +97,9 @@ export function RulesPage() {
     api.rules().then(setRules, () => setMessage("ルールを読み込めませんでした"));
     api.ruleDocuments().then(setDocuments, () => setDocuments([]));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (signedIn) load();
+  }, [load, signedIn]);
   const extracting = documents.some((d) => ACTIVE.has(d.status));
   useEffect(() => {
     if (!extracting) return;
@@ -159,6 +167,20 @@ export function RulesPage() {
     }
   };
 
+  // ゲストには API を問い合わせず、ログインの案内だけを出す（API はゲストに 401 を返す）
+  if (!signedIn)
+    return (
+      <div className="page">
+        <h1>ルール</h1>
+        {auth.kind === "loading" ? (
+          <AuthChecking />
+        ) : (
+          <LoginRequired path="/rules">
+            投稿規定やライティングガイドから書き方のルールを取り出し、確認・承認して解析に使えます。ルールは利用者ごとに管理します。
+          </LoginRequired>
+        )}
+      </div>
+    );
   return (
     <div className="page">
       <h1>ルール</h1>
@@ -200,9 +222,11 @@ export function RulesPage() {
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </label>
-            <button type="submit" disabled={!file || busy}>
-              {busy ? "登録中…" : "登録してルールを抽出する"}
-            </button>
+            <div className="upload-actions">
+              <button type="submit" disabled={!file || busy}>
+                {busy ? "登録中…" : "登録してルールを抽出する"}
+              </button>
+            </div>
           </form>
         </section>
       </div>
@@ -239,7 +263,7 @@ export function RulesPage() {
                     <td data-label="操作">
                       <button
                         type="button"
-                        className="button-secondary"
+                        className="button-danger"
                         disabled={ACTIVE.has(d.status)}
                         onClick={() => void removeDocument(d)}
                       >
@@ -320,7 +344,8 @@ export function RulesPage() {
                     </td>
                     <td data-label="判定方法">{label(CHECK_TYPE_LABELS, r.check_type)}</td>
                     <td data-label="出典">{sourceText(r)}</td>
-                    <td className="status-buttons" data-label="操作">
+                    <td className="cell-actions">
+                      <div className="row-buttons">
                       {r.status !== "approved" && (
                         <button type="button" onClick={() => void setStatus(r, "approved")}>
                           承認
@@ -336,6 +361,7 @@ export function RulesPage() {
                           編集
                         </button>
                       )}
+                      </div>
                     </td>
                   </tr>
                 ))}

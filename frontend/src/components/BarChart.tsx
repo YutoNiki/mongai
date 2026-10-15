@@ -4,6 +4,7 @@
  * - 値を棒の近くに直接表示する（色だけに頼らない・フォーカスしなくても数値が読める）
  * - 不要なグリッド線・3D・影・アニメーションは使わない
  * - 代替テキスト、表形式での表示、CSV のダウンロードを用意する
+ * - 縦棒で項目名が重なる狭い幅（スマートフォン）では、同じ並び順のまま横棒にする
  */
 
 import { BarChart as EBarChart } from "echarts/charts";
@@ -14,6 +15,9 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { toCsv } from "../lib/summary";
 import { colors } from "../theme/palette";
+
+/** 縦棒1本あたりに要る幅（これより狭いと項目名が重なる） */
+const MIN_COLUMN_WIDTH = 72;
 
 echarts.use([EBarChart, GridComponent, AriaComponent, CanvasRenderer]);
 
@@ -32,10 +36,23 @@ interface Props {
   onSelect?: (index: number) => void;
 }
 
-export function BarChart({ title, unit, data, description, horizontal = false, csvName, onSelect }: Props) {
+export function BarChart({ title, unit, data, description, horizontal: horizontalProp = false, csvName, onSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [showTable, setShowTable] = useState(false);
+  // 縦棒の項目名が重なる幅か（グラフの枠の幅を見て決める）
+  const [cramped, setCramped] = useState(false);
+  const horizontal = horizontalProp || cramped;
   const descId = useId();
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || horizontalProp) return;
+    const measure = () => setCramped(el.clientWidth < data.length * MIN_COLUMN_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [data.length, horizontalProp, showTable]);
 
   useEffect(() => {
     const el = ref.current;

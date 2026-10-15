@@ -5,9 +5,12 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
+import { AuthChecking, LoginRequired } from "../components/LoginRequired";
 import { api, type LabComment, type LabDocument } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { LAB_CATEGORY_LABELS, label } from "../lib/labels";
 import { Link } from "../lib/router";
+import { useDocumentTitle } from "../lib/title";
 
 const DOCUMENT_STATUS: Record<string, string> = {
   queued: "順番待ち",
@@ -19,6 +22,9 @@ const ACTIVE = new Set(["queued", "running"]);
 const REFRESH_MS = 5_000;
 
 export function LabPage() {
+  useDocumentTitle("専門知識");
+  const { state: auth } = useAuth();
+  const signedIn = auth.kind === "user";
   const [documents, setDocuments] = useState<LabDocument[]>([]);
   const [comments, setComments] = useState<LabComment[] | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -29,7 +35,9 @@ export function LabPage() {
     api.labDocuments().then(setDocuments, () => setMessage("資料の一覧を読み込めませんでした"));
     api.labComments().then(setComments, () => setComments([]));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (signedIn) load();
+  }, [load, signedIn]);
   const importing = documents.some((d) => ACTIVE.has(d.status));
   useEffect(() => {
     if (!importing) return;
@@ -77,6 +85,20 @@ export function LabPage() {
     }
   };
 
+  // ゲストには API を問い合わせず、ログインの案内だけを出す（API はゲストに 401 を返す）
+  if (!signedIn)
+    return (
+      <div className="page">
+        <h1>専門知識</h1>
+        {auth.kind === "loading" ? (
+          <AuthChecking />
+        ) : (
+          <LoginRequired path="/lab">
+            過去の査読コメントや添削メモを登録し、解析のときに「以前この種の箇所で指摘された」として示せます。資料は利用者ごとに管理します。
+          </LoginRequired>
+        )}
+      </div>
+    );
   return (
     <div className="page">
       <h1>専門知識</h1>
@@ -111,9 +133,11 @@ export function LabPage() {
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </label>
-            <button type="submit" disabled={!file || busy}>
-              {busy ? "登録中…" : "登録して取り込む"}
-            </button>
+            <div className="upload-actions">
+              <button type="submit" disabled={!file || busy}>
+                {busy ? "登録中…" : "登録して取り込む"}
+              </button>
+            </div>
           </form>
         </section>
       </div>
@@ -157,7 +181,7 @@ export function LabPage() {
                     <td data-label="操作">
                       <button
                         type="button"
-                        className="button-secondary"
+                        className="button-danger"
                         disabled={ACTIVE.has(d.status)}
                         onClick={() => void removeDocument(d)}
                       >
@@ -196,12 +220,12 @@ export function LabPage() {
               <tbody>
                 {comments.map((c) => (
                   <tr key={c.comment_id}>
-                    <td data-label="種類">{label(LAB_CATEGORY_LABELS, c.category)}</td>
+                    <td className="nowrap" data-label="種類">{label(LAB_CATEGORY_LABELS, c.category)}</td>
                     <td className="wide" data-label="指摘">{c.comment}</td>
                     <td data-label="指摘された箇所の例">{c.example ?? "-"}</td>
                     <td data-label="出典">{c.source.page ? `${c.source.doc} p.${c.source.page}` : c.source.doc}</td>
-                    <td data-label="操作">
-                      <button type="button" className="button-secondary" onClick={() => void removeComment(c)}>
+                    <td className="cell-actions">
+                      <button type="button" className="button-danger" onClick={() => void removeComment(c)}>
                         削除
                       </button>
                     </td>

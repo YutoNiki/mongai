@@ -7,8 +7,10 @@ import { PdfViewer } from "../components/PdfViewer";
 import { api, type Finding } from "../lib/api";
 import { SUBCATEGORY_LABELS, label } from "../lib/labels";
 import { Link } from "../lib/router";
+import { useDocumentTitle } from "../lib/title";
 
 export function AnnotatedPage({ analysisId }: { analysisId: string }) {
+  useDocumentTitle("注釈付きPDF");
   const [findings, setFindings] = useState<Finding[] | null>(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -36,13 +38,11 @@ export function AnnotatedPage({ analysisId }: { analysisId: string }) {
           解析結果に戻る
         </Link>
       </nav>
-      <div className="dashboard-head">
+      <div className="annotated-head">
         <h1>注釈付きPDF</h1>
-        <div className="downloads">
-          <a className="button-secondary" href={api.annotatedUrl(analysisId)} download>
-            ダウンロード
-          </a>
-        </div>
+        <a className="button-secondary" href={api.annotatedUrl(analysisId)} download>
+          注釈付きPDFをダウンロード
+        </a>
       </div>
       {error && (
         <p role="alert" className="error">
