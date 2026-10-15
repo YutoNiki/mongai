@@ -1,0 +1,109 @@
+# SI-NSA の CI（docs/deploy.md）。
+# テストは Makefile 経由で、ローカルと同じネットワークなしのコンテナで実行する。
+# GitHub に送られるのはリポジトリの内容（公開論文・合成データのテスト用データを含む）だけ。.env や論文データは使わない。
+# おいとまAPI・Google に実際に繋ぐテスト（make check-api・tests/security/run.sh）は学内のサーバーで実行する。
+#
+# main への push で全ジョブが通ったら、その版を deploy/live ブランチに進める。
+# 運用中のサーバーは deploy/live を定期的に確かめて取り込む（scripts/deploy-live.sh）。
+# GitHub からサーバーに接続したり、サーバー上でワークフローを実行したりはしない。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make config
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make test
+      - run: make test-security-offline
+
+  test-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make test-e2e
+
+  test-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make test-integration
+      - if: always()
+        run: docker compose -f compose.yaml -f compose.test.yaml --profile test down --remove-orphans
+
+  # コミットメッセージに AI の共同著者行・生成元の表記が無いこと（SPEC 10.1。.githooks/commit-msg と同じ判定）
+  commit-msg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: コミットメッセージの検査
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            range="$HEAD -1"
+          else
+            range="$BASE..$HEAD"
+          fi
+          status=0
+          for sha in $(git rev-list $range); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
+            if ! sh .githooks/commit-msg "$RUNNER_TEMP/msg" > /dev/null 2>&1; then
+              echo "::error::拒否される行を含むコミット: $(git log -1 --format='%h %s' "$sha")"
+              status=1
+            fi
+          done
+          exit $status
+
+  # main の全ジョブが通った版を deploy/live に進める（早送りだけ。古い実行が新しい版を巻き戻さない）
+  mark-deployable:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test, test-e2e, test-integration, commit-msg]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: mark-deployable
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: deploy/live を進める
+        run: |
+          if git fetch -q origin deploy/live 2>/dev/null; then
+            current=$(git rev-parse FETCH_HEAD)
+            if ! git merge-base --is-ancestor "$current" "$GITHUB_SHA"; then
+              echo "deploy/live（$current）は $GITHUB_SHA より新しいか別系統のため、進めません"
+              exit 0
+            fi
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/deploy/live"

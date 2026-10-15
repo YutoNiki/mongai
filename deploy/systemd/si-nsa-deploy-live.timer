@@ -1,0 +1,11 @@
+# 5分おきに scripts/deploy-live.sh を実行する（docs/deploy.md）。
+[Unit]
+Description=SI-NSA: CI が通った main の取り込みを5分おきに確かめる
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

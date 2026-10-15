@@ -1,0 +1,11 @@
+# CI が通った main の版を運用中のサーバーに取り込む（scripts/deploy-live.sh、docs/deploy.md）。
+# make deploy-timer が @REPO@ をリポジトリの場所に置き換えて ~/.config/systemd/user/ に入れる。
+[Unit]
+Description=SI-NSA: CI が通った main を運用中のサーバーに取り込む
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/deploy-live.sh
+TimeoutStartSec=30min
