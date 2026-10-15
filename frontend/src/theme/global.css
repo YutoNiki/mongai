@@ -48,23 +48,39 @@ a {
   padding: 4px 8px;
 }
 
+/* ヘッダー：広い画面ではロゴ・メニュー・ログインの状態を1行に並べる */
 .site-header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 24px;
   padding: 12px 24px;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
 }
-.site-title {
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--color-text);
-  text-decoration: none;
+.site-header-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-.site-nav {
+.site-header-quick {
+  display: none;
+}
+.site-menu {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+}
+.site-nav-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.site-nav,
+.nav-more-list {
   display: flex;
   gap: 8px;
   list-style: none;
@@ -450,29 +466,92 @@ blockquote {
   width: auto;
 }
 /* メニューはボタンの形にし、今いる画面は塗りつぶして示す（色だけでなく形・太さでも区別する） */
-.site-nav a {
+.site-nav a,
+.nav-more-toggle {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   padding: 6px 14px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 15px;
+  white-space: nowrap;
   text-decoration: none;
 }
-.site-nav a:hover {
+.site-nav a:hover,
+.nav-more-toggle:hover {
   border-color: var(--color-primary);
   background: var(--color-bg-control);
 }
-.site-nav a.external-link {
-  gap: 4px;
-}
-.site-nav a[aria-current="page"] {
+.site-nav a[aria-current="page"],
+.nav-more-toggle.is-current,
+.nav-more-list a[aria-current="page"] {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: var(--color-text-on-dark);
   font-weight: 700;
+}
+.nav-more-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+/* 「その他」：ボタンの下に一覧を開く（影は使わず枠で区切る） */
+.nav-more {
+  position: relative;
+}
+.nav-more-heading {
+  display: none;
+}
+.nav-more-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 14em;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.nav-more.open .nav-more-list {
+  display: flex;
+}
+.nav-more-list a {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-more-list a:hover {
+  background: var(--color-bg-control);
+}
+/* 狭い画面のメニューのボタン */
+button.menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+button.menu-toggle[aria-expanded="true"] {
+  border-color: var(--color-primary);
+}
+.quick-login {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 .button-secondary:hover {
   background: var(--color-bg-control);
@@ -493,32 +572,11 @@ blockquote {
     font-size: 15px;
   }
   .site-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    padding: max(8px, env(safe-area-inset-top)) 12px 0;
+    padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px
+      max(12px, env(safe-area-inset-left));
   }
   .site-logo img {
     height: 30px;
-  }
-  /* メニューは横にスクロールできる1行にし、押しやすい大きさにする */
-  .site-nav-wrap {
-    /* 縦並びの flex の中で、中身の幅に合わせて広がらないようにする（横スクロールを枠の中に収める） */
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .site-nav {
-    gap: 4px;
-    white-space: nowrap;
-  }
-  .site-nav {
-    padding-bottom: 8px;
-  }
-  .site-nav a {
-    padding: 10px 14px;
-    min-height: 44px;
   }
   .page {
     padding: 12px 12px max(32px, env(safe-area-inset-bottom));
@@ -913,7 +971,12 @@ button.icon-button {
   gap: 4px;
 }
 .account-email {
-  overflow-wrap: anywhere;
+  display: inline-block;
+  max-width: 18em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 /* ページ遷移のリンク（Google のログイン画面へ移る）を、主ボタンの形で示す */
 .button-primary-link {
@@ -954,10 +1017,6 @@ button.icon-button {
 }
 
 @media (max-width: 640px) {
-  .account {
-    margin-left: 0;
-    padding-bottom: 8px;
-  }
   .button-primary-link {
     min-height: 44px;
     padding: 10px 16px;
@@ -1049,3 +1108,96 @@ button.icon-button {
 .instruction-profile-list { padding-inline-start: 1.5rem; }
 .instruction-profile-list li { margin: .75rem 0; }
 .instruction-profile-list button { margin-inline-start: .75rem; }
+
+/* ---- ヘッダーの折りたたみ ----
+   幅に余裕がないときは、補足の文を省いて1行に収める。さらに狭いときは、メニューを開閉式にする */
+@media (max-width: 1360px) {
+  .account-hint {
+    display: none;
+  }
+  .account-email {
+    max-width: 10em;
+  }
+  .site-nav a,
+  .nav-more-toggle {
+    padding: 6px 12px;
+  }
+}
+@media (max-width: 1120px) {
+  .site-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: 8px;
+  }
+  .site-header-quick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .site-menu {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border);
+  }
+  .site-menu.open {
+    display: block;
+  }
+  .site-nav-wrap {
+    display: block;
+  }
+  .site-nav,
+  .nav-more-list {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .site-nav a,
+  .nav-more-list a {
+    display: flex;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 16px;
+  }
+  .nav-more {
+    position: static;
+  }
+  .nav-more-toggle {
+    display: none;
+  }
+  .nav-more-heading {
+    display: block;
+    margin: 8px 12px 2px;
+    font-size: 13px;
+    color: var(--color-label);
+  }
+  .nav-more-list,
+  .nav-more.open .nav-more-list {
+    display: flex;
+    position: static;
+    min-width: 0;
+    padding: 0;
+    border: none;
+  }
+  .account {
+    margin: 8px 0 0;
+    padding: 12px 12px 4px;
+    border-top: 1px solid var(--color-border);
+  }
+  /* ログインのボタンはヘッダーの行に出す（quick-login） */
+  .account-login {
+    display: none;
+  }
+  .account-hint {
+    display: inline;
+  }
+  .account-email {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+

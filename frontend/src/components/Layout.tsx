@@ -1,15 +1,20 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { loginUrl, logout, useAuth } from "../lib/auth";
 import { Link, usePath } from "../lib/router";
 import { ApprovalNotice } from "./ApprovalNotice";
 import logoUrl from "../assets/brand/logo.svg";
 
+/** よく使う画面（ヘッダーに常に並べる） */
 const MENU: [string, string][] = [
   ["/", "ダッシュボード"],
   ["/rules", "ルール"],
   ["/instructions", "課題・提出要件"],
   ["/lab", "専門知識"],
+];
+
+/** ときどき使う画面（「その他」にまとめる） */
+const MORE_MENU: [string, string][] = [
   ["/audit", "外部通信ログ"],
   ["/queue", "承認キュー"],
   ["/definitions", "データの定義"],
@@ -30,6 +35,21 @@ function ExternalLinkIcon() {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** メニューのアイコン（3本線） */
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d={open ? "M6 6l12 12M18 6 6 18" : "M4 7h16M4 12h16M4 17h16"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
       />
     </svg>
   );
@@ -56,8 +76,9 @@ function Account({ path }: { path: string }) {
       setBusy(false);
     }
   };
+  // 狭い画面ではヘッダーの行に別のログインのボタンを出すので、ここのボタンは隠す（CSS の account-login）
   const login = (
-    <a className="button-primary-link" href={loginUrl(path)}>
+    <a className="button-primary-link account-login" href={loginUrl(path)}>
       Googleでログイン
     </a>
   );
@@ -68,7 +89,7 @@ function Account({ path }: { path: string }) {
         <>
           <span className="account-status">
             <strong>ゲスト</strong>
-            <span className="note">（共通デモの閲覧のみ）</span>
+            <span className="note account-hint">（共通デモの閲覧のみ）</span>
           </span>
           {login}
         </>
@@ -76,7 +97,10 @@ function Account({ path }: { path: string }) {
       {state.kind === "user" && (
         <>
           <span className="account-status">
-            <span className="note">ログイン中</span> <strong className="account-email">{state.email ?? state.displayName ?? "利用者"}</strong>
+            <span className="note">ログイン中</span>{" "}
+            <strong className="account-email" title={state.email ?? state.displayName ?? undefined}>
+              {state.email ?? state.displayName ?? "利用者"}
+            </strong>
           </span>
           <button type="button" className="button-secondary" onClick={() => void signOut()} disabled={busy}>
             ログアウト
@@ -138,41 +162,137 @@ function AuthBanner({ path }: { path: string }) {
   );
 }
 
+/** 狭い画面で、ヘッダーの行に出すログインのボタン（ゲスト・期限切れのとき） */
+function QuickLogin({ path }: { path: string }) {
+  const { state } = useAuth();
+  if (state.kind !== "guest" && state.kind !== "expired") return null;
+  return (
+    <a className="button-primary-link quick-login" href={loginUrl(path)} aria-label="Googleでログイン">
+      ログイン
+    </a>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const path = usePath();
+  // 狭い画面のメニュー（開閉）と、広い画面の「その他」の一覧（開閉）
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const closeMenus = () => {
+    setMenuOpen(false);
+    setMoreOpen(false);
+  };
+  // 画面を移ったら閉じる（戻る・進むでも）
+  useEffect(() => {
+    setMenuOpen(false);
+    setMoreOpen(false);
+  }, [path]);
+  // 「その他」は、外側を押したら閉じる
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [moreOpen]);
+  // Esc で閉じて、開いたボタンにフォーカスを戻す
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Escape") return;
+    if (moreOpen) {
+      setMoreOpen(false);
+      moreButton.current?.focus();
+    } else if (menuOpen) {
+      setMenuOpen(false);
+      menuButton.current?.focus();
+    }
+  };
+  // キーボードで「その他」の外へフォーカスが移ったら閉じる
+  const onMoreBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMoreOpen(false);
+  };
+  const moreCurrent = MORE_MENU.some(([href]) => isCurrent(href, path));
+  const item = ([href, text]: [string, string]) => (
+    <li key={href}>
+      <Link href={href} aria-current={isCurrent(href, path) ? "page" : undefined} onClick={closeMenus}>
+        {text}
+      </Link>
+    </li>
+  );
   return (
     <>
       <a className="skip-link" href="#main">
         本文へ移動
       </a>
-      <header className="site-header">
-        <Link href="/" className="site-logo">
-          <img
-            src={logoUrl}
-            alt="SI-NSA"
-            width={140}
-            height={40}
-          />
-        </Link>
-        <nav aria-label="メニュー" className="site-nav-wrap">
-          <ul className="site-nav">
-            {MENU.map(([href, text]) => (
-              <li key={href}>
-                <Link href={href} aria-current={isCurrent(href, path) ? "page" : undefined}>
-                  {text}
-                </Link>
-              </li>
-            ))}
-            <li>
-              <a className="external-link" href={FEEDBACK_FORM_URL} target="_blank" rel="noopener noreferrer">
-                ご意見・ご要望
-                <ExternalLinkIcon />
-                <span className="visually-hidden">（新しいタブで開きます）</span>
-              </a>
-            </li>
-          </ul>
-        </nav>
-        <Account path={path} />
+      <header className="site-header" onKeyDown={onKeyDown}>
+        <div className="site-header-bar">
+          <Link href="/" className="site-logo">
+            <img
+              src={logoUrl}
+              alt="SI-NSA"
+              width={140}
+              height={40}
+            />
+          </Link>
+          <div className="site-header-quick">
+            <QuickLogin path={path} />
+            <button
+              ref={menuButton}
+              type="button"
+              className="menu-toggle"
+              aria-expanded={menuOpen}
+              aria-controls="site-menu"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <MenuIcon open={menuOpen} />
+              <span>メニュー</span>
+            </button>
+          </div>
+        </div>
+        <div id="site-menu" className={menuOpen ? "site-menu open" : "site-menu"}>
+          <nav aria-label="メニュー" className="site-nav-wrap">
+            <ul className="site-nav">{MENU.map(item)}</ul>
+            <div className={moreOpen ? "nav-more open" : "nav-more"} ref={moreRef} onBlur={onMoreBlur}>
+              <button
+                ref={moreButton}
+                type="button"
+                className={moreCurrent ? "nav-more-toggle is-current" : "nav-more-toggle"}
+                aria-expanded={moreOpen}
+                aria-controls="nav-more-list"
+                onClick={() => setMoreOpen((open) => !open)}
+              >
+                その他
+                {moreCurrent && <span className="visually-hidden">（表示中の画面を含む）</span>}
+                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <p className="nav-more-heading" aria-hidden="true">
+                その他
+              </p>
+              <ul id="nav-more-list" className="nav-more-list">
+                {MORE_MENU.map(item)}
+                <li>
+                  <a
+                    className="external-link"
+                    href={FEEDBACK_FORM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={closeMenus}
+                  >
+                    ご意見・ご要望
+                    <ExternalLinkIcon />
+                    <span className="visually-hidden">（新しいタブで開きます）</span>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </nav>
+          <Account path={path} />
+        </div>
       </header>
       <AuthBanner path={path} />
       <main id="main" tabIndex={-1}>
