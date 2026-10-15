@@ -1,5 +1,7 @@
 """ダッシュボード用 API（アップロード・解析の開始・集計・指摘・CSV）。"""
 
+import csv
+import io
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -235,6 +237,32 @@ def test_single_judgement_has_no_confidence(
     rows = client.get(f"{base}.csv").content.decode("utf-8").splitlines()
     assert rows[1].startswith("F-0001,論理,主張の過大,要修正,低,")
     assert rows[2].split(",")[4] == ""
+
+
+@pytest.mark.parametrize("text", ["=1+1", "+1+1", "-1+1", "@SUM(1)", " \t=1+1", "普通の文章"])
+def test_findings_csv_escapes_formula_cells(
+    ctx: tuple[TestClient, Store, FakeQueue, bytes], text: str
+) -> None:
+    client, store, _, pdf = ctx
+    aid = seed(store, upload(client, pdf))
+    original = store.get_findings(aid)[0]
+    store.save_findings(
+        aid,
+        [
+            original.model_copy(
+                update={"quote": text, "issue": text, "rationale": text, "suggestions": [text]}
+            )
+        ],
+    )
+    store.set_finding_status(aid, original.finding_id, "dismissed", text)
+    response = client.get(f"/api/analyses/{aid}/findings.csv")
+    rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+    expected = "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
+    for column in ("該当箇所", "指摘", "理由", "改善案", "却下の理由"):
+        assert rows[0][column] == expected
+    assert rows[0]["ページ"] == str(original.page)
+    # CSV 用の無害化を保存データ・JSON には持ち込まない。
+    assert store.get_findings(aid)[0].quote == text
 
 
 def test_audit_log_when_gateway_unavailable(
