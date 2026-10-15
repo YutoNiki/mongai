@@ -532,6 +532,8 @@ blockquote {
   display: flex;
 }
 .nav-more-list a {
+  /* 読み上げ用の文言（.visually-hidden）の基準にする（上流 #29 の修正）。無いと画面の外を基準に置かれ、ページが横に広がることがある */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;

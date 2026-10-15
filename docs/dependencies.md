@@ -52,6 +52,14 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | tiktoken | 初回実行時にエンコーディングをインターネット（openaipublic.blob.core.windows.net）から取得するため。トークン数は `core/llm/budget.py` で保守的に見積もる |
 | openai（公式SDK） | httpx で十分なため依存を増やさない。SDK 自体にテレメトリはない |
 
+## CI（GitHub Actions、`.github/workflows/ci.yml`。コミットの SHA で固定）
+
+CI は GitHub のサーバーで動き、リポジトリの内容（テスト用データは公開論文・合成データだけ）だけを扱う。運用中のサーバーとは通信しない（docs/deploy.md）。
+
+| アクション | 版 | 用途 | テレメトリ・外部通信 |
+|---|---|---|---|
+| actions/checkout | v7.0.1（`3d3c42e5aac5ba805825da76410c181273ba90b1`） | リポジトリの取得 | GitHub からの取得だけ。テレメトリなし |
+
 ## コンテナイメージ（タグとダイジェストで固定）
 
 | イメージ | 使う場所 | テレメトリ・外部通信 |

@@ -6,7 +6,13 @@ import os
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from core.api.dependencies import QueueDep, RuleStoreDep, UserDep
+from core.api.dependencies import (
+    JOB_SUBMISSION_ERROR,
+    QueueDep,
+    RuleStoreDep,
+    UserDep,
+    job_unavailable,
+)
 from core.api.schemas import BulkRuleStatus
 from core.ingest.textdoc import SUFFIXES, looks_valid
 from core.rules.extract import delete_rule_file, save_document_file
@@ -70,8 +76,14 @@ async def upload_rule_document(
     if not looks_valid(kind, data):
         raise HTTPException(status_code=415, detail="ファイルの形式が拡張子と合いません")
     doc = rules.create_document(user.user_id, filename, kind)
-    save_document_file(doc.document_id, kind, data)
-    await queue.enqueue_rules(doc.document_id)
+    try:
+        save_document_file(doc.document_id, kind, data)
+        await queue.enqueue_rules(doc.document_id)
+    except Exception:
+        rules.set_document_status(
+            doc.document_id, "failed", error=JOB_SUBMISSION_ERROR, only_if_queued=True
+        )
+        raise job_unavailable() from None
     return doc
 
 

@@ -1,6 +1,7 @@
 """メタデータ（論文・文書・解析・指摘・APIの利用回数）の保存。SQLite（app_db ボリューム）。"""
 
 from core.store.db import (
+    AnalysisListRecord,
     AnalysisRecord,
     DailyUsage,
     FindingNotFoundError,
@@ -14,6 +15,7 @@ from core.store.db import (
 )
 
 __all__ = [
+    "AnalysisListRecord",
     "AnalysisRecord",
     "DailyUsage",
     "FindingNotFoundError",

@@ -159,6 +159,7 @@ make down
 - 開発・テストには、公開済みのオープンアクセス論文か合成データだけを使ってください
 - `make live` では、`core`・`gateway`・`searcher`・`worker` は Python のファイルを保存するとそのサービスだけ再起動し、画面は自動で作り直されます（ブラウザを再読み込みすると反映）。**`core/` のファイルを保存すると `worker` も再起動し、実行中の解析・抽出は失敗になります**（もう一度解析してください）。`frontend/index.html`・`vite.config.ts`・依存関係・Dockerfile を変えたときは、もう一度 `make live` を実行します。作業ツリーがそのまま公開されるので、ブランチの切り替えにも注意してください
 - ネットワーク構成・ゲートウェイ・`searcher` を変更したら、必ず `make test-security` を通してください
+- PR と main への push では GitHub Actions の CI が走り、main で通った版は運用中のサーバーに自動で取り込まれます（実行中の解析があれば待ちます）。仕組みと有効にする手順は [docs/deploy.md](docs/deploy.md) にあります
 
 ### モデルの割り当てと評価
 

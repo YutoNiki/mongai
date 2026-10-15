@@ -35,6 +35,15 @@ class JobQueue(Protocol):
     async def enqueue_instructions(self, draft_id: str) -> None: ...
 
 
+JOB_SUBMISSION_ERROR = "処理を開始できませんでした。しばらく待ってから、もう一度お試しください。"
+
+
+def job_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=503, detail=JOB_SUBMISSION_ERROR, headers={"Retry-After": "30"}
+    )
+
+
 class ArqQueue:
     """解析ジョブを Redis（arq）に積む。"""
 

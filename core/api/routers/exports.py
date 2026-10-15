@@ -31,6 +31,13 @@ from core.store.files import load_paper
 router = APIRouter()
 
 
+def _csv_cell(value: str | int) -> str | int:
+    """利用者・モデル由来の文字列を表計算ソフトの数式として実行させない。"""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
 @router.get("/analyses/{analysis_id}/findings.csv")
 def findings_csv(
     analysis_id: str,
@@ -66,18 +73,21 @@ def findings_csv(
     for f in findings:
         writer.writerow(
             [
-                f.finding_id,
-                category_label(f.category),
-                subcategory_label(f.subcategory),
-                severity_label(f.severity),
-                ("高" if f.confidence == "high" else "低") if f.voted else "",
-                f.page,
-                f.quote,
-                f.issue,
-                f.rationale,
-                " / ".join(f.suggestions),
-                status_labels[f.status],
-                f.dismiss_reason or "",
+                _csv_cell(c)
+                for c in [
+                    f.finding_id,
+                    category_label(f.category),
+                    subcategory_label(f.subcategory),
+                    severity_label(f.severity),
+                    ("高" if f.confidence == "high" else "低") if f.voted else "",
+                    f.page,
+                    f.quote,
+                    f.issue,
+                    f.rationale,
+                    " / ".join(f.suggestions),
+                    status_labels[f.status],
+                    f.dismiss_reason or "",
+                ]
             ]
         )
     # Excel で文字化けしないよう BOM を付ける
@@ -178,9 +188,7 @@ def requirements_csv(analysis_id: str, store: StoreDep, principal: PrincipalDep)
             "、".join(str(p) for p in result.pages) if result else "",
             result.suggestion if result else "",
         ]
-        writer.writerow(
-            ["'" + c if c.lstrip().startswith(("=", "+", "-", "@")) else c for c in cells]
-        )
+        writer.writerow([_csv_cell(c) for c in cells])
     return Response(
         content="\ufeff" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
