@@ -99,6 +99,8 @@ export interface MockApi {
   /** アップロードされたファイルの数と、解析を始めた論文の ID */
   uploads: number;
   started: string[];
+  /** 解析の開始（POST /api/analyses）の本文 */
+  startBodies: Record<string, unknown>[];
   /** ログインの状態（GET /api/me の応答。"expired" は 401 invalid_session） */
   me: Me | "expired";
   /** POST /auth/logout の回数 */
@@ -144,6 +146,7 @@ export async function mockApi(
     terms: [],
     uploads: 0,
     started: [],
+    startBodies: [],
     me: options.me ?? SIGNED_IN,
     logouts: 0,
     analyses: structuredClone(options.analyses ?? list),
@@ -261,6 +264,7 @@ export async function mockApi(
     if (path === "/api/analyses" && request.method() === "POST") {
       const body = request.postDataJSON() as { doc_id: string };
       state.started.push(body.doc_id);
+      state.startBodies.push(body);
       return route.fulfill(json({ ...summary, analysis: { ...summary.analysis, status: "queued" } }, 201));
     }
     if (path === "/api/gateway/queue") return route.fulfill(json(state.queue));

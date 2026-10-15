@@ -63,6 +63,9 @@ test("論文の解析結果：総指摘数・グラフの表形式・絞り込�
 
   // 絞り込み：論理のカテゴリだけにすると、一覧の行が論理の指摘だけになる
   const logicCount = summary.counts.by_category["logic"] ?? 0;
+  // スマートフォンでは絞り込みの欄が畳まれているので開く
+  const filterToggle = page.getByRole("button", { name: /^絞り込み(（条件あり）)?$/ });
+  if (await filterToggle.isVisible()) await filterToggle.click();
   await page.getByLabel("カテゴリ").selectOption("logic");
   const rows = page.getByRole("table", { name: "指摘の一覧（重大度の順）" }).locator("tbody tr");
   await expect(rows).toHaveCount(logicCount);
@@ -214,7 +217,7 @@ test("専門知識：過去の指摘を確認して削除できる", async ({ pa
 });
 
 
-test("承認待ちの外部通信をポップアップで知らせ、承認した用語の説明を解析結果に出す", async ({ page }) => {
+test("承認待ちの外部通信をヘッダーの下で知らせ、承認した用語の説明を解析結果に出す", async ({ page }) => {
   const api = await mockApi(page);
   api.queue = [
     {
@@ -256,6 +259,10 @@ test("承認待ちの外部通信をポップアップで知らせ、承認し�
   const notice = page.getByRole("status").filter({ hasText: "承認待ちの外部通信が1件あります" });
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("用語「アイソクローン」");
+  // 画面に固定せず、本文より上に置く（本文やボタンを覆わない）
+  const noticeBottom = await notice.evaluate((el) => el.getBoundingClientRect().bottom);
+  const mainTop = await page.locator("main").evaluate((el) => el.getBoundingClientRect().top);
+  expect(noticeBottom).toBeLessThanOrEqual(mainTop);
   // 「あとで」で閉じると、同じ要求はもう知らせない
   await notice.getByRole("button", { name: "あとで" }).click();
   await expect(notice).toHaveCount(0);
@@ -663,4 +670,295 @@ test("トップページ：ログインの状態・利用回数の読み込み�
   await expect(usage).not.toContainText("読み込めませんでした");
   releaseUsage();
   await expect(usage).toContainText("120回");
+});
+
+// ---- ほかの画面（ゲストの案内・解析結果のスマートフォン表示・タイルの間隔） ----
+
+test("ゲスト：ログインが必要な画面では、API を問い合わせずにログインを案内する", async ({ page }) => {
+  const api = await mockApi(page, { me: GUEST });
+  api.queue = [
+    {
+      request_id: "R-000000000001",
+      analysis_id: analysisId,
+      doc_id: summary.analysis.doc_id,
+      kind: "term_lookup",
+      request: { kind: "term_lookup", term: "アイソクローン", lang: "ja" },
+      status: "pending",
+      created_at: "2026-10-13T12:00:00+00:00",
+    },
+  ];
+  for (const [path, heading] of [
+    ["/rules", "ルール"],
+    ["/lab", "専門知識"],
+    ["/queue", "承認キュー"],
+    ["/audit", "外部通信ログ"],
+  ] as const) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+    const guide = page.getByRole("region", { name: "この画面を使うにはログインが必要です" });
+    await expect(guide).toBeVisible();
+    await expect(guide.getByRole("link", { name: "Googleでログイン" })).toHaveAttribute(
+      "href",
+      `/auth/login?next=${encodeURIComponent(path)}`,
+    );
+    // 壊れた画面（アップロードのフォーム・読み込めないという知らせ）を出さない
+    await expect(page.locator("input[type=file]")).toHaveCount(0);
+    await expect(page.getByText("読み込めませんでした", { exact: false })).toHaveCount(0);
+  }
+  // ログインが必要な API と、承認待ちの通知（承認キュー）は問い合わせない
+  const userOnly = api.requests.filter((r) => /\/api\/(rules|rule-documents|lab\/|gateway\/queue|audit-log)/.test(r));
+  expect(userOnly).toEqual([]);
+  await expect(page.getByText("承認待ちの外部通信が", { exact: false })).toHaveCount(0);
+});
+
+test("解析結果：スマートフォンでは総指摘数を最初の画面に出し、ダウンロード・絞り込みは開いて使う", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "スマートフォンの表示で確かめる");
+  await mockApi(page);
+  await page.goto(`/analyses/${analysisId}`);
+  const kpi = page.getByRole("region", { name: /^総指摘数/ });
+  await expect(kpi).toBeInViewport();
+  const downloads = page.getByRole("button", { name: "注釈付きPDF・ダウンロード" });
+  await expect(page.getByRole("link", { name: "指摘の一覧（CSV）" })).toBeHidden();
+  await downloads.click();
+  await expect(downloads).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("link", { name: "指摘の一覧（CSV）" })).toBeVisible();
+  const filters = page.getByRole("button", { name: "絞り込み", exact: true });
+  await expect(page.getByLabel("カテゴリ")).toBeHidden();
+  await filters.click();
+  await page.getByLabel("カテゴリ").selectOption("logic");
+  // 条件を付けたことは、欄を畳んでもボタンで分かる
+  const filtered = page.getByRole("button", { name: "絞り込み（条件あり）", exact: true });
+  await filtered.click();
+  await expect(filtered).toHaveAttribute("aria-expanded", "false");
+});
+
+test("解析結果：広い画面では、ダウンロードと絞り込みを畳まずに出す", async ({ page, isMobile }) => {
+  test.skip(isMobile, "広い画面で確かめる");
+  await mockApi(page);
+  await page.goto(`/analyses/${analysisId}`);
+  await expect(page.getByRole("link", { name: "指摘の一覧（CSV）" })).toBeVisible();
+  await expect(page.getByLabel("カテゴリ")).toBeVisible();
+  await expect(page.getByRole("button", { name: "注釈付きPDF・ダウンロード" })).toBeHidden();
+});
+
+test("ルール・専門知識：上段のタイルと下の欄の間をあける", async ({ page }) => {
+  await mockApi(page);
+  for (const path of ["/rules", "/lab"]) {
+    await page.goto(path);
+    const grid = page.locator(".page > .grid");
+    await expect(grid).toBeVisible();
+    const gap = await grid.evaluate((el) => {
+      const next = el.nextElementSibling;
+      return next ? next.getBoundingClientRect().top - el.getBoundingClientRect().bottom : Number.NaN;
+    });
+    expect(gap, `${path} のタイルが下の欄とくっついている`).toBeGreaterThanOrEqual(12);
+  }
+});
+
+// ---- 全体の UI の確認（折り返し・操作の列・題名・PDF の拡大など） ----
+
+/** 1行に収まっているか（2行以上に折り返すと、行の高さの倍近くになる） */
+async function singleLine(locator: ReturnType<Page["locator"]>): Promise<boolean> {
+  return locator.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 24;
+    return range.getBoundingClientRect().height < lineHeight * 1.5;
+  });
+}
+
+test("表：短い値やボタンを1文字ずつ折り返さず、操作のボタンを1行に並べる", async ({ page, isMobile }) => {
+  test.skip(isMobile, "表の列の幅は広い画面で確かめる");
+  await mockApi(page);
+  await page.goto("/lab");
+  const comments = page.getByRole("table", { name: "過去の指摘の一覧" });
+  expect(await singleLine(comments.locator('td[data-label="種類"]').first())).toBe(true);
+  expect(await singleLine(comments.getByRole("button", { name: "削除" }))).toBe(true);
+  await expect(comments.getByRole("button", { name: "削除" })).toHaveClass(/button-danger/);
+  await expect(page.getByRole("table", { name: /登録した専門知識の資料/ }).getByRole("button", { name: "削除" })).toHaveClass(
+    /button-danger/,
+  );
+
+  await page.goto(`/analyses/${analysisId}`);
+  const rows = page.getByRole("table", { name: "指摘の一覧（重大度の順）" }).locator("tbody tr");
+  expect(await singleLine(rows.first().getByRole("link").first())).toBe(true);
+  expect(await singleLine(rows.first().locator('td[data-label="確度"]'))).toBe(true);
+
+  await page.goto("/rules");
+  const pending = page.getByRole("table", { name: "ルールの一覧" }).getByRole("row").filter({ hasText: "要旨には目的" });
+  const tops = await Promise.all(
+    ["承認", "無効にする", "編集"].map(async (name) => (await pending.getByRole("button", { name }).boundingBox())?.y ?? -1),
+  );
+  expect(new Set(tops.map(Math.round)).size).toBe(1);
+  await expect(page.getByRole("button", { name: "登録してルールを抽出する" })).toHaveCSS("width", /^(?!1\d{3})\d+(\.\d+)?px$/);
+});
+
+test("承認キュー：解析 ID ではなく文書の題名を出す", async ({ page }) => {
+  const api = await mockApi(page);
+  api.queue = [
+    {
+      request_id: "R-000000000001",
+      analysis_id: analysisId,
+      doc_id: summary.analysis.doc_id,
+      kind: "term_lookup",
+      request: { kind: "term_lookup", term: "アイソクローン", lang: "ja" },
+      status: "pending",
+      created_at: "2026-10-13T12:00:00+00:00",
+    },
+  ];
+  await page.goto("/queue");
+  await expect(page.getByRole("link", { name: `（デモ）${title}` })).toHaveAttribute("href", `/analyses/${analysisId}`);
+  await expect(page.getByText(analysisId, { exact: true })).toHaveCount(0);
+});
+
+test("ブラウザのタブの題名が画面ごとに変わり、存在しない URL では戻り先を示す", async ({ page }) => {
+  await mockApi(page);
+  for (const [path, name] of [
+    ["/", "ダッシュボード"],
+    ["/rules", "ルール"],
+    ["/lab", "専門知識"],
+    ["/queue", "承認キュー"],
+    ["/audit", "外部通信ログ"],
+    ["/definitions", "データの定義"],
+    ["/instructions", "課題・提出要件"],
+    [`/analyses/${analysisId}`, `解析結果：${title}`],
+    [`/analyses/${analysisId}/annotated`, "注釈付きPDF"],
+  ] as const) {
+    await page.goto(path);
+    await expect(page).toHaveTitle(`${name}｜SI-NSA`);
+  }
+  await page.goto("/no-such-page");
+  await expect(page.getByRole("heading", { level: 1, name: "ページが見つかりません" })).toBeVisible();
+  await expect(page).toHaveTitle("ページが見つかりません｜SI-NSA");
+  await page.getByRole("link", { name: "ダッシュボードへ戻る" }).click();
+  await expect(page).toHaveURL("/");
+});
+
+test("ゲスト：課題・提出要件の画面も、ほかの画面と同じくログインを案内する", async ({ page }) => {
+  await mockApi(page, { me: GUEST });
+  await page.goto("/instructions");
+  const guide = page.getByRole("region", { name: "この画面を使うにはログインが必要です" });
+  await expect(guide).toBeVisible();
+  await expect(guide.getByRole("link", { name: "Googleでログイン" })).toHaveAttribute(
+    "href",
+    `/auth/login?next=${encodeURIComponent("/instructions")}`,
+  );
+});
+
+test("PDF：拡大でき、拡大しても画面全体は横にはみ出さない", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`/analyses/${analysisId}/annotated`);
+  const canvas = page.locator("canvas").first();
+  await expect(canvas).toBeVisible();
+  await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(100);
+  const before = (await canvas.boundingBox())?.width ?? 0;
+  await expect(page.getByRole("button", { name: "縮小" })).toBeDisabled();
+  await page.getByRole("button", { name: "拡大" }).click();
+  await expect(page.getByText("150%")).toBeVisible();
+  await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0).toBeGreaterThan(before * 1.4);
+  const scroll = await page.locator(".pdf-scroll").evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(scroll).toBeGreaterThan(0); // 枠の中で横にスクロールできる
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("スマートフォン：セクション別のグラフは項目名が重ならないよう横棒にし、指摘の一覧を短いカードにする", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "スマートフォンの表示で確かめる");
+  await mockApi(page);
+  await page.goto(`/analyses/${analysisId}`);
+  const sectionChart = page.locator("figure").filter({ hasText: "セクション別の指摘件数" }).getByRole("img");
+  // 横棒は項目の数に応じて高くなる（縦棒は 260px で固定）
+  await expect.poll(async () => (await sectionChart.boundingBox())?.height ?? 0).toBeGreaterThan(260);
+  const row = page.getByRole("table", { name: "指摘の一覧（重大度の順）" }).locator("tbody tr").first();
+  const height = (await row.boundingBox())?.height ?? 0;
+  expect(height).toBeLessThan(260);
+});
+
+test("スクロールバーの幅を常に空けておき、読み込み後にページが長くなっても本文が左右にずれない", async ({ page }) => {
+  // Playwright のブラウザはスクロールバーを表示しないため、ずれそのものではなく設定を確かめる
+  await mockApi(page);
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveCSS("scrollbar-gutter", "stable");
+});
+
+// ---- 失敗した解析のやり直し ----
+
+/** 失敗した解析（利用者のもの）を一覧と集計の API に加える。settings は解析を始めたときの設定 */
+async function withFailedAnalysis(page: Page, settings: Record<string, unknown>) {
+  const demo = list[0];
+  if (!demo) throw new Error("解析の一覧の fixture が空");
+  const failed = {
+    ...demo,
+    analysis_id: "A-0000000000f1",
+    doc_id: "00000000000000f1",
+    sample: false,
+    title: "失敗した合成論文",
+    status: "failed" as const,
+    total: 0,
+  };
+  const api = await mockApi(page, { analyses: [failed, ...list] });
+  // 解析結果の画面が読む付随の API（指摘は0件）
+  const sub: Record<string, unknown> = {
+    findings: [],
+    diff: { previous: null, resolved: [], new: [], persisting: [] },
+    terms: [],
+    requirements: { snapshot: settings["instruction_snapshot"] ?? null, results: [] },
+  };
+  await page.route(new RegExp(`/api/analyses/${failed.analysis_id}/(findings|diff|terms|requirements)(\\?.*)?$`), (route) => {
+    const key = new URL(route.request().url()).pathname.split("/").at(-1) ?? "";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(sub[key]) });
+  });
+  await page.route(`**/api/analyses/${failed.analysis_id}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...summary,
+        sample: false,
+        analysis: { ...summary.analysis, analysis_id: failed.analysis_id, doc_id: failed.doc_id, status: "failed", error: "PDF の構造化に失敗しました", settings },
+      }),
+    }),
+  );
+  return { api, failed };
+}
+
+test("失敗した解析：一覧から同じ文書・同じ設定でもう一度解析できる（デモ・完了した解析には出さない）", async ({ page }) => {
+  const { api, failed } = await withFailedAnalysis(page, { output_lang: "ja", document_type: "course_report" });
+  await page.goto("/");
+  const rows = page.getByRole("table").locator("tbody tr");
+  await expect(rows.filter({ hasText: "（デモ）" }).getByRole("button", { name: "もう一度解析する" })).toHaveCount(0);
+  await rows.filter({ hasText: failed.title }).getByRole("button", { name: "もう一度解析する" }).click();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`); // 新しい解析の画面へ
+  expect(api.uploads).toBe(0); // アップロードし直さない
+  expect(api.startBodies).toEqual([{ doc_id: failed.doc_id, output_lang: "ja", document_type: "course_report" }]);
+});
+
+test("失敗した解析：提出要件が変わっていなければ同じ確認項目でやり直し、変わっていれば理由を知らせて止める", async ({ page }) => {
+  const requirements = [{ requirement_id: "Q-1", text: "2000字以内" }];
+  const snapshot = { schema_version: 1, draft_id: "D-1", document_type: "course_report", profiles: [], raw_text: "", requirements, excluded_rule_ids: [] };
+  const { api, failed } = await withFailedAnalysis(page, { output_lang: "paper", document_type: "course_report", instruction_snapshot: snapshot });
+  let draftRequirements: unknown = requirements;
+  await page.route("**/api/instruction-drafts/D-1", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ draft_id: "D-1", document_type: "course_report", raw_text: "", profiles: [], requirements: draftRequirements, conflicts: [], status: "ready", error: null, revision: 3, confirmed: true, legacy_rules: [], excluded_rule_ids: [] }),
+    }),
+  );
+  // 確認項目が後から変わっている：解析を始めずに理由を出す
+  draftRequirements = [{ requirement_id: "Q-1", text: "1500字以内" }];
+  await page.goto(`/analyses/${failed.analysis_id}`);
+  await page.getByRole("button", { name: "同じ設定でもう一度解析する" }).click();
+  await expect(page.getByText("同じ条件ではやり直せません", { exact: false })).toBeVisible();
+  expect(api.startBodies).toEqual([]);
+  // 変わっていない：同じドラフトの今の版で解析を始める
+  draftRequirements = requirements;
+  await page.getByRole("button", { name: "同じ設定でもう一度解析する" }).click();
+  await expect(page).toHaveURL(`/analyses/${analysisId}`);
+  expect(api.startBodies).toEqual([
+    { doc_id: failed.doc_id, output_lang: "paper", document_type: "course_report", instruction_draft_id: "D-1", instruction_revision: 3 },
+  ]);
 });
