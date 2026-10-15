@@ -465,6 +465,9 @@ blockquote {
   border-color: var(--color-primary);
   background: var(--color-bg-control);
 }
+.site-nav a.external-link {
+  gap: 4px;
+}
 .site-nav a[aria-current="page"] {
   border-color: var(--color-primary);
   background: var(--color-primary);

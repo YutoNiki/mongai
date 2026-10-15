@@ -15,6 +15,26 @@ const MENU: [string, string][] = [
   ["/definitions", "データの定義"],
 ];
 
+/** ご意見・ご要望の受付（Google フォーム。リンクを開くだけで、論文などのデータは送らない） */
+const FEEDBACK_FORM_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLScdFd-8iPWnure9aQZpIleFLHzCrTbfFfuJxCS_HVbqNCVbvw/viewform?usp=dialog";
+
+/** 外部リンクのアイコン（外部の素材を使わず、SVG で描く） */
+function ExternalLinkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** 今いる画面のメニューか（論文の解析結果・指摘の詳細は「ダッシュボード」の子ページとみなす） */
 function isCurrent(href: string, path: string): boolean {
   if (href === "/") return path === "/" || path.startsWith("/analyses/");
@@ -143,6 +163,13 @@ export function Layout({ children }: { children: ReactNode }) {
                 </Link>
               </li>
             ))}
+            <li>
+              <a className="external-link" href={FEEDBACK_FORM_URL} target="_blank" rel="noopener noreferrer">
+                ご意見・ご要望
+                <ExternalLinkIcon />
+                <span className="visually-hidden">（新しいタブで開きます）</span>
+              </a>
+            </li>
           </ul>
         </nav>
         <Account path={path} />
