@@ -48,7 +48,9 @@ export function FindingsTable({
           {sortFindings(findings).map((f) => (
             <tr key={f.finding_id}>
               <th scope="row" className="nowrap" data-label="番号">
-                <Link href={`/analyses/${analysisId}/findings/${f.finding_id}`}>{f.finding_id}</Link>
+                <Link href={`/analyses/${analysisId}/findings/${f.finding_id}`} className="numeric">
+                  {f.finding_id}
+                </Link>
                 {newIds?.has(f.finding_id) && <span className="badge badge-new">新規</span>}
               </th>
               <td data-label="重大度">

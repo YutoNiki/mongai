@@ -73,7 +73,7 @@ export function AuditPage() {
               <tbody>
                 {log.entries.map((e) => (
                   <tr key={e.seq}>
-                    <td data-label="日時">{new Date(e.ts).toLocaleString("ja-JP")}</td>
+                    <td className="numeric" data-label="日時">{new Date(e.ts).toLocaleString("ja-JP")}</td>
                     <td data-label="判定">{label(DECISION_LABELS, e.decision)}</td>
                     <td data-label="種類">{e.kind ? label(REQUEST_KIND_LABELS, e.kind) : "—"}</td>
                     <td data-label="内容">{describeRequest(e.request)}</td>

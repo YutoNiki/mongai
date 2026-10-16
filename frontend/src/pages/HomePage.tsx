@@ -230,7 +230,7 @@ export function HomePage() {
                   <td className="num" data-label="指摘数">
                     {item.total}件
                   </td>
-                  <td data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
+                  <td className="numeric" data-label="開始日時">{new Date(item.created_at).toLocaleString("ja-JP")}</td>
                   <td className="row-actions">
                     <span className="home-row-actions">
                     {!item.sample && item.status === "failed" && (
@@ -348,9 +348,10 @@ export function HomePage() {
             <p>読み込めませんでした</p>
           ) : (
             <p>
-              <strong>{number(usage.requests)}回</strong>
+              <strong className="numeric">{number(usage.requests)}回</strong>
               <span className="note">
-                （入力 {number(usage.prompt_tokens)}・出力 {number(usage.completion_tokens)} トークン）
+                （入力 <span className="numeric">{number(usage.prompt_tokens)}</span>・出力{" "}
+                <span className="numeric">{number(usage.completion_tokens)}</span> トークン）
               </span>
             </p>
           )}
