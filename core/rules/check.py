@@ -158,7 +158,7 @@ async def check_rules(
             raise ValueError("入力にあるルールIDを指定してください")
         for item in output.violations:
             if item.rule_id in by_id and not quote_matches(
-                item.quote, (texts[sid].text for sid in item.sentence_ids if sid in texts)
+                item.quote, ["".join(texts[sid].text for sid in item.sentence_ids if sid in texts)]
             ):
                 raise ValueError("ルールの指摘の文ID・原文引用を確認してください")
         return output

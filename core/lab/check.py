@@ -124,7 +124,7 @@ async def check_lab(
             raise ValueError("入力にある過去の指摘IDを指定してください")
         for item in output.matches:
             if item.comment_id in by_id and not quote_matches(
-                item.quote, (texts[sid].text for sid in item.sentence_ids if sid in texts)
+                item.quote, ["".join(texts[sid].text for sid in item.sentence_ids if sid in texts)]
             ):
                 raise ValueError("過去の指摘との照合に使った文ID・原文引用を確認してください")
         return output

@@ -114,7 +114,7 @@ async def check_paragraph(
         texts = {s.sentence_id: s.text for s in target.sentences}
         for item in output.issues:
             if not item.about_truncation and not quote_matches(
-                item.quote, (texts[sid] for sid in item.sentence_ids if sid in texts)
+                item.quote, ["".join(texts[sid] for sid in item.sentence_ids if sid in texts)]
             ):
                 raise ValueError("指摘の文IDと原文引用を確認してください")
         return output

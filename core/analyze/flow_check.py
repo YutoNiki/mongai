@@ -113,8 +113,23 @@ async def check_flow(
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
 
+        def validate(output: FlowCheckOutput) -> FlowCheckOutput:
+            allowed = {targets[i].paragraph.paragraph_id for i in indexes}
+            if any(
+                item.paragraph_id not in allowed
+                or (
+                    item.previous_paragraph_id is not None
+                    and item.previous_paragraph_id not in allowed
+                )
+                for item in output.issues
+            ):
+                raise ValueError("段落間の指摘には入力中の段落IDを指定してください")
+            return output
+
         async def once() -> list[FlowIssue]:
-            output = await client.chat_json(ROLE, messages, FlowCheckOutput, lang=prompt_lang)
+            output = await client.chat_json(
+                ROLE, messages, FlowCheckOutput, lang=prompt_lang, validate=validate
+            )
             return clean_flow_issues(output.issues, targets, indexes)
 
         ballot = await vote(

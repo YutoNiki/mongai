@@ -9,8 +9,10 @@ import respx
 
 from core.analyze.citation import check_citations
 from core.analyze.context import select_targets
+from core.analyze.flow_check import check_flow
 from core.analyze.models import ParagraphIssue
 from core.analyze.paragraph_check import check_paragraph, same_issue
+from core.analyze.structure import fallback_structure
 from core.analyze.suggest import keeps_terms, suggest
 from core.analyze.voting import majority
 from core.ingest.models import Citation
@@ -82,6 +84,36 @@ async def test_missing_issues_key_is_not_a_clean_result() -> None:
 async def test_failed_majority_is_unconfirmed() -> None:
     with pytest.raises(JSONOutputError, match="未確認"):
         await _paragraph([reply({"issues": []}), httpx.Response(503), httpx.Response(503)])
+
+
+async def test_invalid_flow_ids_are_unconfirmed_instead_of_clean() -> None:
+    doc = make_doc(
+        [("1 手法", "methods", [["本文の第一段落である。"], ["本文の第二段落である。"]])]
+    )
+    targets = select_targets(doc, min_chars=1)
+    structures = {t.paragraph.paragraph_id: fallback_structure(t) for t in targets}
+    with respx.mock:
+        route = respx.post(CHAT_URL).mock(
+            return_value=reply(
+                {
+                    "issues": [
+                        {
+                            "type": "disconnection",
+                            "paragraph_id": "invented",
+                            "issue": "断絶",
+                            "rationale": "断絶",
+                            "severity": "major",
+                        }
+                    ]
+                }
+            )
+        )
+        async with OitomaClient(config(), api_key="synthetic") as client:
+            voted, _, warnings = await check_flow(
+                client, targets, structures, prompt_lang="ja", output_language="日本語"
+            )
+    assert not voted and warnings
+    assert route.call_count == 9
 
 
 async def test_fabricated_quote_is_not_substituted_for_real_text() -> None:
