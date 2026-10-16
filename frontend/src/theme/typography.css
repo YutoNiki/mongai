@@ -9,13 +9,14 @@
 
 :root {
   /* ---- 書体（役割ごと） ----
-     本文・操作：BIZ UDPGothic（判別しやすいユニバーサルデザインの書体）
+     本文（説明文・注記・指摘の文・表の文字）：Noto Sans JP（癖が少なく、長い文を落ち着いて読める）
+     操作（メニュー・ボタン・フォーム・ラベル・バッジ・ヘッダー）：BIZ UDPGothic（判別しやすいユニバーサルデザインの書体）
      見出し：Zen Kaku Gothic New（本文と字形を変えて階層を示す。700 だけを読み込む）
-     数値：IBM Plex Sans（数字がすべて同じ幅で、桁が揃う。英字だけを読み込み、日本語は本文の書体で表示）
-     Noto Sans JP：本文の書体に無い漢字（論文の題名などの稀な字）の補完だけに使う */
-  --font-family-body: "BIZ UDPGothic", "Noto Sans JP", sans-serif;
-  --font-family-heading: "Zen Kaku Gothic New", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
-  --font-family-numeric: "IBM Plex Sans", "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+     数値：IBM Plex Sans（数字がすべて同じ幅で、桁が揃う。英字だけを読み込み、日本語は本文の書体で表示） */
+  --font-family-body: "Noto Sans JP", sans-serif;
+  --font-family-ui: "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+  --font-family-heading: "Zen Kaku Gothic New", "Noto Sans JP", sans-serif;
+  --font-family-numeric: "IBM Plex Sans", "Noto Sans JP", sans-serif;
 
   /* ---- 大きさ（PC。スマートフォンは下の @media で上書き） ---- */
   --font-size-display: 1.75rem; /* 28px：ゲストのトップの題目 */
@@ -101,12 +102,28 @@ legend {
   font-weight: var(--font-weight-bold);
 }
 
-/* フォーム部品はブラウザ既定の書体（OS ごとに違う）を使わず、本文の書体を継ぐ */
+/* 操作の文字。フォーム部品はブラウザ既定の書体（OS ごとに違う）を使わない。
+   ボタン・入力欄は global.css でも font: inherit の後に同じ指定をしている */
+button,
+input,
+select,
+textarea,
+label,
+legend,
+summary,
+.site-header,
+.badge,
+.breadcrumb,
+.data-table thead th,
+.pdf-toolbar,
+.button-primary,
+.button-primary-link {
+  font-family: var(--font-family-ui);
+}
 button,
 input,
 select,
 textarea {
-  font-family: inherit;
   letter-spacing: inherit;
   line-height: var(--line-height-ui);
 }

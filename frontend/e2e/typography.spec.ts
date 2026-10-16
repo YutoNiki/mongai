@@ -58,7 +58,7 @@ async function fontOf(page: Page, selector: string): Promise<{ family: string; n
   });
 }
 
-test("役割ごとの書体：本文・操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans（等幅の数字）", async ({
+test("役割ごとの書体：説明文は Noto Sans JP、操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans（等幅の数字）", async ({
   page,
 }) => {
   await mockApi(page);
@@ -66,7 +66,10 @@ test("役割ごとの書体：本文・操作は BIZ UDPGothic、見出しは Ze
   await expect(page.locator(".kpi-value")).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 
-  for (const selector of ["body", "button", "select", ".data-table td:not(.num)", ".site-nav a", "label"]) {
+  for (const selector of ["body", ".summary-text p", ".data-table td:not(.num)", ".meta dt"]) {
+    expect((await fontOf(page, selector)).family, selector).toBe("Noto Sans JP");
+  }
+  for (const selector of ["button", "select", ".site-nav a", "label", ".badge", ".data-table thead th", ".button-secondary"]) {
     expect((await fontOf(page, selector)).family, selector).toBe("BIZ UDPGothic");
   }
   for (const selector of ["h1", "h2.panel-title"]) {
@@ -85,7 +88,7 @@ test("役割ごとの書体：本文・操作は BIZ UDPGothic、見出しは Ze
   const loaded = await page.evaluate(() =>
     [...document.fonts].filter((f) => f.status === "loaded").map((f) => `${f.family.replace(/"/g, "")} ${f.weight}`),
   );
-  for (const face of ["BIZ UDPGothic 400", "BIZ UDPGothic 700", "Zen Kaku Gothic New 700", "IBM Plex Sans 600"]) {
+  for (const face of ["Noto Sans JP 400", "BIZ UDPGothic 400", "BIZ UDPGothic 700", "Zen Kaku Gothic New 700", "IBM Plex Sans 600"]) {
     expect(loaded, face).toContain(face);
   }
 });
@@ -132,7 +135,8 @@ test("グラフ（Canvas）は書体の読み込みを待ってから描く", as
           if (node instanceof HTMLCanvasElement && node.closest("figure"))
             w.__chartFonts.push(
               document.fonts.check('400 14px "IBM Plex Sans"', "0123456789") &&
-                document.fonts.check('400 14px "BIZ UDPGothic"', "件"),
+                document.fonts.check('400 14px "BIZ UDPGothic"', "論理") &&
+                document.fonts.check('600 14px "Noto Sans JP"', "件"),
             );
     }).observe(document, { childList: true, subtree: true });
   });

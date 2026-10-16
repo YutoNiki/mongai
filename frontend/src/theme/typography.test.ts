@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { lengthToPx, primaryFamily, whenFontsLoaded } from "./typography";
+import { familyAt, lengthToPx, primaryFamily, whenFontsLoaded } from "./typography";
 
 const css = (name: string) => readFileSync(resolve(import.meta.dirname, name), "utf-8");
 
@@ -46,7 +46,7 @@ describe("typography.css（文字の定義）", () => {
 
   it("書体は自前で配信する書体だけを並べる（OS の書体名を書かない。最後は総称の sans-serif）", () => {
     const served = ["BIZ UDPGothic", "Zen Kaku Gothic New", "IBM Plex Sans", "Noto Sans JP"];
-    for (const name of ["--font-family-body", "--font-family-heading", "--font-family-numeric"]) {
+    for (const name of ["--font-family-body", "--font-family-ui", "--font-family-heading", "--font-family-numeric"]) {
       const families = (root[name] ?? "").split(",").map((f) => f.trim().replace(/"/g, ""));
       expect(families.at(-1), name).toBe("sans-serif");
       for (const f of families.slice(0, -1)) expect(served, `${name}: ${f}`).toContain(f);
@@ -66,6 +66,7 @@ describe("typography.ts", () => {
   it("書体の並びの先頭を取り出す", () => {
     expect(primaryFamily('"IBM Plex Sans", "BIZ UDPGothic", sans-serif')).toBe('"IBM Plex Sans"');
     expect(primaryFamily(" sans-serif")).toBe("sans-serif");
+    expect(familyAt('"IBM Plex Sans", "Noto Sans JP", sans-serif', 1)).toBe('"Noto Sans JP"');
   });
 
   it("rem は根元の文字の大きさを掛けて px にする（ブラウザの文字サイズの設定に従う）", () => {

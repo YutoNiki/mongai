@@ -43,4 +43,4 @@
 | 色はデジタル庁のカラーパレット（2026年7月17日更新）から | `frontend/src/theme/palette.ts` と `core/annotate/palette.py` だけで定義 |
 | コントラスト（色面 3:1 以上、文字 4.5:1 以上） | 注釈の色はテストで確認（`tests/unit/test_annotate.py`）。値は棒の横に数字でも書く |
 | キーボードだけで操作できる | 「本文へ移動」のリンク、フォーカスの表示。E2E テストで確認 |
-| フォントをセルフホスト（SPEC 6.8） | 本文・操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans を `@fontsource` でバンドル（`docs/typography.md`）。E2E テストで、書体がすべて同じオリジンから取得され、外部への通信・CSP の違反が無いことを確認 |
+| フォントをセルフホスト（SPEC 6.8） | 本文は Noto Sans JP、操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans を `@fontsource` でバンドル（`docs/typography.md`）。E2E テストで、書体がすべて同じオリジンから取得され、外部への通信・CSP の違反が無いことを確認 |

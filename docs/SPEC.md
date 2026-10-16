@@ -343,7 +343,7 @@ embeddings:
 
 ### 6.8 フロントエンドの文字
 
-- フォントはセルフホストし、役割ごとに使い分ける：本文・操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans（等幅の数字）、Noto Sans JP は字の補完だけ。大きさ・太さ・行間・字間は `frontend/src/theme/typography.css` だけで定義する（設計と根拠は `docs/typography.md`。2026-10-16 に Noto Sans JP のみから変更）
+- フォントはセルフホストし、役割ごとに使い分ける：本文（説明文）は Noto Sans JP、操作（メニュー・ボタン・フォーム）は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans（等幅の数字）。大きさ・太さ・行間・字間は `frontend/src/theme/typography.css` だけで定義する（設計と根拠は `docs/typography.md`。2026-10-16 に Noto Sans JP のみから変更）
 - UI の文言は日本語。英語論文の解析時も UI は日本語（指摘本文の言語は設定で「論文と同じ言語 / 日本語」を選べる）
 
 ---

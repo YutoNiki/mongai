@@ -5,7 +5,7 @@
  * - 不要なグリッド線・3D・影・アニメーションは使わない
  * - 代替テキスト、表形式での表示、CSV のダウンロードを用意する
  * - 縦棒で項目名が重なる狭い幅（スマートフォン）では、同じ並び順のまま横棒にする
- * - 文字は画面と同じ定義（theme/typography.css）を使う。項目名・単位は本文の書体、目盛り・値は数値の書体。
+ * - 文字は画面と同じ定義（theme/typography.css）を使う。項目名・単位は操作の書体、目盛り・値は数値の書体。
  *   Canvas に描くので、書体の読み込みを待ってから描く（フォールバックの書体で描かれたままにしない）
  */
 
@@ -17,7 +17,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { toCsv } from "../lib/summary";
 import { colors } from "../theme/palette";
-import { primaryFamily, readChartTypography, whenFontsLoaded } from "../theme/typography";
+import { familyAt, primaryFamily, readChartTypography, whenFontsLoaded } from "../theme/typography";
 
 /** 縦棒1本あたりに要る幅（rem。これより狭いと項目名が重なる。文字を大きくする設定に合わせて広がる） */
 const MIN_COLUMN_WIDTH_REM = 4.5;
@@ -63,7 +63,7 @@ export function BarChart({ title, unit, data, description, horizontal: horizonta
     if (!el || showTable) return;
     const type = readChartTypography();
     const { fontSize, regular, numericStrong } = type;
-    const body = { fontFamily: type.bodyFamily, fontSize, fontWeight: regular };
+    const body = { fontFamily: type.uiFamily, fontSize, fontWeight: regular };
     const numeric = { fontFamily: type.numericFamily, fontSize, fontWeight: regular };
     // 縦棒の項目名は1本分の幅の中で折り返す（隣の項目名と重ならない）。幅が変わったら合わせ直す
     const labelWidth = () => (horizontal ? 150 : Math.max(40, Math.floor((el.clientWidth * 0.85) / Math.max(1, data.length)) - 6));
@@ -93,11 +93,11 @@ export function BarChart({ title, unit, data, description, horizontal: horizonta
       name: unit,
       nameTextStyle: { ...body, color: colors.label },
     };
-    // 描く字の分だけ書体を読み込む（値の単位は数値の書体に無いので、本文の書体の太字で描かれる）
+    // 描く字の分だけ書体を読み込む（値の単位「件」は数値の書体に無いので、数値の並びの次の書体の太字で描かれる）
     const labels = data.map((d) => d.label).join("") + unit;
     const fonts = [
-      { font: `${regular} ${fontSize}px ${primaryFamily(type.bodyFamily)}`, text: labels },
-      { font: `${numericStrong} ${fontSize}px ${primaryFamily(type.bodyFamily)}`, text: unit },
+      { font: `${regular} ${fontSize}px ${primaryFamily(type.uiFamily)}`, text: labels },
+      { font: `${numericStrong} ${fontSize}px ${familyAt(type.numericFamily, 1)}`, text: unit },
       { font: `${regular} ${fontSize}px ${primaryFamily(type.numericFamily)}`, text: "0123456789" },
       { font: `${numericStrong} ${fontSize}px ${primaryFamily(type.numericFamily)}`, text: "0123456789" },
     ];

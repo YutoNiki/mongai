@@ -6,9 +6,14 @@
  * 必要な書体の読み込みを待ってから描く（whenFontsLoaded）。
  */
 
-/** "A", "B", sans-serif のような書体の並びの、先頭の書体（読み込みを待つ対象） */
+/** "A", "B", sans-serif のような書体の並びの、n 番目（0 から）の書体（読み込みを待つ対象） */
+export function familyAt(stack: string, index: number): string {
+  return stack.split(",")[index]?.trim() ?? "";
+}
+
+/** 書体の並びの先頭 */
 export function primaryFamily(stack: string): string {
-  return stack.split(",")[0]?.trim() ?? "";
+  return familyAt(stack, 0);
 }
 
 /** CSS の長さ（rem か px）を px に直す。rem は文書の根元の文字の大きさ（ブラウザの設定に従う）を掛ける */
@@ -20,8 +25,8 @@ export function lengthToPx(value: string, rootFontPx: number): number {
 }
 
 export interface ChartTypography {
-  /** 項目名・単位など（本文の書体） */
-  bodyFamily: string;
+  /** 項目名・単位など（操作の書体。グラフの文字はラベルなので） */
+  uiFamily: string;
   /** 目盛り・値（数値の書体） */
   numericFamily: string;
   /** グラフの文字の大きさ（補助情報と同じ）。px */
@@ -38,7 +43,7 @@ export function readChartTypography(root: HTMLElement = document.documentElement
   const token = (name: string) => style.getPropertyValue(name).trim();
   const rootFontPx = Number.parseFloat(style.fontSize) || 16;
   return {
-    bodyFamily: token("--font-family-body"),
+    uiFamily: token("--font-family-ui"),
     numericFamily: token("--font-family-numeric"),
     fontSize: lengthToPx(token("--font-size-caption"), rootFontPx),
     regular: Number(token("--font-weight-regular")) || 400,

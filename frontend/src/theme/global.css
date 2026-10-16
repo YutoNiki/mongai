@@ -125,6 +125,7 @@ h1 {
 button,
 .button-secondary {
   font: inherit;
+  font-family: var(--font-family-ui);
   font-size: var(--font-size-button);
   line-height: var(--line-height-ui);
   padding: 8px 14px;
@@ -158,6 +159,7 @@ select,
 input,
 textarea {
   font: inherit;
+  font-family: var(--font-family-ui);
   font-size: var(--font-size-input);
   line-height: var(--line-height-ui);
   padding: 5px 8px;
@@ -668,6 +670,7 @@ button.menu-toggle[aria-expanded="true"] {
   table.responsive td[data-label]::before {
     content: attr(data-label);
     flex: 0 0 5.5em;
+    font-family: var(--font-family-ui);
     color: var(--color-label);
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-regular);
@@ -1294,7 +1297,7 @@ button.icon-button {
 /* 見出し（h2）だが、見た目は数値に添えるラベル */
 .home-usage-title {
   margin: 0;
-  font-family: var(--font-family-body);
+  font-family: var(--font-family-ui);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-dense);
