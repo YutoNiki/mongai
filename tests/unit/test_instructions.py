@@ -1,9 +1,11 @@
 """提出要件の保存・隔離・固定、文書全体の判定、レポートの対象選択。合成データのみ。"""
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import respx
 
@@ -300,15 +302,30 @@ async def test_absence_is_unknown_when_extraction_is_uncertain() -> None:
 async def test_all_requirements_are_checked_without_top_k_filter() -> None:
     doc = make_doc([("1 本論", "other", [["本文。"]])])
     reqs = [Requirement(text=f"条件{i}") for i in range(15)]
-    with respx.mock:
-        route = respx.post(CHAT_URL).mock(
-            return_value=reply({"verdict": "unknown", "reason": "資料が不足"})
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        data = json.loads(payload["messages"][-1]["content"])
+        return reply(
+            {
+                "results": [
+                    {
+                        "requirement_id": r["requirement_id"],
+                        "verdict": "unknown",
+                        "reason": "資料が不足",
+                    }
+                    for r in data["requirements"]
+                ]
+            }
         )
+
+    with respx.mock:
+        route = respx.post(CHAT_URL).mock(side_effect=respond)
         async with OitomaClient(instruction_config(), api_key="k") as client:
             results = await check_requirements(
                 client, doc, Snapshot(document_type="course_report", requirements=reqs)
             )
-    assert route.call_count == 15
+    assert route.call_count == 4
     assert {r.requirement_id for r in results} == {r.requirement_id for r in reqs}
 
 
