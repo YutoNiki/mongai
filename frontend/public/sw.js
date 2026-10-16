@@ -4,8 +4,8 @@
  * 画面の部品（HTML・JS・CSS・アイコン・フォント・PDF.js の部品）だけをキャッシュする。
  * 論文・解析結果（/api 以下）とログイン（/auth 以下）は扱わない（端末に保存せず、常にネットワークから取る）。
  */
-// 中身を変えたら番号を上げる（古いキャッシュは activate で消える）
-const CACHE = "mongai-shell-v3";
+// 中身を変えたら番号を上げる（古いキャッシュは activate で消える）。v4：書体を入れ替えた（docs/typography.md）
+const CACHE = "mongai-shell-v4";
 const SHELL = ["/", "/manifest.webmanifest", "/favicon.ico", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -49,7 +49,8 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-  // ファイル名にハッシュが付く部品（ロゴを含む）と PDF.js の部品：キャッシュを優先する
+  // ファイル名にハッシュが付く部品（ロゴ・書体を含む）と PDF.js の部品：キャッシュを優先する。
+  // 書体は文字の範囲ごとに分かれていて、画面で使った分だけが保存される（閉域・オフラインでも、一度表示した字は同じ書体で出る）
   if (/^\/(assets|pdfjs)\//.test(url.pathname)) {
     event.respondWith(
       caches.match(request).then(
