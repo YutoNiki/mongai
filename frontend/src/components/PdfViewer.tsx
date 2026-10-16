@@ -93,7 +93,10 @@ export function PdfViewer({ url, page, boxes = NO_BOXES, color = "#000", label =
           前のページ
         </button>
         <span aria-live="polite">
-          {page} / {pageCount || "…"} ページ
+          <span className="numeric">
+            {page} / {pageCount || "…"}
+          </span>{" "}
+          ページ
         </span>
         <button
           type="button"
@@ -113,7 +116,9 @@ export function PdfViewer({ url, page, boxes = NO_BOXES, color = "#000", label =
           >
             −
           </button>
-          <span aria-live="polite">{zoom === 0 ? "幅に合わせる" : `${(ZOOMS[zoom] ?? 1) * 100}%`}</span>
+          <span aria-live="polite" className={zoom === 0 ? undefined : "numeric"}>
+            {zoom === 0 ? "幅に合わせる" : `${(ZOOMS[zoom] ?? 1) * 100}%`}
+          </span>
           <button
             type="button"
             className="button-secondary"

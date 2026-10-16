@@ -74,6 +74,7 @@ make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B
 デジタル庁「ダッシュボードデザインの実践ガイドブック」に準拠する（詳細は SPEC.md 第6章）。
 
 - 色は `frontend/src/theme/palette.ts` と `core/annotate/palette.py` だけで定義する（最新のカラーコードはデジタル庁のカラーパレットページ / GitHub の policy-dashboard-assets から取得）
+- 文字（書体・大きさ・太さ・行間・字間）は `frontend/src/theme/typography.css` だけで定義する（`docs/typography.md`）。数値・日時・ID は `className="numeric"`
 - 左上に全体指標、右下ほど詳細。棒グラフの原点は0、並び順に意味を持たせる、色だけで区別しない、3D・影・装飾を使わない、円グラフは原則使わない
 - グラフには代替テキストと表形式・CSVの代替を用意する
 

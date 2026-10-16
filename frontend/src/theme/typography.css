@@ -1,0 +1,159 @@
+/*
+ * 文字の定義（フロントエンドの唯一の定義元）。設計の根拠は docs/typography.md。
+ *
+ * - 書体・大きさ・太さ・行間・字間は、この :root の変数だけで決める。ほかの CSS は変数を参照する
+ * - グラフ（ECharts の Canvas）も、theme/typography.ts を通して同じ変数を読む
+ * - 大きさは rem で書く（ブラウザの文字サイズの設定・拡大に従う）。1rem = 16px（既定のとき）
+ * - 書体は main.tsx で読み込む（@fontsource、自前で配信。実行時に Google Fonts へは通信しない）
+ */
+
+:root {
+  /* ---- 書体（役割ごと） ----
+     本文（説明文・注記・指摘の文・表の文字）：Noto Sans JP（癖が少なく、長い文を落ち着いて読める）
+     操作（メニュー・ボタン・フォーム・ラベル・バッジ・ヘッダー）：BIZ UDPGothic（判別しやすいユニバーサルデザインの書体）
+     見出し：Zen Kaku Gothic New（本文と字形を変えて階層を示す。700 だけを読み込む）
+     数値：IBM Plex Sans（数字がすべて同じ幅で、桁が揃う。英字だけを読み込み、日本語は本文の書体で表示） */
+  --font-family-body: "Noto Sans JP", sans-serif;
+  --font-family-ui: "BIZ UDPGothic", "Noto Sans JP", sans-serif;
+  --font-family-heading: "Zen Kaku Gothic New", "Noto Sans JP", sans-serif;
+  --font-family-numeric: "IBM Plex Sans", "Noto Sans JP", sans-serif;
+
+  /* ---- 大きさ（PC。スマートフォンは下の @media で上書き） ---- */
+  --font-size-display: 1.75rem; /* 28px：ゲストのトップの題目 */
+  --font-size-page-title: 1.625rem; /* 26px：画面の題名（h1） */
+  --font-size-subtitle: 1.25rem; /* 20px：指摘の詳細の題名・重大度別の件数 */
+  --font-size-section: 1.125rem; /* 18px：欄の見出し（h2） */
+  --font-size-body: 1rem; /* 16px：本文 */
+  --font-size-lead: 1.0625rem; /* 17px：トップの主な操作のボタン */
+  --font-size-nav: 0.9375rem; /* 15px：ヘッダーのメニュー */
+  --font-size-button: 0.9375rem; /* 15px：ボタン */
+  --font-size-label: 0.9375rem; /* 15px：入力欄のラベル */
+  --font-size-input: 1rem; /* 16px：入力欄の文字（iOS が拡大しない大きさ） */
+  --font-size-help: 0.9375rem; /* 15px：入力欄の説明 */
+  --font-size-table: 0.9375rem; /* 15px：表の本文 */
+  --font-size-caption: 0.875rem; /* 14px：補助情報・表の列名・注記。これより小さくしない */
+  --font-size-kpi: 3rem; /* 48px：総指摘数などの全体指標 */
+  --font-size-kpi-unit: 1.25rem; /* 20px：全体指標の単位（件） */
+
+  /* ---- 太さ（読み込んでいる太さだけを使う） ---- */
+  --font-weight-regular: 400;
+  --font-weight-bold: 700; /* 本文・操作の強調、見出し */
+  --font-weight-numeric-strong: 600; /* 数値の強調（IBM Plex Sans SemiBold） */
+
+  /* ---- 行間 ---- */
+  --line-height-body: 1.7; /* 本文 */
+  --line-height-dense: 1.55; /* 表・注記・説明など、短い文が続くところ */
+  --line-height-ui: 1.45; /* ボタン・入力欄・メニュー・ラベル */
+  --line-height-heading: 1.35; /* 見出し */
+  --line-height-numeric: 1.15; /* 大きな数値（全体指標） */
+
+  /* ---- 字間（日本語は広げすぎない。数値は 0 にして桁を揃える） ---- */
+  --letter-spacing-body: 0.02em;
+  --letter-spacing-heading: 0.01em;
+  --letter-spacing-numeric: 0;
+}
+
+/* スマートフォン（幅 40em 以下）：画面の題名・全体指標を小さくし、指で操作する部品は 16px にする */
+@media (max-width: 40em) {
+  :root {
+    --font-size-display: 1.375rem; /* 22px */
+    --font-size-page-title: 1.375rem; /* 22px */
+    --font-size-subtitle: 1.125rem; /* 18px */
+    --font-size-nav: 1rem;
+    --font-size-button: 1rem;
+    --font-size-kpi: 2.5rem; /* 40px */
+  }
+}
+
+/* ---- 要素の既定 ---- */
+
+body {
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--letter-spacing-body);
+}
+
+h1,
+h2,
+h3,
+.panel-title {
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-heading);
+  letter-spacing: var(--letter-spacing-heading);
+}
+h1 {
+  font-size: var(--font-size-page-title);
+}
+h2,
+.panel-title {
+  font-size: var(--font-size-section);
+}
+h3 {
+  font-size: var(--font-size-body);
+}
+
+strong,
+b,
+th,
+legend {
+  font-weight: var(--font-weight-bold);
+}
+
+/* 操作の文字。フォーム部品はブラウザ既定の書体（OS ごとに違う）を使わない。
+   ボタン・入力欄は global.css でも font: inherit の後に同じ指定をしている */
+button,
+input,
+select,
+textarea,
+label,
+legend,
+summary,
+.site-header,
+.badge,
+.breadcrumb,
+.data-table thead th,
+.pdf-toolbar,
+.button-primary,
+.button-primary-link {
+  font-family: var(--font-family-ui);
+}
+button,
+input,
+select,
+textarea {
+  letter-spacing: inherit;
+  line-height: var(--line-height-ui);
+}
+button {
+  font-size: var(--font-size-button);
+}
+input,
+select,
+textarea {
+  font-size: var(--font-size-input);
+}
+::placeholder {
+  color: var(--color-label);
+  opacity: 1;
+}
+::file-selector-button {
+  font: inherit;
+  font-size: var(--font-size-button);
+}
+
+/* ---- 役割のクラス（同じ意味の文字は、どの画面でもこのクラスか上の既定で表す） ---- */
+
+/* 数値・日時・所要時間・ID・モデル名など、英数字が主の値。数字がすべて同じ幅なので桁が揃い、
+   1秒ごとに変わる所要時間も横に揺れない。数値の役割を持つ既存の部品のクラスもここにまとめる */
+.numeric,
+.kpi-value,
+.kpi-breakdown dd,
+.data-table td.num,
+.elapsed {
+  font-family: var(--font-family-numeric);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-spacing-numeric);
+}

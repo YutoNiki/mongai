@@ -1,4 +1,5 @@
-/* 色は theme/palette.ts が設定する CSS 変数だけを使う。影・装飾は使わない（ガイドブック 4.4） */
+/* 色は theme/palette.ts が設定する CSS 変数だけを使う。影・装飾は使わない（ガイドブック 4.4）。
+   文字の書体・大きさ・太さ・行間・字間は theme/typography.css の変数だけを使う（docs/typography.md） */
 
 *,
 *::before,
@@ -15,9 +16,6 @@ html {
 body {
   margin: 0;
   overflow-x: hidden;
-  font-family: "Noto Sans JP", sans-serif;
-  font-size: 16px;
-  line-height: 1.7;
   color: var(--color-text);
   background: var(--color-bg-standard);
 }
@@ -102,7 +100,6 @@ a {
 }
 
 h1 {
-  font-size: 24px;
   margin: 4px 0 12px;
 }
 
@@ -110,7 +107,8 @@ h1 {
 .note,
 .sub {
   color: var(--color-label);
-  font-size: 14px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-dense);
 }
 
 .panel {
@@ -121,16 +119,16 @@ h1 {
   margin-bottom: 16px;
 }
 .panel-title {
-  font-size: 17px;
-  font-weight: 700;
   margin: 0 0 8px;
 }
 
 button,
 .button-secondary {
   font: inherit;
-  font-size: 15px;
-  padding: 6px 14px;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-button);
+  line-height: var(--line-height-ui);
+  padding: 8px 14px;
   border-radius: 6px;
   cursor: pointer;
   border: 1px solid var(--color-primary);
@@ -161,8 +159,10 @@ select,
 input,
 textarea {
   font: inherit;
-  font-size: 15px;
-  padding: 4px 8px;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-input);
+  line-height: var(--line-height-ui);
+  padding: 5px 8px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-bg-control);
@@ -172,12 +172,13 @@ label {
   display: inline-flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 14px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-ui);
 }
 
 .error {
   color: var(--color-error);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   white-space: pre-line;
 }
 
@@ -256,7 +257,7 @@ label {
 .full {
   grid-column: span 6;
 }
-@media (max-width: 960px) {
+@media (max-width: 60em) {
   .grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -270,18 +271,18 @@ label {
 }
 
 .kpi-value {
-  font-size: 56px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-size: var(--font-size-kpi);
+  font-weight: var(--font-weight-numeric-strong);
+  line-height: var(--line-height-numeric);
   margin: 4px 0;
 }
 .kpi-unit {
-  font-size: 20px;
+  font-size: var(--font-size-kpi-unit);
   margin-left: 4px;
 }
 .kpi-diff {
   margin: 0 0 8px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .kpi-breakdown {
   display: grid;
@@ -293,13 +294,14 @@ label {
   grid-template-columns: repeat(2, 1fr);
 }
 .kpi-breakdown dt {
-  font-size: 14px;
+  font-size: var(--font-size-caption);
   color: var(--color-label);
 }
 .kpi-breakdown dd {
   margin: 0;
-  font-size: 20px;
-  font-weight: 700;
+  font-size: var(--font-size-subtitle);
+  font-weight: var(--font-weight-numeric-strong);
+  line-height: var(--line-height-heading);
 }
 
 .progress-steps {
@@ -311,7 +313,7 @@ label {
   color: var(--color-success);
 }
 .step-current {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .step-todo {
   color: var(--color-label);
@@ -339,9 +341,11 @@ label {
   vertical-align: top;
   padding: 8px;
   border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-table);
+  line-height: var(--line-height-dense);
 }
 .data-table thead th {
-  font-size: 14px;
+  font-size: var(--font-size-caption);
   color: var(--color-label);
 }
 .data-table .num {
@@ -352,7 +356,7 @@ label {
 .badge {
   display: inline-block;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--font-size-caption);
   padding: 0 6px;
   border-left: 4px solid transparent;
 }
@@ -360,11 +364,11 @@ label {
   color: var(--color-label);
 }
 .severity-critical {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--color-error);
 }
 .severity-major {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .status-accepted {
   color: var(--color-success);
@@ -383,7 +387,8 @@ label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px 24px;
-  font-size: 14px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-dense);
   color: var(--color-label);
   margin: 16px 0 0;
 }
@@ -400,7 +405,7 @@ label {
   gap: 16px;
   align-items: start;
 }
-@media (max-width: 960px) {
+@media (max-width: 60em) {
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -425,10 +430,10 @@ label {
   pointer-events: none;
 }
 .finding-detail h1 {
-  font-size: 20px;
+  font-size: var(--font-size-subtitle);
 }
 .finding-fields dt {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   margin-top: 12px;
 }
 .finding-fields dd {
@@ -457,7 +462,7 @@ blockquote {
   justify-content: space-between;
 }
 .definitions dt {
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   margin-top: 8px;
 }
 .definitions dd {
@@ -482,12 +487,13 @@ blockquote {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 14px;
+  padding: 8px 14px;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 15px;
+  font-size: var(--font-size-nav);
+  line-height: var(--line-height-ui);
   white-space: nowrap;
   text-decoration: none;
 }
@@ -502,7 +508,7 @@ blockquote {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: var(--color-text-on-dark);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .nav-more-toggle[aria-expanded="true"] svg {
   transform: rotate(180deg);
@@ -537,10 +543,12 @@ blockquote {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--color-text);
+  font-size: var(--font-size-nav);
+  line-height: var(--line-height-ui);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -578,12 +586,9 @@ button.menu-toggle[aria-expanded="true"] {
   display: none;
 }
 
-/* ---- スマートフォン（幅 640px 以下） ---- */
+/* ---- スマートフォン（幅 40em 以下。既定の文字の大きさでは 640px。区切りの幅は em で書き、文字を大きくする設定に合わせる） ---- */
 
-@media (max-width: 640px) {
-  body {
-    font-size: 15px;
-  }
+@media (max-width: 40em) {
   .site-header {
     padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px
       max(12px, env(safe-area-inset-left));
@@ -594,9 +599,6 @@ button.menu-toggle[aria-expanded="true"] {
   .page {
     padding: 12px 12px max(32px, env(safe-area-inset-bottom));
   }
-  h1 {
-    font-size: 20px;
-  }
   .panel {
     padding: 14px;
   }
@@ -604,12 +606,10 @@ button.menu-toggle[aria-expanded="true"] {
   .button-secondary {
     min-height: 44px;
     padding: 10px 16px;
-    font-size: 16px;
   }
   select,
   input,
   textarea {
-    font-size: 16px; /* iOS で入力時に拡大されないように */
     min-height: 44px;
   }
   .upload-fields {
@@ -645,9 +645,6 @@ button.menu-toggle[aria-expanded="true"] {
   .filters button {
     grid-column: span 2;
   }
-  .kpi-value {
-    font-size: 44px;
-  }
   .chart-actions button {
     flex: 1;
   }
@@ -673,9 +670,10 @@ button.menu-toggle[aria-expanded="true"] {
   table.responsive td[data-label]::before {
     content: attr(data-label);
     flex: 0 0 5.5em;
+    font-family: var(--font-family-ui);
     color: var(--color-label);
-    font-size: 13px;
-    font-weight: 400;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-regular);
   }
   table.responsive td.status-buttons {
     flex-wrap: wrap;
@@ -728,7 +726,8 @@ td.row-actions {
   transition: width 0.4s ease;
 }
 .progress-bar-text {
-  font-size: 13px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-dense);
   color: var(--color-label);
 }
 .progress-bar-status {
@@ -772,7 +771,7 @@ button.icon-button {
   min-width: 36px;
   min-height: 36px;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   button.icon-button {
     min-width: 44px;
     min-height: 44px;
@@ -794,7 +793,8 @@ button.icon-button {
 }
 .elapsed {
   display: block;
-  font-size: 13px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-dense);
   color: var(--color-label);
   margin-top: 2px;
 }
@@ -803,7 +803,6 @@ button.icon-button {
 .badge-new {
   margin-left: 6px;
   border: 1px solid var(--color-text);
-  font-size: 12px;
 }
 .resolved-list {
   margin: 8px 0 0;
@@ -817,7 +816,7 @@ button.icon-button {
 }
 .rule-approved {
   color: var(--color-success);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .rule-disabled {
   color: var(--color-label);
@@ -856,7 +855,7 @@ button.icon-button {
   min-width: 0;
 }
 .approval-notice-title {
-  font-size: 16px;
+  font-size: var(--font-size-body);
   margin: 0;
 }
 .approval-notice .note {
@@ -865,7 +864,7 @@ button.icon-button {
 .approval-notice ul {
   margin: 4px 0 0;
   padding-left: 20px;
-  font-size: 14px;
+  font-size: var(--font-size-caption);
   overflow-wrap: anywhere;
 }
 .approval-notice-actions {
@@ -873,7 +872,7 @@ button.icon-button {
   flex-wrap: wrap;
   gap: 8px;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .approval-notice {
     width: calc(100% - 24px);
     margin-top: 8px;
@@ -890,19 +889,19 @@ button.icon-button {
 .button-primary {
   display: inline-flex;
   align-items: center;
-  font-size: 15px;
-  padding: 6px 14px;
+  font-size: var(--font-size-button);
+  line-height: var(--line-height-ui);
+  padding: 8px 14px;
   border: 1px solid var(--color-primary);
   border-radius: 6px;
   background: var(--color-primary);
   color: var(--color-text-on-dark);
   text-decoration: none;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .button-primary {
     min-height: 44px;
     padding: 10px 16px;
-    font-size: 16px;
   }
 }
 
@@ -978,7 +977,7 @@ button.icon-button {
   border-color: var(--color-primary);
   background: var(--color-bg-control);
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .back-chevron {
     width: 44px;
     height: 44px;
@@ -993,7 +992,8 @@ button.icon-button {
   align-items: center;
   gap: 8px 12px;
   margin-left: auto;
-  font-size: 14px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-dense);
 }
 .account-status {
   display: inline-flex;
@@ -1012,13 +1012,14 @@ button.icon-button {
 /* ページ遷移のリンク（Google のログイン画面へ移る）を、主ボタンの形で示す */
 .button-primary-link {
   display: inline-block;
-  font-size: 15px;
-  padding: 6px 14px;
+  font-size: var(--font-size-button);
+  line-height: var(--line-height-ui);
+  padding: 8px 14px;
   border-radius: 6px;
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
   color: var(--color-text-on-dark);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 .button-primary-link:hover {
@@ -1043,11 +1044,10 @@ button.icon-button {
   flex: 1 1 320px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .button-primary-link {
     min-height: 44px;
     padding: 10px 16px;
-    font-size: 16px;
   }
   .auth-banner {
     width: calc(100% - 24px);
@@ -1081,19 +1081,20 @@ button.icon-button {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .instruction-optional {
   padding: 0 6px;
   border: 1px solid var(--color-border);
   border-radius: 3px;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
   color: var(--color-label);
 }
 .instruction-options-description {
   grid-column: 1;
-  font-size: 14px;
+  font-size: var(--font-size-help);
+  line-height: var(--line-height-dense);
   color: var(--color-label);
 }
 .instruction-options-chevron {
@@ -1126,7 +1127,7 @@ button.icon-button {
 .requirement-editor { min-width: 0; margin: 1rem 0; padding: 1rem; }
 .requirement-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 1rem; margin-top: .75rem; }
 .requirement-fields label { min-width: 0; }
-.requirement-source { display: block; margin-top: .4rem; font-weight: normal; }
+.requirement-source { display: block; margin-top: .4rem; font-weight: var(--font-weight-regular); }
 .requirements-table { width: 100%; }
 .requirements-table th:first-child { min-width: 12rem; max-width: 22rem; }
 .requirements-table td { vertical-align: top; }
@@ -1139,7 +1140,7 @@ button.icon-button {
 
 /* ---- ヘッダーの折りたたみ ----
    幅に余裕がないときは、補足の文を省いて1行に収める。さらに狭いときは、メニューを開閉式にする */
-@media (max-width: 1360px) {
+@media (max-width: 85em) {
   .account-hint {
     display: none;
   }
@@ -1148,10 +1149,10 @@ button.icon-button {
   }
   .site-nav a,
   .nav-more-toggle {
-    padding: 6px 12px;
+    padding: 8px 12px;
   }
 }
-@media (max-width: 1120px) {
+@media (max-width: 70em) {
   .site-header {
     flex-direction: column;
     align-items: stretch;
@@ -1188,7 +1189,7 @@ button.icon-button {
     padding: 10px 12px;
     border: 1px solid transparent;
     border-radius: 6px;
-    font-size: 16px;
+    font-size: var(--font-size-body);
   }
   .nav-more {
     position: static;
@@ -1199,7 +1200,7 @@ button.icon-button {
   .nav-more-heading {
     display: block;
     margin: 8px 12px 2px;
-    font-size: 13px;
+    font-size: var(--font-size-caption);
     color: var(--color-label);
   }
   .nav-more-list,
@@ -1239,8 +1240,7 @@ button.icon-button {
   margin-bottom: 16px;
 }
 .home-hero h1 {
-  font-size: 28px;
-  line-height: 1.4;
+  font-size: var(--font-size-display);
   text-wrap: balance;
   margin: 8px 0 8px;
 }
@@ -1259,7 +1259,7 @@ button.icon-button {
   align-items: center;
   min-height: 48px;
   padding: 10px 24px;
-  font-size: 17px;
+  font-size: var(--font-size-lead);
 }
 .home-page .home-intro > .panel {
   margin: 0;
@@ -1274,7 +1274,7 @@ button.icon-button {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 .home-head {
   display: flex;
@@ -1292,12 +1292,16 @@ button.icon-button {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 8px;
-  font-size: 14px;
+  font-size: var(--font-size-caption);
 }
+/* 見出し（h2）だが、見た目は数値に添えるラベル */
 .home-usage-title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 400;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-dense);
+  letter-spacing: var(--letter-spacing-body);
   color: var(--color-label);
 }
 .home-usage p {
@@ -1307,8 +1311,14 @@ button.icon-button {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* 指摘の一覧の種類（「引用内容が支持されない」など短い名前）は、末尾の1文字だけを次の行に送らない */
+@media (min-width: 40.0625em) {
+  .findings td[data-label="種類"] .sub {
+    white-space: nowrap;
+  }
+}
 /* 状態（所要時間）と日時は、題目が長くても細切れに折り返さない */
-@media (min-width: 641px) {
+@media (min-width: 40.0625em) {
   .home-page .data-table td[data-label="状態"] {
     min-width: 9em;
   }
@@ -1316,18 +1326,16 @@ button.icon-button {
     white-space: nowrap;
   }
 }
-@media (max-width: 960px) {
+@media (max-width: 60em) {
   .home-intro {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .home-hero h1 {
-    font-size: 22px;
     margin-top: 0;
   }
   .home-lead {
-    font-size: 15px;
     margin-bottom: 12px;
   }
   .home-page .home-cta-button,
@@ -1342,7 +1350,7 @@ button.icon-button {
 button.mobile-disclosure {
   display: none;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   button.mobile-disclosure {
     display: flex;
     align-items: center;
@@ -1352,7 +1360,7 @@ button.mobile-disclosure {
     background: var(--color-bg);
     color: var(--color-text);
     border: 1px solid var(--color-border);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
   }
   button.mobile-disclosure[aria-expanded="true"] {
     border-color: var(--color-primary);
@@ -1391,7 +1399,7 @@ button.mobile-disclosure {
   align-items: center;
   min-height: 44px;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .login-required-actions > * {
     flex: 1 1 100%;
     justify-content: center;
@@ -1413,7 +1421,7 @@ button.mobile-disclosure {
 .data-table td.cell-actions {
   white-space: nowrap;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   table.responsive td.cell-actions {
     padding-top: 8px;
   }
@@ -1431,7 +1439,7 @@ button.mobile-disclosure {
 .instruction-composer > button {
   justify-self: start;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .instruction-composer > button {
     justify-self: stretch;
   }
@@ -1459,7 +1467,7 @@ button.mobile-disclosure {
 .demo-note p {
   margin: 0;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .annotated-head > a {
     width: 100%;
     text-align: center;
@@ -1486,7 +1494,7 @@ button.mobile-disclosure {
 .pdf-scroll .pdf-page {
   max-width: none;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .pdf-zoom {
     margin-left: 0;
     width: 100%;
@@ -1499,7 +1507,7 @@ button.mobile-disclosure {
 
 /* 指摘の一覧（スマートフォン）：1件を短いカードにする
    1行目：番号・重大度・種類・ページ、2行目：指摘、3行目：確度・ステータス */
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   table.responsive.findings tr {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr) auto;
@@ -1519,19 +1527,19 @@ button.mobile-disclosure {
   table.responsive.findings td[data-label="ページ"]::before {
     content: "p.";
     color: var(--color-label);
-    font-size: 13px;
+    font-size: var(--font-size-caption);
   }
   table.responsive.findings td[data-label="指摘"] {
     grid-column: 1 / -1;
   }
   table.responsive.findings td[data-label="確度"] {
     grid-column: 1 / 3;
-    font-size: 14px;
+    font-size: var(--font-size-caption);
   }
   table.responsive.findings td[data-label="確度"]::before {
     content: "確度 ";
     color: var(--color-label);
-    font-size: 13px;
+    font-size: var(--font-size-caption);
   }
   table.responsive.findings td[data-label="確度"]:empty {
     display: none;
@@ -1539,7 +1547,7 @@ button.mobile-disclosure {
   table.responsive.findings td[data-label="ステータス"] {
     grid-column: 3 / -1;
     justify-self: end;
-    font-size: 14px;
+    font-size: var(--font-size-caption);
   }
 }
 
@@ -1562,7 +1570,7 @@ button.mobile-disclosure {
 .retry-actions p {
   margin: 0;
 }
-@media (max-width: 640px) {
+@media (max-width: 40em) {
   .home-row-actions {
     flex-wrap: wrap;
     justify-content: flex-start;

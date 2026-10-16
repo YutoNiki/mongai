@@ -488,11 +488,11 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
         <dl>
           <div>
             <dt>解析日時</dt>
-            <dd>{new Date(summary.analysis.created_at).toLocaleString("ja-JP")}</dd>
+            <dd className="numeric">{new Date(summary.analysis.created_at).toLocaleString("ja-JP")}</dd>
           </div>
           <div>
             <dt>使用モデル</dt>
-            <dd>{Object.entries(summary.models).map(([role, model]) => `${role}: ${model}`).join(" ／ ")}</dd>
+            <dd className="numeric">{Object.entries(summary.models).map(([role, model]) => `${role}: ${model}`).join(" ／ ")}</dd>
           </div>
           <div>
             <dt>ルールセット</dt>
@@ -502,12 +502,12 @@ export function DashboardPage({ analysisId }: { analysisId: string }) {
           </div>
           <div>
             <dt>おいとまAPIへのリクエスト</dt>
-            <dd>{running ? "解析の完了後に集計します" : `${summary.api_requests}回`}</dd>
+            <dd className={running ? undefined : "numeric"}>{running ? "解析の完了後に集計します" : `${summary.api_requests}回`}</dd>
           </div>
           <div>
             <dt>学外への通信</dt>
             <dd>
-              {summary.external_requests}件（<Link href="/audit">外部通信ログ</Link>）
+              <span className="numeric">{summary.external_requests}件</span>（<Link href="/audit">外部通信ログ</Link>）
             </dd>
           </div>
           <div>
