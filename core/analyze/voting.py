@@ -37,7 +37,7 @@ def majority[T](
     for index, items in enumerate(samples):
         for item in items:
             for cluster in clusters:
-                if all(i != index for i, _ in cluster) and any(same(item, m) for _, m in cluster):
+                if all(i != index for i, _ in cluster) and all(same(item, m) for _, m in cluster):
                     cluster.append((index, item))
                     break
             else:

@@ -120,8 +120,14 @@ async def check_flow(
         ballot = await vote(
             once, same=same_flow_issue, n=n, early_stop=early_stop_for(client, ROLE)
         )
-        if ballot.all_failed:
+        if ballot.all_failed or (
+            ballot.errors and ballot.attempts - len(ballot.errors) < n // 2 + 1
+        ):
             raise JSONOutputError("段落間の判定に失敗しました") from ballot.errors[0]
+        if ballot.errors:
+            warnings.append(
+                f"段落間の判定は一部失敗しました（{len(ballot.errors)}/{ballot.attempts} 回）"
+            )
         return ballot.voted
 
     finished = 0

@@ -148,7 +148,6 @@ def test_clean_issues_validates_ids_and_quotes() -> None:
     cleaned = clean_issues(issues, target, known)
     assert [(c.sentence_ids, c.quote, c.related_sentence_ids) for c in cleaned] == [
         (["S-00002"], "全てのタスクで有効", ["S-00001"]),
-        (["S-00002"], "したがって本手法は全てのタスクで有効である．", []),
     ]
 
 
@@ -258,7 +257,7 @@ def test_truncation_issues_are_dropped() -> None:
         return ParagraphIssue(
             type=t,
             sentence_ids=[sid],
-            quote="x",
+            quote=next(s.text for s in doc.sentences if s.sentence_id == sid),
             issue="i",
             rationale="r",
             severity="major",

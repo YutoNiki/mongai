@@ -16,7 +16,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import ValidationError, model_validator
 
 from core.analyze.context import Target, numbered_paragraph
 from core.analyze.models import _LLMOutput
@@ -45,7 +45,7 @@ class TermCandidate(_LLMOutput):
 
 
 class TermOutput(_LLMOutput):
-    terms: list[TermCandidate] = Field(default_factory=list)
+    terms: list[TermCandidate]
 
 
 def lookup_query(term: str, english: str | None, lang: Lang) -> tuple[str, Lang]:

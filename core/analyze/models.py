@@ -80,7 +80,7 @@ class ParagraphIssue(_LLMOutput):
 
 
 class ParagraphCheckOutput(_LLMOutput):
-    issues: list[ParagraphIssue] = Field(default_factory=list, max_length=10)
+    issues: list[ParagraphIssue] = Field(max_length=10)
 
 
 class FlowIssue(_LLMOutput):
@@ -93,7 +93,7 @@ class FlowIssue(_LLMOutput):
 
 
 class FlowCheckOutput(_LLMOutput):
-    issues: list[FlowIssue] = Field(default_factory=list, max_length=20)
+    issues: list[FlowIssue] = Field(max_length=20)
 
 
 class SuggestionOutput(_LLMOutput):
