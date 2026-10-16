@@ -103,38 +103,61 @@ async def run_analysis(
         store.update_settings(
             analysis_id, {"ruleset": {"approved": approved, "updated_at": updated_at}}
         )
-        result = await analyze_logic(
-            doc,
-            llm,
-            settings,
-            on_progress=on_progress,
-            on_findings=on_findings,
-            gateway=gw,
-            analysis_id=analysis_id,
-            rules=rules,
-            rule_vectors=rule_store.embeddings(owner, status="approved"),
-            # 所有者の過去の指摘だけを使う（ほかの利用者のものは参照しない）
-            lab_comments=lab_store.list_comments(owner),
-            lab_vectors=lab_store.comment_vectors(owner),
+        instruction_store = InstructionStore(store.path)
+        requirement_done = 0
+        requirement_total = (
+            sum(r.enabled for r in settings.instruction_snapshot.requirements)
+            if settings.instruction_snapshot
+            else 0
         )
-        store.save_structures(analysis_id, result.structures)
-        store.save_term_lookups(analysis_id, result.terms)
-        if settings.instruction_snapshot is not None:
-            instruction_store = InstructionStore(store.path)
-            total = sum(r.enabled for r in settings.instruction_snapshot.requirements)
-            store.set_progress(analysis_id, "requirements", 0, total)
+        analysis_finished = False
 
-            async def on_requirement(item: RequirementResult, done: int, count: int) -> None:
-                instruction_store.save_results(analysis_id, [item])
+        async def on_requirement(item: RequirementResult, done: int, count: int) -> None:
+            nonlocal requirement_done
+            requirement_done = done
+            instruction_store.save_results(analysis_id, [item])
+            if analysis_finished:
                 on_progress("requirements", done, count)
+            else:
+                flush_daily_usage()
 
-            requirements = await check_requirements(
+        async def requirements_check() -> list[RequirementResult]:
+            if settings.instruction_snapshot is None:
+                return []
+            return await check_requirements(
                 llm,
                 document_for_review(doc, settings.document_type),
                 settings.instruction_snapshot,
                 output_lang=settings.output_lang,
                 on_result=on_requirement,
             )
+
+        async with asyncio.TaskGroup() as checks:
+            requirement_task = checks.create_task(requirements_check())
+            analysis_task = checks.create_task(
+                analyze_logic(
+                    doc,
+                    llm,
+                    settings,
+                    on_progress=on_progress,
+                    on_findings=on_findings,
+                    gateway=gw,
+                    analysis_id=analysis_id,
+                    rules=rules,
+                    rule_vectors=rule_store.embeddings(owner, status="approved"),
+                    # 所有者の過去の指摘だけを使う（ほかの利用者のものは参照しない）
+                    lab_comments=lab_store.list_comments(owner),
+                    lab_vectors=lab_store.comment_vectors(owner),
+                )
+            )
+            result = await analysis_task
+            analysis_finished = True
+            if settings.instruction_snapshot is not None:
+                on_progress("requirements", requirement_done, requirement_total)
+        requirements = requirement_task.result()
+        store.save_structures(analysis_id, result.structures)
+        store.save_term_lookups(analysis_id, result.terms)
+        if settings.instruction_snapshot is not None:
             requirements = link_findings(
                 doc,
                 settings.instruction_snapshot,

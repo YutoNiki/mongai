@@ -1,5 +1,4 @@
-"""論理・読みやすさの解析：論証構造の抽出 →（段落内チェック・段落間チェック・引用の検証・ルールの判定を同時に）
-→ 二重チェック → 改善案。"""
+"""段落ごとに構造抽出・チェックを進め、指摘ごとに二重チェック・改善案を作る。"""
 
 import asyncio
 import inspect
@@ -17,6 +16,7 @@ from core.analyze.context import (
     output_language,
     select_targets,
 )
+from core.analyze.context_review import review_violations
 from core.analyze.flow_check import check_flow
 from core.analyze.models import (
     CATEGORY_OF,
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 # 進捗の通知：(工程, 完了数, 全体数)
 ProgressCallback = Callable[[str, int, int], Awaitable[None] | None]
-# 確定した指摘の通知（改善案を付ける前に、段落の判定が終わるたびに呼ぶ）
+# 指摘の追加・更新の通知（同じIDで二重チェック・改善案も更新する）
 FindingsCallback = Callable[[list[Finding]], Awaitable[None] | None]
 
 
@@ -126,6 +126,10 @@ class _StageProgress:
             ),
             (stage, done, total),
         )
+        if self._shown is not None and self._stages.index(current[0]) < self._stages.index(
+            self._shown[0]
+        ):
+            return
         if current != self._shown:
             self._shown = current
             await _notify(self._callback, *current)
@@ -354,12 +358,86 @@ async def analyze_logic(
     findings: list[Finding] = []
     term_records: list[TermLookupRecord] = []
 
-    # 1. 論証構造の抽出
+    stages = [
+        "structure",
+        "paragraph_check",
+        "flow_check",
+        "citation",
+        "rule_check",
+        "lab_check",
+        "double_check",
+        "suggestion",
+    ]
+    progress = _StageProgress(on_progress, stages)
+    structure_done = 0
     done = 0
-    await _notify(on_progress, "structure", done, len(targets))
+    by_paragraph: dict[str, ParagraphStructure] = {}
+    structure_tasks: dict[str, asyncio.Task[ParagraphStructure]] = {}
+    secondary = client.config.role(SECOND_ROLE).model if settings.with_double_check else ""
+    double_done = double_total = suggestion_done = suggestion_total = 0
+    await progress("structure", 0, len(targets))
+
+    async def finish_finding(index: int) -> None:
+        nonlocal double_done, suggestion_done
+        finding = findings[index]
+        if settings.with_double_check and needs_second_opinion(finding):
+            try:
+                opinion = await second_opinion(
+                    client,
+                    doc,
+                    finding,
+                    prompt_lang=prompt_lang,
+                    output_language=out_lang,
+                    document_type=settings.document_type,
+                )
+                finding = apply_opinion(finding, opinion, secondary)
+            except OitomaError as exc:
+                finding = finding.model_copy(update={"confidence": "low"})
+                warnings.append(f"{finding.finding_id} の二重チェックは未確認です：{exc}")
+            double_done += 1
+            await progress("double_check", double_done, double_total)
+        if (
+            settings.with_suggestions
+            and not finding.suggestions
+            and finding.subcategory not in ("bib_not_found", "bib_mismatch")
+        ):
+            try:
+                rewrites = await suggest(
+                    client,
+                    doc,
+                    finding,
+                    prompt_lang=prompt_lang,
+                    document_type=settings.document_type,
+                    requirements=settings.instruction_snapshot.requirements
+                    if settings.instruction_snapshot
+                    else None,
+                )
+                finding = finding.model_copy(update={"suggestions": rewrites})
+            except (OitomaError, PromptTooLongError) as exc:
+                warnings.append(f"{finding.finding_id} の改善案を作れませんでした：{exc}")
+            suggestion_done += 1
+            await progress("suggestion", suggestion_done, suggestion_total)
+        findings[index] = finding
+        await _notify(on_findings, [finding])
+
+    async def publish(new: list[Finding]) -> None:
+        nonlocal double_total, suggestion_total
+        start = len(findings)
+        findings.extend(new)
+        double_total += sum(settings.with_double_check and needs_second_opinion(f) for f in new)
+        suggestion_total += sum(
+            settings.with_suggestions
+            and not f.suggestions
+            and f.subcategory not in ("bib_not_found", "bib_mismatch")
+            for f in new
+        )
+        if new:
+            await _notify(on_findings, new)
+            for index in range(start, start + len(new)):
+                execution.create_task(finish_finding(index))
 
     async def structure_of(t: Target) -> ParagraphStructure:
-        nonlocal done
+        nonlocal structure_done
         try:
             result = await extract_structure(
                 client,
@@ -373,22 +451,16 @@ async def analyze_logic(
                 f"段落 {t.paragraph.paragraph_id} の論証構造を抽出できませんでした：{exc}"
             )
             result = fallback_structure(t)
-        done += 1
-        await _notify(on_progress, "structure", done, len(targets))
+        by_paragraph[result.paragraph_id] = result
+        structure_done += 1
+        await progress("structure", structure_done, len(targets))
         return result
 
-    structures = await asyncio.gather(*(structure_of(t) for t in targets))
-    by_paragraph = {s.paragraph_id: s for s in structures}
-
-    # 2〜4. 段落内チェック・段落間チェック・引用の検証は互いに依存しないので、同時に進める
-    # （1つの工程の終わり際に、遅い数本の応答を待つ間もほかの工程の要求を送れる）
-    stages = ["paragraph_check", "flow_check", "citation", "rule_check", "lab_check"]
-    progress = _StageProgress(on_progress, stages)
-    done = 0
     await progress("paragraph_check", done, len(targets))
 
     async def check(t: Target) -> None:
         nonlocal done
+        structure = await structure_tasks[t.paragraph.paragraph_id]
         context = (
             numbered_paragraph(
                 [sentences[sid] for sid in t.previous.sentence_ids if sid in sentences]
@@ -405,32 +477,29 @@ async def analyze_logic(
             voted, _ = await check_paragraph(
                 client,
                 t,
-                by_paragraph.get(t.paragraph.paragraph_id),
+                structure,
                 prompt_lang=prompt_lang,
                 output_language=out_lang,
                 known_sentences=known_sentences,
                 context_text=context,
                 next_text=next_text,
                 document_type=settings.document_type,
+                on_warning=warnings.append,
             )
         except OitomaError as exc:
             warnings.append(f"段落 {t.paragraph.paragraph_id} のチェックに失敗しました：{exc}")
         else:
             new = [builder.from_paragraph(v, t.paragraph.section_id) for v in voted]
-            findings.extend(new)
-            if new:
-                await _notify(on_findings, new)
+            await publish(new)
         done += 1
         await progress("paragraph_check", done, len(targets))
-
-    async def paragraph_checks() -> None:
-        await asyncio.gather(*(check(t) for t in targets))
 
     async def flow_checks() -> None:
         if not settings.with_flow_check:
             progress.finish("flow_check")
             return
         await progress("flow_check", 0, 1)
+        await asyncio.gather(*structure_tasks.values())
         try:
             flow, _, flow_warnings = await check_flow(
                 client,
@@ -443,9 +512,7 @@ async def analyze_logic(
             )
             warnings.extend(flow_warnings)
             new = [f for f in (builder.from_flow(v) for v in flow) if f is not None]
-            findings.extend(new)
-            if new:
-                await _notify(on_findings, new)
+            await publish(new)
         except OitomaError as exc:
             warnings.append(f"段落間のチェックに失敗しました：{exc}")
         progress.finish("flow_check")
@@ -459,9 +526,10 @@ async def analyze_logic(
             warnings.append("引用の検証は行いませんでした（検索ゲートウェイが設定されていません）")
             progress.finish("citation")
             return
+        ready_structures = await asyncio.gather(*structure_tasks.values())
         citation = await check_citations(
             doc,
-            list(structures),
+            list(ready_structures),
             client,
             gateway,
             analysis_id,
@@ -473,9 +541,7 @@ async def analyze_logic(
         )
         warnings.extend(citation.warnings)
         new = [f for f in (builder.from_draft(d) for d in citation.drafts) if f is not None]
-        findings.extend(new)
-        if new:
-            await _notify(on_findings, new)
+        await publish(new)
         if settings.with_term_lookup and targets:
             # 原稿は check_citations で gateway に登録済み。用語の照会は承認キューに積まれる
             terms = await lookup_terms(
@@ -497,10 +563,20 @@ async def analyze_logic(
             progress.finish("rule_check")
             return
         violations = run_mechanical(doc, approved, out_lang_code)
+        try:
+            violations, contextual_warnings = await review_violations(
+                client, doc, violations, lang=prompt_lang
+            )
+            warnings.extend(contextual_warnings)
+        except OitomaError:
+            violations = [
+                v
+                for v in violations
+                if v.subcategory not in {"figure_table_reference", "abbreviation_definition"}
+            ]
+            warnings.append("図表参照・略語定義の文脈判定を完了できず、未確認です")
         new = [f for f in (builder.from_violation(v) for v in violations) if f is not None]
-        findings.extend(new)
-        if new:
-            await _notify(on_findings, new)
+        await publish(new)
         cited = {c.sentence_id for c in doc.citations}
         # 節ごと（長い節は段落のまとまりごと）に判定する
         groups = group_targets(targets)
@@ -533,13 +609,16 @@ async def analyze_logic(
                 warnings.append(f"{group[0].section_label} のルールの判定に失敗しました：{exc}")
             else:
                 made = [f for f in (builder.from_violation(v) for v in found) if f is not None]
-                findings.extend(made)
-                if made:
-                    await _notify(on_findings, made)
+                await publish(made)
             checked += 1
             await progress("rule_check", checked, len(groups))
 
-        await asyncio.gather(*(check_group(g, c) for g, c in zip(groups, candidates, strict=True)))
+        await asyncio.gather(
+            *(
+                execution.create_task(check_group(g, c))
+                for g, c in zip(groups, candidates, strict=True)
+            )
+        )
         progress.finish("rule_check")
 
     # 研究室の過去の指摘に類似する箇所（埋め込みで候補を絞り、高速モデルで確かめる）
@@ -573,82 +652,36 @@ async def analyze_logic(
                 )
             else:
                 made = [f for f in (builder.from_lab(m, out_lang_code) for m in found) if f]
-                findings.extend(made)
-                if made:
-                    await _notify(on_findings, made)
+                await publish(made)
             compared += 1
             await progress("lab_check", compared, len(targets))
 
-        await asyncio.gather(*(check_target(t, v) for t, v in zip(targets, vectors, strict=True)))
+        await asyncio.gather(
+            *(
+                execution.create_task(check_target(t, v))
+                for t, v in zip(targets, vectors, strict=True)
+            )
+        )
         progress.finish("lab_check")
 
     # 1つが例外で止まったら、ほかも取り消す（解析の失敗として扱う）
-    async with asyncio.TaskGroup() as group:
-        group.create_task(paragraph_checks())
-        group.create_task(flow_checks())
-        group.create_task(citation_checks())
-        group.create_task(rule_checks())
-        group.create_task(lab_checks())
+    async with asyncio.TaskGroup() as execution:
+        for t in targets:
+            structure_tasks[t.paragraph.paragraph_id] = execution.create_task(structure_of(t))
+        for t in targets:
+            execution.create_task(check(t))
+        execution.create_task(flow_checks())
+        execution.create_task(citation_checks())
+        execution.create_task(rule_checks())
+        execution.create_task(lab_checks())
 
-    # 4. 二重チェック（重大・要修正の論理・読みやすさの指摘を、第2のモデルで独立に判定する）
+    structures = [task.result() for task in structure_tasks.values()]
     if settings.with_double_check:
-        to_check = [i for i, f in enumerate(findings) if needs_second_opinion(f)]
-        secondary = client.config.role(SECOND_ROLE).model
-        checked = 0
-        await _notify(on_progress, "double_check", checked, len(to_check))
-
-        async def check_twice(index: int) -> None:
-            nonlocal checked
-            finding = findings[index]
-            try:
-                opinion = await second_opinion(
-                    client,
-                    doc,
-                    finding,
-                    prompt_lang=prompt_lang,
-                    output_language=out_lang,
-                    document_type=settings.document_type,
-                )
-                findings[index] = apply_opinion(finding, opinion, secondary)
-            except OitomaError as exc:
-                warnings.append(f"{finding.finding_id} の二重チェックに失敗しました：{exc}")
-            checked += 1
-            await _notify(on_progress, "double_check", checked, len(to_check))
-
-        await asyncio.gather(*(check_twice(i) for i in to_check))
-
-    # 5. 改善案（書誌の不一致のように、正しい書誌を案として既に持つ指摘は除く）
+        await progress("double_check", double_done, double_total)
+    else:
+        progress.finish("double_check")
     if settings.with_suggestions:
-        to_suggest = [
-            i
-            for i, f in enumerate(findings)
-            if not f.suggestions and f.subcategory not in ("bib_not_found", "bib_mismatch")
-        ]
-        done = 0
-        await _notify(on_progress, "suggestion", done, len(to_suggest))
-
-        async def add_suggestions(index: int) -> None:
-            nonlocal done
-            finding = findings[index]
-            try:
-                rewrites = await suggest(
-                    client,
-                    doc,
-                    finding,
-                    prompt_lang=prompt_lang,
-                    document_type=settings.document_type,
-                    requirements=settings.instruction_snapshot.requirements
-                    if settings.instruction_snapshot
-                    else None,
-                )
-                findings[index] = finding.model_copy(update={"suggestions": rewrites})
-            except (OitomaError, PromptTooLongError) as exc:
-                warnings.append(f"{finding.finding_id} の改善案を作れませんでした：{exc}")
-            done += 1
-            await _notify(on_progress, "suggestion", done, len(to_suggest))
-
-        await asyncio.gather(*(add_suggestions(i) for i in to_suggest))
-
+        await progress("suggestion", suggestion_done, suggestion_total)
     findings.sort(key=_sort_key)
     return LogicAnalysis(
         findings=findings,

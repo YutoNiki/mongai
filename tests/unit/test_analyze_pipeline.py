@@ -33,6 +33,7 @@ def config() -> ModelsConfig:
                 "citation_support": {"model": "think"},
                 "second_opinion": {"model": "second"},
                 "term_extraction": {"model": "fast"},
+                "rule_check": {"model": "fast"},
             },
             "embeddings": {},
         }
@@ -87,9 +88,23 @@ class FakeLLM:
         body = json.loads(request.content)
         system = body["messages"][0]["content"]
         user = body["messages"][-1]["content"]
-        if "参考文献リストを構造化" in system:
+        payload: dict[str, Any]
+        if "原稿の文脈から候補を確認" in system:
+            stage = "context_review"
+            payload = {
+                "results": [
+                    {
+                        "candidate_id": c["candidate_id"],
+                        "status": "unknown",
+                        "sentence_ids": [],
+                        "quote": "",
+                    }
+                    for c in json.loads(user)["candidates"]
+                ]
+            }
+        elif "参考文献リストを構造化" in system:
             stage = "reference_extraction"
-            payload: dict[str, Any] = {"references": []}
+            payload = {"references": []}
         elif "論証構造を分析" in system:
             stage = "structure"
             payload = {
