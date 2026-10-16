@@ -19,6 +19,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from core.analyze.evidence import quote_matches
 from core.analyze.models import (
     ArgumentStructure,
     Evidence,
@@ -447,17 +448,14 @@ async def check_citations(
         for rid in c.ref_ids:
             if rid in doi_of and len(pairs) < max_support_checks:
                 pairs.append((c.citation_id, rid))
-    abstracts: dict[str, str | None] = {}
+    abstracts: dict[str, asyncio.Task[str | None]] = {}
 
-    async def abstract_of(doi: str) -> str | None:
-        if doi not in abstracts:
-            abstracts[doi] = None
-            async with semaphore:
-                found = await _submit(
-                    gateway, analysis_id, doc.doc_id, OATextFetch(kind="oa_fetch", doi=doi), tally
-                )
-            abstracts[doi] = next((r.abstract for r in found or [] if r.abstract), None)
-        return abstracts[doi]
+    async def fetch_abstract(doi: str) -> str | None:
+        async with semaphore:
+            found = await _submit(
+                gateway, analysis_id, doc.doc_id, OATextFetch(kind="oa_fetch", doi=doi), tally
+            )
+        return next((r.abstract for r in found or [] if r.abstract), None)
 
     refs = {r.ref_id: r for r in doc.references}
     citations = {c.citation_id: c for c in doc.citations}
@@ -470,7 +468,9 @@ async def check_citations(
         citation = citations[citation_id]
         sentence = sentences[citation.sentence_id]
         doi = doi_of[ref_id]
-        abstract = await abstract_of(doi)
+        if doi not in abstracts:
+            abstracts[doi] = support_tasks.create_task(fetch_abstract(doi))
+        abstract = await abstracts[doi]
         if abstract:
             i = order.index(sentence.sentence_id)
             context = " ".join(
@@ -486,15 +486,27 @@ async def check_citations(
                 output_language=output_language,
             )
             try:
+
+                def validate(judgement: SupportJudgement) -> SupportJudgement:
+                    if judgement.evidence and not quote_matches(judgement.evidence, [abstract]):
+                        raise ValueError(
+                            "引用先の根拠をアブストラクトからそのまま抜き出してください"
+                        )
+                    if judgement.verdict == "does_not_support" and not judgement.evidence:
+                        raise ValueError("支持しないと判定した根拠の原文を指定してください")
+                    return judgement
+
                 judgements[(citation_id, ref_id)] = await client.chat_json(
-                    ROLE_SUPPORT, messages, SupportJudgement, lang=prompt_lang
+                    ROLE_SUPPORT, messages, SupportJudgement, lang=prompt_lang, validate=validate
                 )
             except OitomaError as exc:
                 result.warnings.append(f"引用内容の判定に失敗しました：{exc}")
         done += 1
         await _notify(on_progress, "citation", done, total)
 
-    await asyncio.gather(*(judge(c, r) for c, r in pairs))
+    async with asyncio.TaskGroup() as support_tasks:
+        for citation_id, ref_id in pairs:
+            support_tasks.create_task(judge(citation_id, ref_id))
 
     model = client.config.role(ROLE_SUPPORT).model if judgements else "-"
     by_citation: dict[str, list[tuple[str, SupportJudgement]]] = {}

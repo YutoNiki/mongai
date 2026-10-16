@@ -33,6 +33,7 @@ def config() -> ModelsConfig:
                 "citation_support": {"model": "think"},
                 "second_opinion": {"model": "second"},
                 "term_extraction": {"model": "fast"},
+                "rule_check": {"model": "fast"},
             },
             "embeddings": {},
         }
@@ -53,7 +54,7 @@ class FakeLLM:
     """システムプロンプトの内容で、どの工程の呼び出しかを見分けて応答する。"""
 
     def __init__(self) -> None:
-        # 段落内チェックの3回の判定：2回が overclaim、1回が leap を指摘する
+        # 段落内チェックの3回の判定：2回が overclaim、1回は指摘なし
         self.checks = itertools.cycle(
             [
                 [
@@ -71,22 +72,13 @@ class FakeLLM:
                     {
                         "type": "overclaim",
                         "sentence_ids": ["S-00003"],
-                        "quote": "完全に解決する",
+                        "quote": "全てのタスクで既存手法",
                         "issue": "過大な主張",
                         "rationale": "根拠不足",
                         "severity": "major",
                     }
                 ],
-                [
-                    {
-                        "type": "leap",
-                        "sentence_ids": ["S-00002"],
-                        "quote": "安価に作る",
-                        "issue": "飛躍",
-                        "rationale": "説明不足",
-                        "severity": "suggestion",
-                    }
-                ],
+                [],
             ]
         )
         self.calls: dict[str, int] = {}
@@ -96,9 +88,23 @@ class FakeLLM:
         body = json.loads(request.content)
         system = body["messages"][0]["content"]
         user = body["messages"][-1]["content"]
-        if "参考文献リストを構造化" in system:
+        payload: dict[str, Any]
+        if "原稿の文脈から候補を確認" in system:
+            stage = "context_review"
+            payload = {
+                "results": [
+                    {
+                        "candidate_id": c["candidate_id"],
+                        "status": "unknown",
+                        "sentence_ids": [],
+                        "quote": "",
+                    }
+                    for c in json.loads(user)["candidates"]
+                ]
+            }
+        elif "参考文献リストを構造化" in system:
             stage = "reference_extraction"
-            payload: dict[str, Any] = {"references": []}
+            payload = {"references": []}
         elif "論証構造を分析" in system:
             stage = "structure"
             payload = {
@@ -198,7 +204,7 @@ async def test_analyze_logic_end_to_end() -> None:
     }
 
     by_type = {f.subcategory: f for f in result.findings}
-    assert set(by_type) == {"overclaim", "section_role_violation"}  # leap は 1/3 なので落ちる
+    assert set(by_type) == {"overclaim", "section_role_violation"}
 
     over = by_type["overclaim"]
     assert over.category == "logic"

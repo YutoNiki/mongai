@@ -314,6 +314,7 @@ class OitomaClient:
         *,
         lang: Lang = "ja",
         max_attempts: int = 3,
+        validate: Callable[[T], T] | None = None,
     ) -> T:
         """役割の設定で呼び出し、出力を schema で検証して返す。
 
@@ -348,7 +349,8 @@ class OitomaClient:
                 conversation = initial
                 continue
             try:
-                return schema.model_validate(extract_json(result.content))
+                output = schema.model_validate(extract_json(result.content))
+                return validate(output) if validate else output
             except (ValueError, ValidationError) as exc:
                 last_error = str(exc)[:1000]
                 logger.warning(

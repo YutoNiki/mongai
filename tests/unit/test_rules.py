@@ -419,7 +419,8 @@ async def test_check_rules_validates_output() -> None:
         ]
     }
     with respx.mock:
-        respx.post(CHAT_URL).mock(return_value=chat(payload))
+        corrected = {"violations": [{**payload["violations"][0], "quote": "優れている"}]}
+        endpoint = respx.post(CHAT_URL).mock(side_effect=[chat(payload), chat(corrected)])
         async with OitomaClient(config(), api_key="k") as client:
             (found,) = await check_rules(
                 client, [target], rules, prompt_lang="ja", output_language="日本語"
@@ -427,7 +428,8 @@ async def test_check_rules_validates_output() -> None:
         sent = json.loads(respx.calls[0].request.content)["messages"][1]["content"]
     assert "[R-1] 主観的な形容を避ける" in sent
     assert found.rule.rule_id == "R-1" and found.severity == "major"
-    assert found.quote == "本手法は優れている。"  # 原文に無い引用は文の全文に置き換える
+    assert found.quote == "優れている"
+    assert endpoint.call_count == 2  # 原文に無い引用は再判定し、差し替えて確定しない
 
 
 async def test_pipeline_adds_rule_findings() -> None:

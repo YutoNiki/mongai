@@ -10,9 +10,8 @@
 import math
 from dataclasses import dataclass
 
-from pydantic import Field
-
 from core.analyze.context import Target, normalize, numbered_paragraph
+from core.analyze.evidence import quote_matches
 from core.analyze.models import Severity, _LLMOutput
 from core.ingest.models import BBox, Lang
 from core.lab.models import LabComment
@@ -42,7 +41,7 @@ class LabMatchItem(_LLMOutput):
 
 
 class LabCheckOutput(_LLMOutput):
-    matches: list[LabMatchItem] = Field(default_factory=list)
+    matches: list[LabMatchItem]
 
 
 @dataclass
@@ -118,8 +117,21 @@ async def check_lab(
             ),
         },
     ]
-    output = await client.chat_json(ROLE, messages, LabCheckOutput, lang=prompt_lang)
     texts = {s.sentence_id: s for s in target.sentences}
+
+    def validate(output: LabCheckOutput) -> LabCheckOutput:
+        if output.matches and not any(item.comment_id in by_id for item in output.matches):
+            raise ValueError("入力にある過去の指摘IDを指定してください")
+        for item in output.matches:
+            if item.comment_id in by_id and not quote_matches(
+                item.quote, ["".join(texts[sid].text for sid in item.sentence_ids if sid in texts)]
+            ):
+                raise ValueError("過去の指摘との照合に使った文ID・原文引用を確認してください")
+        return output
+
+    output = await client.chat_json(
+        ROLE, messages, LabCheckOutput, lang=prompt_lang, validate=validate
+    )
     matches: list[LabMatch] = []
     seen: set[str] = set()
     for item in output.matches:
@@ -131,7 +143,7 @@ async def check_lab(
         joined = normalize("".join(texts[sid].text for sid in ids))
         quote = item.quote.strip()
         if not quote or normalize(quote) not in joined:
-            quote = texts[ids[0]].text
+            continue
         matches.append(
             LabMatch(
                 comment=comment,

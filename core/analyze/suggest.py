@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import Counter
 
 from core.analyze.context import normalize
 from core.analyze.models import Finding, SuggestionOutput
@@ -13,13 +14,18 @@ from core.llm.prompts import load_prompt
 
 ROLE = "suggestion"
 
+_NUMBER = re.compile(
+    r"(?<![A-Za-z0-9.])[-+−]?\d+(?:,\d{3})*(?:\.\d+)?(?:[eE][-+]?\d+)?"
+    r"(?:\s*(?:%|％|℃|°[CF]|[μµ]?[a-zA-Z]+(?:/[a-zA-Z]+)?|人|件|回|個|倍|秒|分|時間|年|月|日|点))?"
+)
 # 書き換え案に必ず残すべき語：引用の表記、数値、英大文字や数字を含む語（モデル名・略語など）
 _PROTECTED = re.compile(
     r"\[[0-9,\s–-]+\]"  # [12]、[1, 3]
     r"|\([^()]*\d{4}[a-z]?\)"  # (Smith, 2020)
     r"|（[^（）]*\d{4}[a-z]?）"  # （田中, 2020）
-    r"|\d+(?:\.\d+)?%?"  # 数値
-    r"|[A-Za-z]*[A-Z0-9][A-Za-z0-9\-]*[A-Z0-9][A-Za-z0-9\-]*"  # BERT、ROUGE-1、GPT-4
+    r"|"
+    + _NUMBER.pattern
+    + r"|[A-Za-z]*[A-Z0-9][A-Za-z0-9\-]*[A-Z0-9][A-Za-z0-9\-]*"  # BERT、ROUGE-1、GPT-4
 )
 
 
@@ -28,7 +34,9 @@ def protected_terms(text: str) -> list[str]:
 
 
 def keeps_terms(original: str, rewrite: str) -> bool:
-    return all(term in rewrite for term in protected_terms(original))
+    original_tokens = Counter(normalize(m.group(0)) for m in _PROTECTED.finditer(original))
+    rewritten_tokens = Counter(normalize(m.group(0)) for m in _PROTECTED.finditer(rewrite))
+    return not (original_tokens - rewritten_tokens)
 
 
 def _context(doc: Document, finding: Finding) -> str:
@@ -80,10 +88,16 @@ async def suggest(
         normalize(texts[sid]) for sid in finding.sentence_ids if sid in texts
     }
     accepted: list[str] = []
+    source = "\n".join(
+        [finding.quote, *(texts[sid] for sid in finding.sentence_ids if sid in texts)]
+    )
+    source_numbers = {normalize(m.group(0)) for m in _NUMBER.finditer(source)}
     for rewrite in result.suggestions:
         rewrite = rewrite.strip()
         if not rewrite or normalize(rewrite) in originals or rewrite in accepted:
             continue
-        if keeps_terms(finding.quote, rewrite):
+        if keeps_terms(finding.quote, rewrite) and all(
+            normalize(m.group(0)) in source_numbers for m in _NUMBER.finditer(rewrite)
+        ):
             accepted.append(rewrite)
     return accepted[:2]

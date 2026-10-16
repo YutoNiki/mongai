@@ -1,0 +1,3 @@
+For this request independently assess each item in input requirements against the same manuscript.
+Return {"results":[{"requirement_id":"input ID","verdict":"met|not_met|unknown","reason":"reason","sentence_ids":[],"paragraph_ids":[],"quote":"verbatim evidence","suggestion":"improvement"}]}.
+Return every input requirement ID exactly once. Keep each requirement's evidence separate and do not confuse satisfying another requirement with satisfying this one. Apply evidence validation, excerpt coverage and uncertainty rules independently.

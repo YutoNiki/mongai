@@ -11,9 +11,8 @@
 import math
 import re
 
-from pydantic import Field
-
 from core.analyze.context import Target, normalize, numbered_paragraph
+from core.analyze.evidence import quote_matches
 from core.analyze.models import Severity, _LLMOutput
 from core.ingest.models import Document, Lang
 from core.llm.budget import estimate_tokens
@@ -43,7 +42,7 @@ class RuleViolationItem(_LLMOutput):
 
 
 class RuleCheckOutput(_LLMOutput):
-    violations: list[RuleViolationItem] = Field(default_factory=list)
+    violations: list[RuleViolationItem]
 
 
 def group_targets(targets: list[Target], max_tokens: int = MAX_TEXT_TOKENS) -> list[list[Target]]:
@@ -152,8 +151,21 @@ async def check_rules(
             ),
         },
     ]
-    output = await client.chat_json(ROLE, messages, RuleCheckOutput, lang=prompt_lang)
     texts = {s.sentence_id: s for t in group for s in t.sentences}
+
+    def validate(output: RuleCheckOutput) -> RuleCheckOutput:
+        if output.violations and not any(item.rule_id in by_id for item in output.violations):
+            raise ValueError("入力にあるルールIDを指定してください")
+        for item in output.violations:
+            if item.rule_id in by_id and not quote_matches(
+                item.quote, ["".join(texts[sid].text for sid in item.sentence_ids if sid in texts)]
+            ):
+                raise ValueError("ルールの指摘の文ID・原文引用を確認してください")
+        return output
+
+    output = await client.chat_json(
+        ROLE, messages, RuleCheckOutput, lang=prompt_lang, validate=validate
+    )
     violations: list[RuleViolation] = []
     seen: dict[str, int] = {}
     for item in output.violations:
@@ -165,7 +177,7 @@ async def check_rules(
         joined = normalize("".join(texts[sid].text for sid in ids))
         quote = item.quote.strip()
         if not quote or normalize(quote) not in joined:
-            quote = texts[ids[0]].text  # 原文に無い引用は、該当する文の全文に置き換える
+            continue
         violations.append(
             RuleViolation(
                 rule=rule,

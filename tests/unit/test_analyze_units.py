@@ -107,7 +107,7 @@ def test_select_targets_skips_non_body_text() -> None:
     texts = [t.paragraph.paragraph_id for t in targets]
     # 冒頭の短い段落・文末の無い段落・短すぎる段落・参考文献は対象外
     assert texts == ["P-0002", "P-0003", "P-0007"]
-    assert targets[0].previous is None
+    assert targets[0].previous is not None and targets[0].previous.paragraph_id == "P-0001"
     assert targets[1].previous is not None and targets[1].previous.paragraph_id == "P-0002"
     assert select_targets(doc, max_paragraphs=1)[0].paragraph.paragraph_id == "P-0002"
 
@@ -148,7 +148,6 @@ def test_clean_issues_validates_ids_and_quotes() -> None:
     cleaned = clean_issues(issues, target, known)
     assert [(c.sentence_ids, c.quote, c.related_sentence_ids) for c in cleaned] == [
         (["S-00002"], "全てのタスクで有効", ["S-00001"]),
-        (["S-00002"], "したがって本手法は全てのタスクで有効である．", []),
     ]
 
 
@@ -258,7 +257,7 @@ def test_truncation_issues_are_dropped() -> None:
         return ParagraphIssue(
             type=t,
             sentence_ids=[sid],
-            quote="x",
+            quote=next(s.text for s in doc.sentences if s.sentence_id == sid),
             issue="i",
             rationale="r",
             severity="major",

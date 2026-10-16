@@ -1,0 +1,3 @@
+この呼び出しでは、入力requirementsの複数の要件を同じmanuscriptに対してそれぞれ独立に判定する。
+出力は {"results":[{"requirement_id":"入力のID","verdict":"met|not_met|unknown","reason":"理由","sentence_ids":[],"paragraph_ids":[],"quote":"原文引用","suggestion":"改善方向"}]}。
+入力の全要件IDを正確に1回ずつ返し、要件間で根拠を取り違えない。他の要件を満たしていてもこの要件の充足と混同しない。根拠・抜粋の範囲・未確認の扱いは各要件に適用する。

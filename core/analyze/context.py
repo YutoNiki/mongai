@@ -42,8 +42,8 @@ class Target:
     paragraph: Paragraph
     sentences: list[Sentence]
     section: Section | None
-    previous: Paragraph | None  # 同じ文書で直前の解析対象の段落（文脈として渡す）
-    next: Paragraph | None = None  # 直後の解析対象の段落（文脈として渡す）
+    previous: Paragraph | None  # 短い段落も含む、直前の本文
+    next: Paragraph | None = None
 
     @property
     def section_label(self) -> str:
@@ -51,6 +51,15 @@ class Target:
             return "-"
         number = f"{self.section.number} " if self.section.number else ""
         return f"{number}{self.section.title}（{self.section.role}）"
+
+
+def context_paragraphs(doc: Document) -> list[Paragraph]:
+    roles = {s.section_id: s.role for s in doc.sections}
+    return [
+        p
+        for p in doc.paragraphs
+        if p.kind == "body" and roles.get(p.section_id or "") not in SKIPPED_ROLES
+    ]
 
 
 def select_targets(
@@ -63,8 +72,8 @@ def select_targets(
     sections = {s.section_id: s for s in doc.sections}
     sentences: dict[str, Sentence] = {s.sentence_id: s for s in doc.sentences}
     targets: list[Target] = []
-    previous: Paragraph | None = None
-    for para in doc.paragraphs:
+    body = context_paragraphs(doc)
+    for index, para in enumerate(body):
         if para.kind != "body" or not para.sentence_ids:
             continue
         section = sections.get(para.section_id or "")
@@ -81,16 +90,13 @@ def select_targets(
                 paragraph=para,
                 sentences=[sentences[sid] for sid in para.sentence_ids if sid in sentences],
                 section=section,
-                previous=previous,
+                previous=body[index - 1] if index else None,
+                next=body[index + 1] if index + 1 < len(body) else None,
             )
         )
-        previous = para
         if max_paragraphs is not None and len(targets) >= max_paragraphs:
             break
-    return [
-        Target(t.paragraph, t.sentences, t.section, t.previous, nxt.paragraph if nxt else None)
-        for t, nxt in zip(targets, [*targets[1:], None], strict=False)
-    ]
+    return targets
 
 
 def numbered_paragraph(sentences: list[Sentence]) -> str:

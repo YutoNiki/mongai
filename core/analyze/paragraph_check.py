@@ -1,8 +1,10 @@
 """段落内の論理・読みやすさのチェック（SPEC 3.3-3）。思考モデルで複数回判定し、多数決を取る。"""
 
 import re
+from collections.abc import Callable
 
 from core.analyze.context import Target, normalize, numbered_paragraph, structure_text
+from core.analyze.evidence import quote_matches
 from core.analyze.models import ParagraphCheckOutput, ParagraphIssue, ParagraphStructure
 from core.analyze.voting import Voted, vote
 from core.ingest.models import Lang
@@ -24,7 +26,13 @@ def early_stop_for(client: OitomaClient, role: str) -> bool:
 
 
 def same_issue(a: ParagraphIssue, b: ParagraphIssue) -> bool:
-    return a.type == b.type and bool(set(a.sentence_ids) & set(b.sentence_ids))
+    qa, qb = normalize(a.quote), normalize(b.quote)
+    return (
+        a.type == b.type
+        and bool(set(a.sentence_ids) & set(b.sentence_ids))
+        and bool(qa and qb)
+        and (qa in qb or qb in qa)
+    )
 
 
 # 文末の記号（閉じ括弧で終わる文も含む）。これで終わらない文は、抽出の都合で途切れている可能性がある
@@ -40,7 +48,7 @@ def clean_issues(
 ) -> list[ParagraphIssue]:
     """出力を検証して整える。
 
-    - 段落外の文IDを除き、原文に無い引用（quote）は該当する文の全文に置き換える
+    - 段落外の文IDを除き、原文に無い引用を含む指摘は確定しない
     - 文の途切れ・未完を理由にした指摘は捨てる（PDF から抽出した都合で起きるため。モデルの自己申告）
     - 文末の記号で終わらない文への「主語と述語のねじれ」は捨てる（同上の誤検出を機械的に防ぐ）
     """
@@ -58,7 +66,7 @@ def clean_issues(
         joined = normalize("".join(texts[sid] for sid in ids))
         quote = issue.quote.strip()
         if not quote or normalize(quote) not in joined:
-            quote = texts[ids[0]]
+            continue
         cleaned.append(
             issue.model_copy(
                 update={"sentence_ids": ids, "related_sentence_ids": related, "quote": quote}
@@ -78,6 +86,7 @@ async def check_paragraph(
     context_text: str,
     next_text: str = "",
     document_type: DocumentType = "paper",
+    on_warning: Callable[[str], None] | None = None,
 ) -> tuple[list[Voted[ParagraphIssue]], int]:
     """段落を最大 n 回判定し、過半数に現れた指摘と、実際に判定した回数を返す。"""
     messages = [
@@ -101,15 +110,33 @@ async def check_paragraph(
         },
     ]
 
+    def validate(output: ParagraphCheckOutput) -> ParagraphCheckOutput:
+        texts = {s.sentence_id: s.text for s in target.sentences}
+        for item in output.issues:
+            if not item.about_truncation and not quote_matches(
+                item.quote, ["".join(texts[sid] for sid in item.sentence_ids if sid in texts)]
+            ):
+                raise ValueError("指摘の文IDと原文引用を確認してください")
+        return output
+
     async def judge() -> list[ParagraphIssue]:
-        output = await client.chat_json(ROLE, messages, ParagraphCheckOutput, lang=prompt_lang)
+        output = await client.chat_json(
+            ROLE, messages, ParagraphCheckOutput, lang=prompt_lang, validate=validate
+        )
         return clean_issues(output.issues, target, known_sentences)
 
     ballot = await vote(
         judge, same=same_issue, n=samples_for(client, ROLE), early_stop=early_stop_for(client, ROLE)
     )
-    if ballot.all_failed:
+    if ballot.all_failed or (
+        ballot.errors and ballot.attempts - len(ballot.errors) < samples_for(client, ROLE) // 2 + 1
+    ):
         raise JSONOutputError(
-            f"段落 {target.paragraph.paragraph_id} の判定に失敗しました"
+            f"段落 {target.paragraph.paragraph_id} は有効な判定が不足しているため未確認です"
         ) from ballot.errors[0]
+    if ballot.errors and on_warning:
+        on_warning(
+            f"段落 {target.paragraph.paragraph_id} の判定は一部失敗しました"
+            f"（{len(ballot.errors)}/{ballot.attempts} 回）"
+        )
     return ballot.voted, ballot.attempts

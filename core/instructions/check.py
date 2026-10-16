@@ -11,11 +11,12 @@ from pydantic import BaseModel, Field
 from core.analyze.context import normalize, output_language
 from core.ingest.models import Document, Paragraph
 from core.instructions.models import Requirement, RequirementResult, Snapshot, Verdict
-from core.llm.budget import TokenBudget, estimate_messages_tokens
+from core.llm.budget import TokenBudget, estimate_messages_tokens, estimate_tokens, split_text
 from core.llm.client import OitomaClient, OitomaError
 from core.llm.prompts import load_prompt
 
 ROLE = "requirement_check"
+MAX_REQUIREMENTS_PER_BATCH = 4
 ResultCallback = Callable[[RequirementResult, int, int], Awaitable[None]]
 
 
@@ -26,6 +27,14 @@ class Assessment(BaseModel):
     paragraph_ids: list[str] = Field(default_factory=list)
     quote: str = ""
     suggestion: str = ""
+
+
+class BatchItem(Assessment):
+    requirement_id: str
+
+
+class BatchAssessment(BaseModel):
+    results: list[BatchItem]
 
 
 def _paragraphs(doc: Document, scope: Literal["body", "all"]) -> list[Paragraph]:
@@ -143,16 +152,21 @@ def _validate_evidence(output: Assessment, doc: Document, chunk: str) -> Require
     )
 
 
-async def _content_check(
+async def _content_checks(
     client: OitomaClient,
     doc: Document,
-    req: Requirement,
+    requirements: list[Requirement],
     out_lang: str,
-) -> RequirementResult:
+) -> list[RequirementResult]:
     system = load_prompt("requirement_check", doc.lang, output_language=out_lang)
-    requirement = req.model_dump(exclude={"enabled", "source_excerpt"})
+    multiple = len(requirements) > 1
+    if multiple:
+        system += "\n" + load_prompt("requirement_batch", doc.lang)
+    key = "requirements" if multiple else "requirement"
+    values = [req.model_dump(exclude={"enabled", "source_excerpt"}) for req in requirements]
+    requirement = values if multiple else values[0]
     base = json.dumps(
-        {"requirement": requirement, "full_document": False, "manuscript": ""}, ensure_ascii=False
+        {key: requirement, "full_document": False, "manuscript": ""}, ensure_ascii=False
     )
     fixed = estimate_messages_tokens(
         [{"role": "system", "content": system}, {"role": "user", "content": base}]
@@ -162,36 +176,67 @@ async def _content_check(
         cfg.context_window, cfg.role(ROLE).max_tokens or cfg.api.default_max_tokens
     )
     by_id = {s.sentence_id: s for s in doc.sentences}
-    blocks = [
-        f"[{p.paragraph_id}] "
-        + (
-            "".join(f"【{sid}】{by_id[sid].text}" for sid in p.sentence_ids if sid in by_id)
-            or p.text
-        )
-        for p in doc.paragraphs
-    ]
+    blocks: list[str] = []
+    for paragraph in doc.paragraphs:
+        prefix = f"[{paragraph.paragraph_id}] "
+        pieces = [(f"【{sid}】", by_id[sid].text) for sid in paragraph.sentence_ids if sid in by_id]
+        if not pieces:
+            pieces = [("", paragraph.text)]
+        for marker, text in pieces:
+            available = budget.max_input_tokens - fixed - 500 - estimate_tokens(prefix + marker) - 2
+            blocks.extend(prefix + marker + part for part in split_text(text, available))
     if not blocks:
-        return _result(req, "unknown", "確認できる本文がありません。")
+        return [_result(req, "unknown", "確認できる本文がありません。") for req in requirements]
     batches = budget.pack(blocks, fixed_tokens=fixed + 500)
 
-    async def judge(batch: list[str]) -> RequirementResult:
+    async def judge(batch: list[str]) -> list[RequirementResult]:
         chunk = "\n".join(batch)
         payload = json.dumps(
-            {"requirement": requirement, "full_document": len(batches) == 1, "manuscript": chunk},
+            {key: requirement, "full_document": len(batches) == 1, "manuscript": chunk},
             ensure_ascii=False,
         )
-        output = await client.chat_json(
-            ROLE,
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": payload},
-            ],
-            Assessment,
-            lang=doc.lang,
-        )
-        return _validate_evidence(output, doc, chunk)
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": payload},
+        ]
+        if multiple:
 
-    results = await asyncio.gather(*(judge(batch) for batch in batches))
+            def validate(output: BatchAssessment) -> BatchAssessment:
+                ids = [item.requirement_id for item in output.results]
+                if len(ids) != len(requirements) or set(ids) != {
+                    r.requirement_id for r in requirements
+                }:
+                    raise ValueError("requirement result IDs are missing, duplicate or unexpected")
+                return output
+
+            output = await client.chat_json(
+                ROLE, messages, BatchAssessment, lang=doc.lang, validate=validate
+            )
+            by_req = {item.requirement_id: item for item in output.results}
+            return [
+                _validate_evidence(by_req[req.requirement_id], doc, chunk) for req in requirements
+            ]
+        single = await client.chat_json(ROLE, messages, Assessment, lang=doc.lang)
+        return [_validate_evidence(single, doc, chunk)]
+
+    async def safe_judge(batch: list[str]) -> list[RequirementResult]:
+        try:
+            return await judge(batch)
+        except (OitomaError, ValueError):
+            return [
+                _result(req, "unknown", "本文の一部の判定を完了できず、未確認です。")
+                for req in requirements
+            ]
+
+    results = await asyncio.gather(*(safe_judge(batch) for batch in batches))
+    return [
+        _aggregate(req, doc, [chunk[i] for chunk in results]) for i, req in enumerate(requirements)
+    ]
+
+
+def _aggregate(
+    req: Requirement, doc: Document, results: list[RequirementResult]
+) -> RequirementResult:
     complete = len({p.page for p in doc.paragraphs}) == doc.page_count
     absence_safe = complete and not doc.warnings
     if len(results) == 1:
@@ -249,21 +294,36 @@ async def check_requirements(
     done = 0
     out_lang = output_language(doc.lang, doc.lang, output_lang)
 
-    async def check(req: Requirement) -> RequirementResult:
+    async def check(group: list[Requirement]) -> list[RequirementResult]:
         nonlocal done
         try:
-            result = mechanical_check(req, doc)
-            if result is None:
-                result = await _content_check(client, doc, req, out_lang)
-        except (OitomaError, ValueError):
-            result = _result(
-                req,
-                "unknown",
-                "判定を完了できませんでした。条件や本文を確認して再解析してください。",
+            mechanical = mechanical_check(group[0], doc) if len(group) == 1 else None
+            results = (
+                [mechanical]
+                if mechanical is not None
+                else await _content_checks(client, doc, group, out_lang)
             )
-        done += 1
-        if on_result:
-            await on_result(result, done, len(requirements))
-        return result
+        except (OitomaError, ValueError):
+            results = [
+                _result(
+                    req,
+                    "unknown",
+                    "判定を完了できませんでした。条件や本文を確認して再解析してください。",
+                )
+                for req in group
+            ]
+        for result in results:
+            done += 1
+            if on_result:
+                await on_result(result, done, len(requirements))
+        return results
 
-    return list(await asyncio.gather(*(check(r) for r in requirements)))
+    content = [r for r in requirements if r.kind in ("content", "style")]
+    groups = [[r] for r in requirements if r not in content]
+    groups.extend(
+        content[i : i + MAX_REQUIREMENTS_PER_BATCH]
+        for i in range(0, len(content), MAX_REQUIREMENTS_PER_BATCH)
+    )
+    outputs = await asyncio.gather(*(check(group) for group in groups))
+    by_id = {item.requirement_id: item for group in outputs for item in group}
+    return [by_id[req.requirement_id] for req in requirements]
