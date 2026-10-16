@@ -59,7 +59,12 @@ async def test_lookup_terms_queues_for_approval() -> None:
             (
                 "3 提案手法",
                 "methods",
-                [["到達圏の算出にはアイソクローンを用いた。", "配車は貪欲法で決める。"]],
+                [
+                    [
+                        "到達圏の算出にはアイソクローンを用いた。",
+                        "配車は貪欲法で決める。DRT-Optを使う。",
+                    ]
+                ],
             ),
         ]
     )
@@ -67,9 +72,22 @@ async def test_lookup_terms_queues_for_approval() -> None:
     gateway = QueueingGateway(blocked={"DRT-Opt"})
     with respx.mock:
         respx.post(CHAT_URL).mock(
-            return_value=chat(
-                {"terms": [{"term": "アイソクローン", "english": "isochrone"}, "DRT-Opt"]}
-            )
+            side_effect=[
+                chat({"terms": [{"term": "アイソクローン", "english": "isochrone"}, "DRT-Opt"]}),
+                chat(
+                    {
+                        "results": [
+                            {
+                                "candidate_id": term,
+                                "status": "valid",
+                                "sentence_ids": [],
+                                "quote": "",
+                            }
+                            for term in ["アイソクローン", "DRT-Opt"]
+                        ]
+                    }
+                ),
+            ]
         )
         async with OitomaClient(config(), api_key="k") as client:
             result = await lookup_terms(client, gateway, doc, targets, analysis_id="A-1", lang="ja")

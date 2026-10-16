@@ -107,7 +107,7 @@ def test_select_targets_skips_non_body_text() -> None:
     texts = [t.paragraph.paragraph_id for t in targets]
     # 冒頭の短い段落・文末の無い段落・短すぎる段落・参考文献は対象外
     assert texts == ["P-0002", "P-0003", "P-0007"]
-    assert targets[0].previous is None
+    assert targets[0].previous is not None and targets[0].previous.paragraph_id == "P-0001"
     assert targets[1].previous is not None and targets[1].previous.paragraph_id == "P-0002"
     assert select_targets(doc, max_paragraphs=1)[0].paragraph.paragraph_id == "P-0002"
 

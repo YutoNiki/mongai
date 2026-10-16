@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import ValidationError, model_validator
 
 from core.analyze.context import Target, numbered_paragraph
+from core.analyze.context_review import review_context
 from core.analyze.models import _LLMOutput
 from core.gateway_client import GatewayClient, GatewayError
 from core.ingest.models import Document, Lang
@@ -154,7 +155,36 @@ async def lookup_terms(
                     english.setdefault(c.term.strip().casefold(), c.english)
     citing = {c.sentence_id for c in doc.citations}
     cited_sentences = [s.text for s in doc.sentences if s.sentence_id in citing]
-    for term in pick_terms(candidates, lang, title=doc.title, cited_sentences=cited_sentences):
+    manuscript = " ".join(s.text for s in doc.sentences).casefold()
+    chosen = pick_terms(
+        [term for term in candidates if term.strip().casefold() in manuscript],
+        lang,
+        title=doc.title,
+        cited_sentences=cited_sentences,
+    )
+    try:
+        decisions = await review_context(
+            client,
+            doc,
+            [
+                {
+                    "candidate_id": term,
+                    "kind": "term",
+                    "term": term,
+                    "english": english.get(term.casefold(), ""),
+                }
+                for term in chosen
+            ],
+            lang=lang,
+        )
+    except OitomaError:
+        result.warnings.append("用語の定義を文書全体で確認できなかったため、照会は未確認です")
+        return result
+    for term in chosen:
+        if decisions[term] != "valid":
+            if decisions[term] == "unknown":
+                result.warnings.append(f"用語「{term}」の定義を確認できず、照会は未確認です")
+            continue
         query, query_lang = lookup_query(term, english.get(term.casefold()), lang)
         try:
             response = await gateway.submit(

@@ -7,7 +7,7 @@
 
 from typing import Literal
 
-from core.analyze.context import numbered_paragraph
+from core.analyze.context import context_paragraphs, numbered_paragraph
 from core.analyze.models import Finding, ModelInfo, _LLMOutput
 from core.ingest.models import Document, Lang, Paragraph
 from core.instructions.models import DocumentType
@@ -30,16 +30,19 @@ def needs_second_opinion(finding: Finding) -> bool:
     return finding.category in TARGET_CATEGORIES and finding.severity in TARGET_SEVERITIES
 
 
-def _paragraph_of(doc: Document, finding: Finding) -> tuple[Paragraph | None, Paragraph | None]:
-    """指摘の文を含む段落と、その直前の本文の段落。"""
+def _paragraph_of(
+    doc: Document, finding: Finding
+) -> tuple[Paragraph | None, Paragraph | None, Paragraph | None]:
+    """指摘の文を含む段落と、短い段落も含む前後の本文。"""
     owner = {sid: p for p in doc.paragraphs for sid in p.sentence_ids}
     paragraph = next((owner[s] for s in finding.sentence_ids if s in owner), None)
     if paragraph is None:
-        return None, None
-    body = [p for p in doc.paragraphs if p.kind == "body"]
+        return None, None, None
+    body = context_paragraphs(doc)
     index = next((i for i, p in enumerate(body) if p.paragraph_id == paragraph.paragraph_id), None)
     previous = body[index - 1] if index else None
-    return paragraph, previous
+    following = body[index + 1] if index is not None and index + 1 < len(body) else None
+    return paragraph, previous, following
 
 
 def _text(doc: Document, paragraph: Paragraph | None) -> str:
@@ -58,7 +61,15 @@ async def second_opinion(
     output_language: str,
     document_type: DocumentType = "paper",
 ) -> SecondOpinion:
-    paragraph, previous = _paragraph_of(doc, finding)
+    paragraph, previous, following = _paragraph_of(doc, finding)
+    sentences = {s.sentence_id: s for s in doc.sentences}
+    evidence = numbered_paragraph(
+        [
+            sentences[e.ref]
+            for e in finding.evidence
+            if e.type == "manuscript" and e.ref in sentences
+        ]
+    )
     section = next((s for s in doc.sections if s.section_id == finding.section_id), None)
     section_label = (
         f"{section.number + ' ' if section.number else ''}{section.title}（{section.role}）"
@@ -83,6 +94,12 @@ async def second_opinion(
                 type=finding.subcategory,
                 sentence_ids=", ".join(finding.sentence_ids),
                 quote=finding.quote,
+            )
+            + load_prompt(
+                "second_opinion_context",
+                prompt_lang,
+                following=_text(doc, following),
+                evidence=evidence,
             ),
         },
     ]
