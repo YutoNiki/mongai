@@ -4,6 +4,7 @@
 分離が崩れていないかを、コンテナを起動せずに確認する。
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -309,6 +310,19 @@ def test_nginx_never_forwards_browser_assertions() -> None:
     errors = (ROOT / "docker" / "web" / "auth-errors.conf").read_text(encoding="utf-8")
     assert 'return 401 \'{"detail":"invalid_session"}\';' in errors
     assert 'return 503 \'{"detail":"auth_unavailable"}\';' in errors
+
+
+def test_web_csp_allows_fonts_only_from_self() -> None:
+    """書体は自前で配信する（CLAUDE.md 最優先ルール5、docs/typography.md）。CSP の font-src は 'self' だけ。"""
+    conf = (ROOT / "docker" / "web" / "nginx.conf").read_text(encoding="utf-8")
+    policies = re.findall(r'add_header Content-Security-Policy "([^"]+)"', conf)
+    assert policies
+    for policy in policies:
+        directives = dict(d.strip().split(" ", 1) for d in policy.split(";") if d.strip())
+        assert directives["font-src"] == "'self'"
+        assert directives["default-src"] == "'self'"
+        for host in ("http", "googleapis", "gstatic"):
+            assert host not in policy
 
 
 def test_production_web_image_uses_authn() -> None:

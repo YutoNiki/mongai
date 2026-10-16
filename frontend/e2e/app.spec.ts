@@ -66,7 +66,7 @@ test("論文の解析結果：総指摘数・グラフの表形式・絞り込�
   // スマートフォンでは絞り込みの欄が畳まれているので開く
   const filterToggle = page.getByRole("button", { name: /^絞り込み(（条件あり）)?$/ });
   if (await filterToggle.isVisible()) await filterToggle.click();
-  await page.getByLabel("カテゴリ").selectOption("logic");
+  await page.getByRole("combobox", { name: "カテゴリ" }).selectOption("logic");
   const rows = page.getByRole("table", { name: "指摘の一覧（重大度の順）" }).locator("tbody tr");
   await expect(rows).toHaveCount(logicCount);
   await page.getByRole("button", { name: "絞り込みを解除" }).click();
@@ -723,9 +723,9 @@ test("解析結果：スマートフォンでは総指摘数を最初の画面�
   await expect(downloads).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("link", { name: "指摘の一覧（CSV）" })).toBeVisible();
   const filters = page.getByRole("button", { name: "絞り込み", exact: true });
-  await expect(page.getByLabel("カテゴリ")).toBeHidden();
+  await expect(page.getByRole("combobox", { name: "カテゴリ" })).toBeHidden();
   await filters.click();
-  await page.getByLabel("カテゴリ").selectOption("logic");
+  await page.getByRole("combobox", { name: "カテゴリ" }).selectOption("logic");
   // 条件を付けたことは、欄を畳んでもボタンで分かる
   const filtered = page.getByRole("button", { name: "絞り込み（条件あり）", exact: true });
   await filtered.click();
@@ -737,7 +737,7 @@ test("解析結果：広い画面では、ダウンロードと絞り込みを�
   await mockApi(page);
   await page.goto(`/analyses/${analysisId}`);
   await expect(page.getByRole("link", { name: "指摘の一覧（CSV）" })).toBeVisible();
-  await expect(page.getByLabel("カテゴリ")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "カテゴリ" })).toBeVisible();
   await expect(page.getByRole("button", { name: "注釈付きPDF・ダウンロード" })).toBeHidden();
 });
 
