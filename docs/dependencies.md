@@ -29,7 +29,7 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 
 ## フロントエンド（`frontend/package.json`、版を固定。公開から2週間以上たった版を使う）
 
-すべてビルド時にバンドルし、実行時に外部から読み込むものは無い（nginx の CSP でも禁止）。
+すべてビルド時にバンドルし、実行時に外部から読み込むものは無い（nginx の CSP でも禁止）。書体は WOFF2 だけを配信物に含め、ライセンスの写しを `dist/licenses/fonts/` に置く（`docs/typography.md` 第8章）。
 `frontend/.npmrc` で npm の更新通知・寄付の案内・監査情報の送信を止めている。
 
 | パッケージ | 版 | 用途 | テレメトリ・外部通信 |
@@ -37,7 +37,10 @@ SPEC 2.5・10 に従い、追加したライブラリ・イメージについて
 | react / react-dom | 19.3.0 | UI | なし |
 | echarts | 6.1.0 | グラフ（必要な部品だけを読み込む） | なし |
 | pdfjs-dist | 6.3.289 | PDF ビューア | なし。文字マップ・標準フォント・WebAssembly・ICC プロファイルを `dist/pdfjs/` に含めて自前で配信。WebAssembly のため CSP に `'wasm-unsafe-eval'` を加えている |
-| @fontsource/noto-sans-jp | 5.3.0 | フォント（セルフホスト） | なし |
+| @fontsource/biz-udpgothic | 5.3.0 | 本文・操作の書体（400・700。セルフホスト） | なし（OFL-1.1。書体の CSS と WOFF2 だけのパッケージで、スクリプトを含まない） |
+| @fontsource/zen-kaku-gothic-new | 5.3.0 | 見出しの書体（700） | なし（OFL-1.1）。5.3.1 は公開から2週間たっていないため 5.3.0 に固定 |
+| @fontsource/ibm-plex-sans | 5.3.0 | 数値の書体（英数字だけ。400・600・700） | なし（OFL-1.1） |
+| @fontsource/noto-sans-jp | 5.3.0 | 本文の書体に無い漢字の補完（400・700） | なし（OFL-1.1） |
 | typescript | 5.9.3 | 型検査 | なし（typescript-eslint が 6.1 未満を要求するため 5 系） |
 | vite / @vitejs/plugin-react | 8.3.1 / 6.1.1 | ビルド | なし。plugin-react 6 の任意の peer 依存の解決で npm が失敗するため `legacy-peer-deps` を使う |
 | eslint / @eslint/js / typescript-eslint / eslint-plugin-react-hooks / globals | 10.11.0 / 10.0.1 / 8.71.0 / 7.1.1 / 17.12.0 | lint | なし |

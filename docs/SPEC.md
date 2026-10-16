@@ -104,7 +104,7 @@ class BibResult(BaseModel):
 
 ### 2.5 そのほかの漏えい対策
 
-- フロントエンドは外部CDNを一切使わない。フォント（Noto Sans JP）、PDF.js、チャートライブラリはすべてバンドルする。
+- フロントエンドは外部CDNを一切使わない。フォント（BIZ UDPGothic・Zen Kaku Gothic New・IBM Plex Sans・Noto Sans JP。`docs/typography.md`）、PDF.js、チャートライブラリはすべてバンドルする。
 - 使用ライブラリのテレメトリ（例：`HF_HUB_OFFLINE=1`、`DO_NOT_TRACK=1`、各種 analytics）を無効化する。
 - 埋め込みモデル・LLM はすべて おいとまAPI 経由。外部のモデルAPIや外部の埋め込みサービスを使うコードを書かない。
 - アップロードデータはローカルボリューム `data/private/` のみに保存し、`.gitignore` に入れる。
@@ -343,7 +343,7 @@ embeddings:
 
 ### 6.8 フロントエンドの文字
 
-- フォントは Noto Sans JP をセルフホスト
+- フォントはセルフホストし、役割ごとに使い分ける：本文・操作は BIZ UDPGothic、見出しは Zen Kaku Gothic New、数値は IBM Plex Sans（等幅の数字）、Noto Sans JP は字の補完だけ。大きさ・太さ・行間・字間は `frontend/src/theme/typography.css` だけで定義する（設計と根拠は `docs/typography.md`。2026-10-16 に Noto Sans JP のみから変更）
 - UI の文言は日本語。英語論文の解析時も UI は日本語（指摘本文の言語は設定で「論文と同じ言語 / 日本語」を選べる）
 
 ---

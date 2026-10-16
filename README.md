@@ -197,7 +197,7 @@ make eval ROLE=logic_check MODELS=qwen3.8-27b-it,Ternary-Bonsai-2-27B,qwen3.6-35
 
 ## デザイン
 
-UIはデジタル庁「[ダッシュボードデザインの実践ガイドブック](https://www.digital.go.jp/resources/dashboard-guidebook)」に準拠しています。ガイドブックのチェックリストへの対応状況は `docs/design_checklist.md` にまとめています。
+UIはデジタル庁「[ダッシュボードデザインの実践ガイドブック](https://www.digital.go.jp/resources/dashboard-guidebook)」に準拠しています。ガイドブックのチェックリストへの対応状況は `docs/design_checklist.md` に、文字（書体・大きさ・行間）の設計は [docs/typography.md](docs/typography.md) にまとめています。
 
 ## ディレクトリ構成
 
